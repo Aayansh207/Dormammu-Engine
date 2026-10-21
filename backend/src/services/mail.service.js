@@ -18,9 +18,11 @@ class MailService {
    * @returns {Promise<{ sent: boolean, simulated?: boolean }>}
    */
   async sendVerificationEmail({ toEmail, name, token }) {
-    const directVerifyUrl = `${env.BACKEND_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const backendBase = (env.BACKEND_URL || "http://localhost:5001").replace(/\/+$/, "");
+    const frontendBase = (env.FRONTEND_URL || "http://localhost:5174").replace(/\/+$/, "");
+    const directVerifyUrl = `${backendBase}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
     const verificationUrl = directVerifyUrl;
-    const frontendVerifyUrl = `${env.FRONTEND_URL}/?token=${encodeURIComponent(token)}`;
+    const frontendVerifyUrl = `${frontendBase}/?token=${encodeURIComponent(token)}`;
     const subject = "Verify your email address - Dormammu Loop";
     const displayName = name || "there";
 

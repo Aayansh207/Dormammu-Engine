@@ -13,9 +13,9 @@ const env = {
   EMAIL_VERIFICATION_EXPIRATION_HOURS: Number(process.env.EMAIL_VERIFICATION_EXPIRATION_HOURS) || 24,
   REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION !== "false", // Mandatory by default!
 
-  // URLs
-  FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5174",
-  BACKEND_URL: process.env.BACKEND_URL || `http://localhost:${Number(process.env.PORT) || 5000}`,
+  // URLs - strip trailing slashes to guarantee clean path joins
+  FRONTEND_URL: (process.env.FRONTEND_URL || "http://localhost:5174").replace(/\/+$/, ""),
+  BACKEND_URL: (process.env.BACKEND_URL || `http://localhost:${Number(process.env.PORT) || 5000}`).replace(/\/+$/, ""),
 
   // Mailjet Email Service
   MAILJET_API_KEY: process.env.MAILJET_API_KEY || "",
