@@ -54,6 +54,51 @@ class SessionController {
       });
     }
   }
+
+  /**
+   * DELETE /api/sessions
+   * Revoke all sessions for the authenticated user (Logout-all)
+   */
+  async revokeAllSessions(req, res) {
+    try {
+      await sessionService.revokeAllUserSessions(req.user.id);
+      return res.status(200).json({
+        success: true,
+        message: "All sessions have been revoked successfully",
+      });
+    } catch (err) {
+      const status = err.statusCode || 500;
+      return res.status(status).json({
+        success: false,
+        message: err.message || "Failed to revoke all sessions",
+      });
+    }
+  }
+
+  /**
+   * GET /api/sessions/history
+   * Retrieve login history for authenticated user
+   */
+  async getHistory(req, res) {
+    try {
+      const { page = 1, limit = 20 } = req.query;
+      const history = await sessionService.getLoginHistory(req.user.id, {
+        page,
+        limit,
+      });
+
+      return res.status(200).json({
+        success: true,
+        ...history,
+      });
+    } catch (err) {
+      const status = err.statusCode || 500;
+      return res.status(status).json({
+        success: false,
+        message: err.message || "Failed to retrieve login history",
+      });
+    }
+  }
 }
 
 module.exports = new SessionController();

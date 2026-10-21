@@ -132,6 +132,87 @@ class SessionService {
       };
     });
   }
+
+  /**
+   * Record a login event (success or failure) in audit history
+   */
+  async recordLoginHistory({
+    userId = null,
+    email,
+    status = "SUCCESS",
+    method = "CREDENTIALS",
+    ipAddress = null,
+    userAgent = null,
+    reason = null,
+  }) {
+    try {
+      if (!email) return null;
+      const parsed = parseUserAgent(userAgent);
+      return await prisma.loginHistory.create({
+        data: {
+          userId: userId || undefined,
+          email: String(email).toLowerCase().trim(),
+          status: status || "SUCCESS",
+          method: method || "CREDENTIALS",
+          ipAddress: normalizeIp(ipAddress),
+          userAgent: userAgent ? String(userAgent).slice(0, 500) : null,
+          device: parsed.deviceLabel || null,
+          reason: reason ? String(reason).slice(0, 255) : null,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to record login history:", err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Retrieve paginated login history for a user
+   */
+  async getLoginHistory(userId, { limit = 20, page = 1 } = {}) {
+    const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const currentPage = Math.max(Number(page) || 1, 1);
+    const skip = (currentPage - 1) * take;
+
+    const [total, records] = await Promise.all([
+      prisma.loginHistory.count({ where: { userId } }),
+      prisma.loginHistory.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take,
+        skip,
+        select: {
+          id: true,
+          status: true,
+          method: true,
+          ipAddress: true,
+          userAgent: true,
+          device: true,
+          reason: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      total,
+      page: currentPage,
+      limit: take,
+      pages: Math.ceil(total / take) || 1,
+      data: records.map((r) => {
+        const parsed = parseUserAgent(r.userAgent);
+        return {
+          ...r,
+          ipAddress: normalizeIp(r.ipAddress),
+          browser: parsed.browser,
+          browserVersion: parsed.browserVersion,
+          os: parsed.os,
+          deviceType: parsed.deviceType,
+          deviceLabel: parsed.deviceLabel,
+        };
+      }),
+    };
+  }
 }
 
 module.exports = new SessionService();
