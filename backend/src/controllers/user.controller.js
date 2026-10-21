@@ -1,5 +1,56 @@
 const prisma = require("../config/db");
+const userService = require("../services/user.service");
 
+/**
+ * GET /api/users/me
+ * Returns the current authenticated user's profile
+ */
+async function getProfile(req, res) {
+  try {
+    const profile = await userService.getUserProfile(req.user.id);
+    return res.status(200).json({
+      success: true,
+      data: profile,
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to retrieve user profile",
+    });
+  }
+}
+
+/**
+ * PATCH /api/users/me
+ * Updates permitted profile fields (strictly name and profilePhoto)
+ */
+async function updateProfile(req, res) {
+  try {
+    const { name, profilePhoto } = req.body;
+
+    const updatedProfile = await userService.updateUserProfile(req.user.id, {
+      name,
+      profilePhoto,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedProfile,
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to update profile",
+    });
+  }
+}
+
+/**
+ * Legacy createUser helper (kept for backwards compatibility)
+ */
 async function createUser(req, res) {
   try {
     const { email, name } = req.body;
@@ -19,4 +70,8 @@ async function createUser(req, res) {
   }
 }
 
-module.exports = { createUser };
+module.exports = {
+  getProfile,
+  updateProfile,
+  createUser,
+};

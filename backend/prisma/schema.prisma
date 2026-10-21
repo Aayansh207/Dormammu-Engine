@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,12 +8,64 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  role      String   @default("USER")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String?
+  passwordHash  String?
+  profilePhoto  String?
+  role          String   @default("USER")
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  oauthAccounts OAuthAccount[]
+  sessions      Session[]
+  verificationTokens EmailVerificationToken[]
 
   @@map("users")
+}
+
+model OAuthAccount {
+  id                String   @id @default(uuid())
+  provider          String
+  providerAccountId String
+  userId            String
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model Session {
+  id               String   @id @default(uuid())
+  userId           String
+  refreshTokenHash String   @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  userAgent        String?
+  ipAddress        String?
+  createdAt        DateTime @default(now())
+  lastUsedAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
 }
