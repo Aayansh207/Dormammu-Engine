@@ -84,6 +84,8 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
     }
   };
 
+  const [selectedFile, setSelectedFile] = useState(null);
+
   const processImageFile = (file) => {
     if (!file) return;
 
@@ -92,50 +94,19 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setProfileErr("Image size should be under 5MB");
+    if (file.size > 10 * 1024 * 1024) {
+      setProfileErr("Image size should be under 10MB");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_SIZE = 400;
-        let width = img.width;
-        let height = img.height;
+    // Keep the raw file for Cloudinary multipart upload
+    setSelectedFile(file);
 
-        if (width > height) {
-          if (width > MAX_SIZE) {
-            height = Math.round((height * MAX_SIZE) / width);
-            width = MAX_SIZE;
-          }
-        } else {
-          if (height > MAX_SIZE) {
-            width = Math.round((width * MAX_SIZE) / height);
-            height = MAX_SIZE;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        setPhoto(dataUrl);
-        setProfileErr(null);
-        setProfileMsg("Image loaded. Click 'Save Profile' to apply changes.");
-      };
-      img.onerror = () => {
-        setProfileErr("Could not process selected image");
-      };
-      img.src = event.target.result;
-    };
-    reader.onerror = () => {
-      setProfileErr("Failed to read image file");
-    };
-    reader.readAsDataURL(file);
+    // Create a local object URL for instant, crystal-clear preview without base64 database storage
+    const previewUrl = URL.createObjectURL(file);
+    setPhoto(previewUrl);
+    setProfileErr(null);
+    setProfileMsg("Image selected. Click 'Save Profile' to upload to Cloudinary.");
   };
 
   const handleFileChange = (e) => {
@@ -165,6 +136,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
 
   const handleRemovePhoto = () => {
     setPhoto("");
+    setSelectedFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -178,10 +150,28 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
     setProfileErr(null);
 
     try {
-      const res = await api.updateProfile({ name, profilePhoto: photo });
-      setProfile(res.data);
-      onUserUpdated(res.data);
-      setProfileMsg("Profile updated successfully!");
+      let updatedUser = null;
+
+      // 1. If a new image file was selected, upload directly to Cloudinary
+      if (selectedFile) {
+        setProfileMsg("Uploading image to Cloudinary...");
+        const uploadRes = await api.uploadAvatar(selectedFile);
+        updatedUser = uploadRes.data;
+        setSelectedFile(null);
+      }
+
+      // 2. If name changed or photo was cleared, update profile
+      const photoPayload = photo === "" ? null : (selectedFile ? undefined : photo);
+      const res = await api.updateProfile({ 
+        name, 
+        ...(photoPayload !== undefined ? { profilePhoto: photoPayload } : {}) 
+      });
+      updatedUser = res.data;
+
+      setProfile(updatedUser);
+      setPhoto(updatedUser.profilePhoto || "");
+      onUserUpdated(updatedUser);
+      setProfileMsg("Profile updated and synced with Cloudinary successfully!");
     } catch (err) {
       setProfileErr(err.message || "Failed to update profile");
     } finally {

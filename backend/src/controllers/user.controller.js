@@ -50,6 +50,36 @@ async function updateProfile(req, res) {
 }
 
 /**
+ * POST /api/users/me/avatar
+ * Upload avatar image file via multipart form-data to Cloudinary
+ */
+async function uploadAvatar(req, res) {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided. Please upload an image file.",
+      });
+    }
+
+    const result = await userService.uploadAvatar(req.user.id, req.file.buffer);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile photo uploaded to Cloudinary successfully",
+      data: result.user,
+      url: result.url,
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to upload avatar image",
+    });
+  }
+}
+
+/**
  * POST /api/users/me/password
  * Sets or updates user password
  */
@@ -121,6 +151,7 @@ async function createUser(req, res) {
 module.exports = {
   getProfile,
   updateProfile,
+  uploadAvatar,
   changePassword,
   getLoginHistory,
   createUser,

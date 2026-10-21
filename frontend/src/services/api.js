@@ -199,6 +199,38 @@ class ApiService {
     return res;
   }
 
+  async uploadAvatar(file) {
+    const formData = new FormData();
+    formData.append("avatar", file);
+
+    const url = `${API_BASE}/users/me/avatar`;
+    const headers = {};
+    if (this.accessToken) {
+      headers.Authorization = `Bearer ${this.accessToken}`;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(data.message || "Failed to upload avatar");
+      err.status = response.status;
+      err.data = data;
+      throw err;
+    }
+
+    if (data.data) {
+      this.currentUser = data.data;
+      localStorage.setItem("dormammu_user", JSON.stringify(data.data));
+    }
+
+    return data;
+  }
+
   async changePassword({ currentPassword, newPassword }) {
     return this.request("/users/me/password", {
       method: "POST",

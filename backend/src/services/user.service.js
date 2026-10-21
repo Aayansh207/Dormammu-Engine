@@ -43,6 +43,7 @@ class UserService {
 
   /**
    * Safely update profile fields (strictly name and profilePhoto)
+   * If profilePhoto is a base64 data URI, it is automatically uploaded to Cloudinary
    */
   async updateUserProfile(userId, { name, profilePhoto }) {
     const updateData = {};
@@ -52,9 +53,26 @@ class UserService {
     }
 
     if (profilePhoto !== undefined) {
-      // Validate string URL or null
       if (typeof profilePhoto === "string" && profilePhoto.trim()) {
-        updateData.profilePhoto = profilePhoto.trim();
+        const trimmed = profilePhoto.trim();
+        // If client sends a base64 Data URI, upload to Cloudinary so we NEVER save huge base64 strings in DB
+        if (trimmed.startsWith("data:image/")) {
+          const cloudinaryService = require("./cloudinary.service");
+          if (cloudinaryService.isConfigured()) {
+            const uploaded = await cloudinaryService.uploadImage(trimmed, { userId });
+            updateData.profilePhoto = uploaded.secure_url;
+          } else {
+            // Cloudinary not configured yet
+            const error = new Error(
+              "Cloudinary keys are not configured in backend/.env. Please configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
+            );
+            error.statusCode = 503;
+            throw error;
+          }
+        } else {
+          // Regular HTTPS URL (e.g. Google photo URL or existing CDN URL)
+          updateData.profilePhoto = trimmed;
+        }
       } else if (profilePhoto === null || profilePhoto === "") {
         updateData.profilePhoto = null;
       }
@@ -66,6 +84,32 @@ class UserService {
     });
 
     return this._toSafeUser(updatedUser);
+  }
+
+  /**
+   * Upload an avatar file buffer directly to Cloudinary and update profile
+   */
+  async uploadAvatar(userId, fileBuffer) {
+    const cloudinaryService = require("./cloudinary.service");
+    if (!cloudinaryService.isConfigured()) {
+      const error = new Error(
+        "Cloudinary keys are not configured in backend/.env. Please configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
+      );
+      error.statusCode = 503;
+      throw error;
+    }
+
+    const uploaded = await cloudinaryService.uploadImage(fileBuffer, { userId });
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { profilePhoto: uploaded.secure_url },
+    });
+
+    return {
+      user: this._toSafeUser(updatedUser),
+      url: uploaded.secure_url,
+    };
   }
 
   /**

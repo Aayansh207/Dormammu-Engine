@@ -2,10 +2,12 @@ const express = require("express");
 const {
   getProfile,
   updateProfile,
+  uploadAvatar,
   changePassword,
   getLoginHistory,
 } = require("../controllers/user.controller");
 const { requireAuth } = require("../middleware/auth.middleware");
+const upload = require("../middlewares/upload.middleware");
 
 const router = express.Router();
 
@@ -13,6 +15,7 @@ router.use(requireAuth);
 
 router.get("/me", getProfile);
 router.patch("/me", updateProfile);
+router.post("/me/avatar", upload.single("avatar"), uploadAvatar);
 router.post("/me/password", changePassword);
 router.get("/me/login-history", getLoginHistory);
 
