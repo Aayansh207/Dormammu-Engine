@@ -1,5 +1,6 @@
 const https = require("https");
 const authService = require("../services/auth.service");
+const env = require("../../env");
 const { normalizeIp } = require("../utils/userAgentParser");
 
 function getClientIp(req) {

@@ -10,6 +10,7 @@ export default function App() {
   const [activeView, setActiveView] = useState("home");
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState("login");
+  const [authModalError, setAuthModalError] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export default function App() {
       setUser(null);
       setActiveView("home");
       setAuthModalTab("login");
+      setAuthModalError(null);
       setAuthModalOpen(true);
     };
     window.addEventListener("auth:expired", handleAuthExpired);
@@ -29,14 +31,31 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
+    const errorParam = params.get("error");
 
-    if (token && refreshToken) {
+    if (errorParam) {
+      setAuthModalTab("login");
+      setAuthModalError(decodeURIComponent(errorParam));
+      setAuthModalOpen(true);
+      window.history.replaceState({}, document.title, "/");
+    } else if (token && refreshToken) {
       api.setSession(token, refreshToken, null);
-      api.getProfile().then((res) => {
-        setUser(res.data);
-        setActiveView("profile");
-        window.history.replaceState({}, document.title, window.location.pathname);
-      });
+      api.getProfile()
+        .then((res) => {
+          if (res?.data) {
+            api.setSession(token, refreshToken, res.data);
+            setUser(res.data);
+            setActiveView("profile");
+          }
+        })
+        .catch((err) => {
+          setAuthModalTab("login");
+          setAuthModalError(err.message || "Failed to load profile after Google sign in");
+          setAuthModalOpen(true);
+        })
+        .finally(() => {
+          window.history.replaceState({}, document.title, "/");
+        });
     } else if (token && !refreshToken) {
       api.verifyEmail(token)
         .then(() => {
@@ -48,7 +67,7 @@ export default function App() {
           setAuthModalOpen(true);
         })
         .finally(() => {
-          window.history.replaceState({}, document.title, window.location.pathname);
+          window.history.replaceState({}, document.title, "/");
         });
     }
 
@@ -111,7 +130,11 @@ export default function App() {
       <AuthModal 
         isOpen={authModalOpen}
         initialTab={authModalTab}
-        onClose={() => setAuthModalOpen(false)}
+        initialError={authModalError}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setAuthModalError(null);
+        }}
         onAuthSuccess={handleAuthSuccess}
       />
     </div>

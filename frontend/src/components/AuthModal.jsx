@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   X, 
   Lock, 
@@ -17,6 +17,7 @@ import { api } from "../services/api";
 export default function AuthModal({ 
   isOpen, 
   initialTab = "login", 
+  initialError = null,
   onClose, 
   onAuthSuccess 
 }) {
@@ -26,7 +27,13 @@ export default function AuthModal({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(initialError);
+
+  useEffect(() => {
+    if (initialError) {
+      setError(initialError);
+    }
+  }, [initialError]);
   const [successMsg, setSuccessMsg] = useState(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState(null);
   const [resending, setResending] = useState(false);

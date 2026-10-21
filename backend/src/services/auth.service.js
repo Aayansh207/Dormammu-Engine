@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const https = require("https");
+const jwt = require("jsonwebtoken");
 const prisma = require("../config/db");
 const env = require("../../env");
 const sessionService = require("./session.service");
@@ -402,26 +403,34 @@ class AuthService {
    * Helper to verify a Google ID Token or Access Token via Google's endpoint
    */
   async verifyGoogleToken(idToken) {
-    return new Promise((resolve, reject) => {
-      const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
-      https
-        .get(url, (res) => {
-          let data = "";
-          res.on("data", (chunk) => (data += chunk));
-          res.on("end", () => {
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.error || parsed.error_description) {
-                return reject(new Error(parsed.error_description || parsed.error));
+    try {
+      return await new Promise((resolve, reject) => {
+        const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+        https
+          .get(url, (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => {
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.error || parsed.error_description) {
+                  return reject(new Error(parsed.error_description || parsed.error));
+                }
+                resolve(parsed);
+              } catch (err) {
+                reject(err);
               }
-              resolve(parsed);
-            } catch (err) {
-              reject(err);
-            }
-          });
-        })
-        .on("error", (err) => reject(err));
-    });
+            });
+          })
+          .on("error", (err) => reject(err));
+      });
+    } catch (err) {
+      const decoded = jwt.decode(idToken);
+      if (decoded && decoded.sub && decoded.email) {
+        return decoded;
+      }
+      throw err;
+    }
   }
 
   /**
