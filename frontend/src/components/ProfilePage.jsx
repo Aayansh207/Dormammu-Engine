@@ -20,6 +20,7 @@ import {
   Radio,
   Upload,
   Camera,
+  History,
   X
 } from "lucide-react";
 import { api } from "../services/api";
@@ -39,10 +40,13 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
   const [sessionErr, setSessionErr] = useState(null);
   const [revokingId, setRevokingId] = useState(null);
   const [loggingOutAll, setLoggingOutAll] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
     loadSessions();
     loadFreshProfile();
+    loadHistory();
   }, []);
 
   const loadFreshProfile = async () => {
@@ -66,6 +70,17 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
       setSessionErr(err.message || "Failed to load active sessions");
     } finally {
       setLoadingSessions(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await api.getLoginHistory(1, 10);
+      setHistory(res.data || []);
+    } catch (e) {
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -808,6 +823,110 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Login & Security History Card */}
+        <div className="glass-panel" style={{ padding: "32px", marginTop: "24px" }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "20px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <History size={20} color="var(--primary)" />
+              <h3 style={{ fontSize: "1.2rem" }}>Recent Login History</h3>
+            </div>
+            <button 
+              onClick={loadHistory} 
+              className="btn btn-secondary"
+              style={{ padding: "6px 12px", fontSize: "0.8rem" }}
+              title="Refresh login history"
+            >
+              <RefreshCw size={13} className={loadingHistory ? "animate-spin" : ""} /> Refresh
+            </button>
+          </div>
+
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "20px" }}>
+            Audit log of recent authentication activity and security events on your account.
+          </p>
+
+          {loadingHistory ? (
+            <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+              <RefreshCw size={22} className="animate-spin" style={{ margin: "0 auto 10px auto" }} />
+              <div>Fetching login history...</div>
+            </div>
+          ) : history.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)", fontSize: "0.88rem" }}>
+              No login history recorded yet.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {history.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    padding: "14px 16px",
+                    borderRadius: "var(--radius-md)",
+                    background: item.status === "SUCCESS" ? "rgba(16, 185, 129, 0.04)" : "rgba(244, 63, 94, 0.04)",
+                    border: `1px solid ${item.status === "SUCCESS" ? "rgba(16, 185, 129, 0.18)" : "rgba(244, 63, 94, 0.25)"}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <div style={{
+                      width: "34px",
+                      height: "34px",
+                      borderRadius: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: item.status === "SUCCESS" ? "rgba(16, 185, 129, 0.15)" : "rgba(244, 63, 94, 0.15)",
+                      color: item.status === "SUCCESS" ? "#34d399" : "#fb7185",
+                    }}>
+                      {item.status === "SUCCESS" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                    </div>
+
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <span style={{
+                          fontSize: "0.82rem",
+                          fontWeight: "700",
+                          color: item.status === "SUCCESS" ? "#34d399" : "#fb7185",
+                        }}>
+                          {item.status === "SUCCESS" ? "Login Succeeded" : "Login Failed"}
+                        </span>
+                        <span className="glass-pill" style={{ fontSize: "0.72rem", padding: "1px 7px" }}>
+                          {item.method === "GOOGLE" ? "Google OAuth" : "Email & Password"}
+                        </span>
+                        {item.reason && (
+                          <span style={{ fontSize: "0.75rem", color: "#fb7185" }}>
+                            ({item.reason})
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                        {item.device || "Unknown Device"} • IP: {item.ipAddress}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    {new Date(item.createdAt).toLocaleString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

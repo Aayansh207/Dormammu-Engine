@@ -1,25 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { 
-  X, 
-  Lock, 
-  Mail, 
-  User as UserIcon, 
-  Eye, 
-  EyeOff, 
-  AlertCircle, 
-  CheckCircle2, 
+import {
+  X,
+  Lock,
+  Mail,
+  User as UserIcon,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  CheckCircle2,
   ArrowRight,
   Send,
   Zap
 } from "lucide-react";
 import { api, BACKEND_URL } from "../services/api";
 
-export default function AuthModal({ 
-  isOpen, 
-  initialTab = "login", 
+export default function AuthModal({
+  isOpen,
+  initialTab = "login",
   initialError = null,
-  onClose, 
-  onAuthSuccess 
+  initialSuccess = null,
+  onClose,
+  onAuthSuccess
 }) {
   const [tab, setTab] = useState(initialTab);
   const [name, setName] = useState("");
@@ -28,19 +29,21 @@ export default function AuthModal({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError);
+  const [successMsg, setSuccessMsg] = useState(initialSuccess);
+  const [unverifiedEmail, setUnverifiedEmail] = useState(null);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
-    if (initialError) {
+    if (initialError !== undefined) {
       setError(initialError);
     }
   }, [initialError]);
-  const [successMsg, setSuccessMsg] = useState(null);
-  const [unverifiedEmail, setUnverifiedEmail] = useState(null);
-  const [resending, setResending] = useState(false);
-  const [mailNotice, setMailNotice] = useState(null);
 
-  const [verifyTokenInput, setVerifyTokenInput] = useState("");
-  const [verifying, setVerifying] = useState(false);
+  useEffect(() => {
+    if (initialSuccess !== undefined) {
+      setSuccessMsg(initialSuccess);
+    }
+  }, [initialSuccess]);
 
   if (!isOpen) return null;
 
@@ -53,7 +56,7 @@ export default function AuthModal({
     try {
       if (tab === "signup") {
         const res = await api.signup({ name, email, password });
-        
+
         if (res.data?.accessToken) {
           api.setSession(res.data.accessToken, res.data.refreshToken, res.data.user);
           onAuthSuccess(res.data.user);
@@ -61,15 +64,8 @@ export default function AuthModal({
           return;
         }
 
-        setSuccessMsg(res.message || "Registration successful!");
         setUnverifiedEmail(email);
-
-        if (res.data?.verificationToken) {
-          setVerifyTokenInput(res.data.verificationToken);
-        }
-        if (res.data?.mailError) {
-          setMailNotice(res.data.mailError);
-        }
+        setSuccessMsg(res.message || "Account created! Please check your email to activate your account.");
         setTab("verifyNotice");
       } else {
         const res = await api.login({ email, password });
@@ -79,7 +75,7 @@ export default function AuthModal({
     } catch (err) {
       if (err.data?.unverified) {
         setUnverifiedEmail(err.data.email || email);
-        setError("Your email is not verified yet. Please verify to continue.");
+        setError("Your account is not activated. Please verify your email before logging in.");
       } else {
         setError(err.message || "Authentication request failed");
       }
@@ -94,34 +90,11 @@ export default function AuthModal({
     setError(null);
     try {
       const res = await api.resendVerification(unverifiedEmail);
-      setSuccessMsg(res.message || "Verification email dispatched!");
-      if (res.data?.verificationToken || res.verificationToken) {
-        setVerifyTokenInput(res.data?.verificationToken || res.verificationToken);
-      }
-      if (res.data?.mailError || res.mailError) {
-        setMailNotice(res.data?.mailError || res.mailError);
-      }
+      setSuccessMsg(res.message || "A fresh verification link has been sent to your email.");
     } catch (err) {
       setError(err.message || "Could not resend email");
     } finally {
       setResending(false);
-    }
-  };
-
-  const handleManualVerify = async (e) => {
-    e.preventDefault();
-    if (!verifyTokenInput.trim()) return;
-    setVerifying(true);
-    setError(null);
-    try {
-      const res = await api.verifyEmail(verifyTokenInput.trim());
-      setSuccessMsg(res.message || "Email verified! You can now log in.");
-      setTab("login");
-      setUnverifiedEmail(null);
-    } catch (err) {
-      setError(err.message || "Invalid or expired token");
-    } finally {
-      setVerifying(false);
     }
   };
 
@@ -137,7 +110,7 @@ export default function AuthModal({
       justifyContent: "center",
       padding: "20px"
     }}>
-      <div 
+      <div
         className="glass-panel"
         style={{
           width: "100%",
@@ -147,7 +120,7 @@ export default function AuthModal({
           animation: "floatLoop 0s ease"
         }}
       >
-        <button 
+        <button
           onClick={onClose}
           style={{
             position: "absolute",
@@ -305,104 +278,73 @@ export default function AuthModal({
               background: "rgba(11, 14, 24, 0.8)",
               border: "1px solid var(--border-subtle)",
               borderRadius: "var(--radius-md)",
-              padding: "20px",
-              marginBottom: "20px",
-              textAlign: "left"
+              padding: "24px",
+              marginBottom: "24px",
+              textAlign: "center"
             }}>
-              <div style={{ fontSize: "0.875rem", marginBottom: "8px", color: "var(--text-secondary)" }}>
-                We sent a secure verification email to:
+              <div style={{
+                width: "56px",
+                height: "56px",
+                borderRadius: "50%",
+                background: "rgba(99, 102, 241, 0.15)",
+                border: "1px solid rgba(99, 102, 241, 0.3)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: "16px",
+                color: "var(--accent-cyan)"
+              }}>
+                <Mail size={28} />
               </div>
-              <div style={{ fontSize: "0.95rem", fontWeight: "700", color: "var(--accent-cyan)", wordBreak: "break-all" }}>
+
+              <h3 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "8px", color: "#f1f5f9" }}>
+                Verify your email address
+              </h3>
+
+              <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", marginBottom: "12px", lineHeight: "1.5" }}>
+                We sent an activation link to:
+              </p>
+
+              <div style={{
+                fontSize: "0.95rem",
+                fontWeight: "700",
+                color: "var(--accent-cyan)",
+                background: "rgba(15, 23, 42, 0.6)",
+                padding: "8px 16px",
+                borderRadius: "6px",
+                border: "1px solid var(--border-subtle)",
+                wordBreak: "break-all",
+                marginBottom: "16px"
+              }}>
                 {unverifiedEmail}
               </div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "12px" }}>
-                Click the link in the email or paste the token below to activate your account.
-              </div>
+
+              <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", lineHeight: "1.6", margin: 0 }}>
+                Please check your inbox and click the <strong>Activate Account &amp; Verify Email</strong> button in the email to activate your account.
+              </p>
             </div>
 
-            {mailNotice && (
-              <div style={{
-                padding: "12px",
-                borderRadius: "var(--radius-sm)",
-                background: "rgba(245, 158, 11, 0.12)",
-                border: "1px solid rgba(245, 158, 11, 0.3)",
-                color: "#fbbf24",
-                fontSize: "0.825rem",
-                marginBottom: "16px",
-                lineHeight: "1.5"
-              }}>
-                <div style={{ fontWeight: "700", marginBottom: "2px" }}>Mailjet Provider Notice:</div>
-                <div>{mailNotice}</div>
-                <div style={{ marginTop: "4px", fontSize: "0.78rem", color: "#fef3c7" }}>
-                  💡 Use the instant activation button below to verify your account without waiting!
-                </div>
-              </div>
-            )}
-
-            {verifyTokenInput && (
-              <button
-                type="button"
-                onClick={handleManualVerify}
-                disabled={verifying}
-                className="btn btn-primary"
-                style={{
-                  width: "100%",
-                  marginBottom: "20px",
-                  padding: "12px",
-                  background: "linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)",
-                  boxShadow: "0 4px 20px rgba(6, 182, 212, 0.35)"
-                }}
-              >
-                <Zap size={18} /> {verifying ? "Activating..." : "⚡ Activate & Verify My Account Now"}
-              </button>
-            )}
-
-            <form onSubmit={handleManualVerify} style={{ marginBottom: "20px" }}>
-              <div className="input-group">
-                <label className="input-label">Verification Token</label>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder="Paste 64-char token here..."
-                    value={verifyTokenInput}
-                    onChange={(e) => setVerifyTokenInput(e.target.value)}
-                  />
-                  <button 
-                    type="submit" 
-                    className="btn btn-secondary"
-                    disabled={verifying || !verifyTokenInput.trim()}
-                    style={{ padding: "0 18px", whiteSpace: "nowrap" }}
-                  >
-                    {verifying ? "Verifying..." : "Verify"}
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resending}
                 className="btn btn-secondary"
-                style={{ fontSize: "0.825rem", padding: "8px 14px" }}
+                style={{ flex: 1, fontSize: "0.85rem", padding: "10px 14px", justifyContent: "center" }}
               >
-                <Send size={14} /> {resending ? "Sending..." : "Resend Email"}
+                <Send size={15} /> {resending ? "Sending..." : "Resend Email"}
               </button>
               <button
                 type="button"
-                onClick={() => setTab("login")}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--primary-light)",
-                  cursor: "pointer",
-                  fontSize: "0.85rem",
-                  fontWeight: "600"
+                onClick={() => {
+                  setTab("login");
+                  setError(null);
+                  setSuccessMsg(null);
                 }}
+                className="btn btn-primary"
+                style={{ flex: 1, fontSize: "0.85rem", padding: "10px 14px", justifyContent: "center" }}
               >
-                Back to Sign In
+                Go to Sign In
               </button>
             </div>
           </div>
@@ -412,7 +354,7 @@ export default function AuthModal({
               <div className="input-group">
                 <label className="input-label">Full Name</label>
                 <div style={{ position: "relative" }}>
-                  <input 
+                  <input
                     type="text"
                     required
                     className="input-control"
@@ -429,7 +371,7 @@ export default function AuthModal({
             <div className="input-group">
               <label className="input-label">Email Address</label>
               <div style={{ position: "relative" }}>
-                <input 
+                <input
                   type="email"
                   required
                   className="input-control"
@@ -447,7 +389,7 @@ export default function AuthModal({
                 Password {tab === "signup" && <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>(min. 8 characters)</span>}
               </label>
               <div style={{ position: "relative" }}>
-                <input 
+                <input
                   type={showPassword ? "text" : "password"}
                   required
                   className="input-control"
@@ -475,8 +417,8 @@ export default function AuthModal({
               </div>
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               className="btn btn-primary"
               disabled={loading}
               style={{ width: "100%", marginTop: "10px", padding: "12px" }}
@@ -512,10 +454,10 @@ export default function AuthModal({
               }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.9c2.28-2.1 3.64-5.2 3.64-9.15z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.9-3.05c-1.08.72-2.45 1.16-4.03 1.16-3.1 0-5.74-2.1-6.68-4.93H1.26v3.15C3.26 21.36 7.34 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.32 14.27c-.24-.73-.38-1.5-.38-2.27s.14-1.54.38-2.27V6.58H1.26C.46 8.16 0 9.94 0 12s.46 3.84 1.26 5.42l4.06-3.15z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.26 6.58l4.06 3.15c.94-2.83 3.58-4.98 6.68-4.98z"/>
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.9c2.28-2.1 3.64-5.2 3.64-9.15z" />
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.9-3.05c-1.08.72-2.45 1.16-4.03 1.16-3.1 0-5.74-2.1-6.68-4.93H1.26v3.15C3.26 21.36 7.34 24 12 24z" />
+                <path fill="#FBBC05" d="M5.32 14.27c-.24-.73-.38-1.5-.38-2.27s.14-1.54.38-2.27V6.58H1.26C.46 8.16 0 9.94 0 12s.46 3.84 1.26 5.42l4.06-3.15z" />
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.26 6.58l4.06 3.15c.94-2.83 3.58-4.98 6.68-4.98z" />
               </svg>
               <span>Continue with Google</span>
             </a>

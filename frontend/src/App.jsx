@@ -11,6 +11,7 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState("login");
   const [authModalError, setAuthModalError] = useState(null);
+  const [authModalSuccess, setAuthModalSuccess] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export default function App() {
       setActiveView("home");
       setAuthModalTab("login");
       setAuthModalError(null);
+      setAuthModalSuccess(null);
       setAuthModalOpen(true);
     };
     window.addEventListener("auth:expired", handleAuthExpired);
@@ -32,13 +34,16 @@ export default function App() {
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
     const errorParam = params.get("error");
+    const verifiedParam = params.get("verified");
 
     if (errorParam) {
       setAuthModalTab("login");
       setAuthModalError(decodeURIComponent(errorParam));
+      setAuthModalSuccess(null);
       setAuthModalOpen(true);
-      window.history.replaceState({}, document.title, "/");
+      window.history.replaceState({}, document.title, window.location.pathname);
     } else if (token && refreshToken) {
+      // Auto sign-in (e.g. from email verification link or Google OAuth)
       api.setSession(token, refreshToken, null);
       api.getProfile()
         .then((res) => {
@@ -46,28 +51,49 @@ export default function App() {
             api.setSession(token, refreshToken, res.data);
             setUser(res.data);
             setActiveView("profile");
+            setAuthModalOpen(false);
           }
         })
         .catch((err) => {
           setAuthModalTab("login");
-          setAuthModalError(err.message || "Failed to load profile after Google sign in");
+          setAuthModalError(err.message || "Failed to load account session");
           setAuthModalOpen(true);
         })
         .finally(() => {
-          window.history.replaceState({}, document.title, "/");
+          window.history.replaceState({}, document.title, window.location.pathname);
         });
+    } else if (verifiedParam) {
+      setAuthModalTab("login");
+      setAuthModalError(null);
+      setAuthModalSuccess(
+        verifiedParam === "already"
+          ? "Your email is already verified! Please sign in with your credentials."
+          : "🎉 Email verified successfully! Your account is now active. Please sign in."
+      );
+      setAuthModalOpen(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
     } else if (token && !refreshToken) {
       api.verifyEmail(token)
-        .then(() => {
-          setAuthModalTab("login");
-          setAuthModalOpen(true);
+        .then((res) => {
+          if (res?.accessToken && res?.refreshToken) {
+            api.setSession(res.accessToken, res.refreshToken, res.user);
+            setUser(res.user);
+            setActiveView("profile");
+            setAuthModalOpen(false);
+          } else {
+            setAuthModalTab("login");
+            setAuthModalError(null);
+            setAuthModalSuccess("🎉 Email verified successfully! Please sign in.");
+            setAuthModalOpen(true);
+          }
         })
-        .catch(() => {
+        .catch((err) => {
           setAuthModalTab("login");
+          setAuthModalError(err.message || "Verification failed");
           setAuthModalOpen(true);
         })
         .finally(() => {
-          window.history.replaceState({}, document.title, "/");
+          window.history.replaceState({}, document.title, window.location.pathname);
         });
     }
 
@@ -84,6 +110,8 @@ export default function App() {
 
   const handleOpenAuth = (tab = "login") => {
     setAuthModalTab(tab);
+    setAuthModalError(null);
+    setAuthModalSuccess(null);
     setAuthModalOpen(true);
   };
 
@@ -131,9 +159,11 @@ export default function App() {
         isOpen={authModalOpen}
         initialTab={authModalTab}
         initialError={authModalError}
+        initialSuccess={authModalSuccess}
         onClose={() => {
           setAuthModalOpen(false);
           setAuthModalError(null);
+          setAuthModalSuccess(null);
         }}
         onAuthSuccess={handleAuthSuccess}
       />

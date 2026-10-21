@@ -199,7 +199,14 @@ class ApiService {
     return res;
   }
 
-  // --- Sessions ---
+  async changePassword({ currentPassword, newPassword }) {
+    return this.request("/users/me/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  // --- Sessions & History ---
 
   async getSessions() {
     return this.request("/sessions", { method: "GET" });
@@ -207,6 +214,12 @@ class ApiService {
 
   async revokeSession(id) {
     return this.request(`/sessions/${id}`, { method: "DELETE" });
+  }
+
+  async getLoginHistory(page = 1, limit = 20) {
+    return this.request(`/users/me/login-history?page=${page}&limit=${limit}`, {
+      method: "GET",
+    });
   }
 }
 
