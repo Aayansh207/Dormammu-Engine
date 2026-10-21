@@ -14,7 +14,8 @@ export default function App() {
   const [backendHealth, setBackendHealth] = useState(null);
 
   useEffect(() => {
-    fetch("http://localhost:5000/health/db")
+    const backendUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+    fetch(`${backendUrl}/health/db`)
       .then((res) => res.json())
       .then((data) => setBackendHealth(data.success))
       .catch(() => setBackendHealth(false));

@@ -500,7 +500,7 @@ export default function AuthModal({
             </div>
 
             <a
-              href="http://localhost:5000/api/auth/google"
+              href={`${import.meta.env.VITE_API_URL || "http://localhost:5001"}/api/auth/google`}
               className="btn btn-secondary"
               style={{
                 width: "100%",
