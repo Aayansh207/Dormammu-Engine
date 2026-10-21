@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const env = require("./env");
 const prisma = require("./src/config/db");
 const apiRoutes = require("./src/routes");
 const { createUser } = require("./src/controllers/user.controller");
@@ -11,15 +12,16 @@ const allowedOrigins = [
   "http://localhost:5174",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
-];
+  env.FRONTEND_URL,
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
       return callback(null, true);
     }
-    return callback(null, true); // Alternatively allow all in dev
+    return callback(null, true); // Permissive fallback
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
