@@ -1,26 +1,37 @@
 const cloudinary = require("cloudinary").v2;
 const env = require("../../env");
 
-// Configure Cloudinary SDK if credentials exist
-if (env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET) {
-  cloudinary.config({
-    cloud_name: env.CLOUDINARY_CLOUD_NAME,
-    api_key: env.CLOUDINARY_API_KEY,
-    api_secret: env.CLOUDINARY_API_SECRET,
-    secure: true,
-  });
-}
-
 class CloudinaryService {
   /**
-   * Check if Cloudinary is configured with credentials
+   * Check if Cloudinary is configured with credentials (dynamically checking process.env)
    */
   isConfigured() {
-    return Boolean(
-      env.CLOUDINARY_CLOUD_NAME &&
-      env.CLOUDINARY_API_KEY &&
-      env.CLOUDINARY_API_SECRET
-    );
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY || env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET || env.CLOUDINARY_API_SECRET;
+
+    return Boolean(cloudName && apiKey && apiSecret);
+  }
+
+  _ensureConfigured() {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY || env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET || env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      const error = new Error(
+        "Cloudinary keys are not configured in backend/.env. Please configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
+      );
+      error.statusCode = 503;
+      throw error;
+    }
+
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true,
+    });
   }
 
   /**
@@ -34,15 +45,9 @@ class CloudinaryService {
    * @returns {Promise<{ secure_url: string, public_id: string }>}
    */
   async uploadImage(fileSource, options = {}) {
-    if (!this.isConfigured()) {
-      const error = new Error(
-        "Cloudinary is not configured. Please add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your backend .env file."
-      );
-      error.statusCode = 503;
-      throw error;
-    }
+    this._ensureConfigured();
 
-    const folder = options.folder || env.CLOUDINARY_FOLDER;
+    const folder = options.folder || process.env.CLOUDINARY_FOLDER || env.CLOUDINARY_FOLDER || "dormammu/avatars";
     const userId = options.userId || "anonymous";
 
     // Transform options: Auto format, quality, square crop for avatars
@@ -97,6 +102,7 @@ class CloudinaryService {
   async deleteImage(publicId) {
     if (!this.isConfigured() || !publicId) return null;
     try {
+      this._ensureConfigured();
       return await cloudinary.uploader.destroy(publicId);
     } catch (err) {
       console.warn("Could not delete previous Cloudinary image:", err.message);
