@@ -3,7 +3,7 @@ import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import AuthModal from "./components/AuthModal";
 import ProfilePage from "./components/ProfilePage";
-import { api } from "./services/api";
+import { api, BACKEND_URL } from "./services/api";
 
 export default function App() {
   const [user, setUser] = useState(api.currentUser);
@@ -14,8 +14,7 @@ export default function App() {
   const [backendHealth, setBackendHealth] = useState(null);
 
   useEffect(() => {
-    const backendUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
-    fetch(`${backendUrl}/health/db`)
+    fetch(`${BACKEND_URL}/health/db`)
       .then((res) => res.json())
       .then((data) => setBackendHealth(data.success))
       .catch(() => setBackendHealth(false));

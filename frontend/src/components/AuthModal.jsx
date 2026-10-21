@@ -12,7 +12,7 @@ import {
   Send,
   Zap
 } from "lucide-react";
-import { api } from "../services/api";
+import { api, BACKEND_URL } from "../services/api";
 
 export default function AuthModal({ 
   isOpen, 
@@ -500,7 +500,7 @@ export default function AuthModal({
             </div>
 
             <a
-              href={`${import.meta.env.VITE_API_URL || "http://localhost:5001"}/api/auth/google`}
+              href={`${BACKEND_URL}/api/auth/google`}
               className="btn btn-secondary"
               style={{
                 width: "100%",
