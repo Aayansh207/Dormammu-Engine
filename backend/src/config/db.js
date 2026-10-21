@@ -1,15 +1,13 @@
-
-require("dotenv").config();
-
+const env = require("../../env");
 const { PrismaPg } = require("@prisma/adapter-pg");
 const { PrismaClient } = require("@prisma/client");
 
-if (!process.env.DATABASE_URL) {
-    throw new Error("Missing DATABASE_URL in .env");
+if (!env.DATABASE_URL) {
+  throw new Error("Missing DATABASE_URL. Check your .env file.");
 }
 
 const adapter = new PrismaPg({
-    connectionString: process.env.DATABASE_URL,
+  connectionString: env.DATABASE_URL,
 });
 
 const prisma = new PrismaClient({ adapter });

@@ -1,9 +1,11 @@
 
 const express = require("express");
+const cors = require("cors");
 const prisma = require("./src/config/db");
 
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
@@ -27,5 +29,13 @@ app.get("/health/db", async (req, res) => {
         });
     }
 });
+
+const { createUser } = require("./src/controllers/user.controller");
+
+app.get("/health", (req, res) => {
+    res.json({ success: true, message: "API is running" });
+});
+
+app.post("/users", createUser);
 
 module.exports = app;
