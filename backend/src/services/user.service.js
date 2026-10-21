@@ -1,28 +1,13 @@
+const bcrypt = require("bcryptjs");
 const prisma = require("../config/db");
-const { sanitizeName } = require("../utils/validators");
+const { sanitizeName, validatePassword } = require("../utils/validators");
 
 class UserService {
-  /**
-   * Get safe user profile with linked provider information
-   */
-  async getUserProfile(userId) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        oauthAccounts: {
-          select: {
-            provider: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
-
-    if (!user) {
-      const error = new Error("User not found");
-      error.statusCode = 404;
-      throw error;
-    }
+  _toSafeUser(user) {
+    if (!user) return null;
+    const providers = [];
+    if (user.passwordHash) providers.push("credentials");
+    if (user.googleId) providers.push("google");
 
     return {
       id: user.id,
@@ -32,10 +17,28 @@ class UserService {
       profilePhoto: user.profilePhoto,
       emailVerified: user.emailVerified,
       hasPassword: Boolean(user.passwordHash),
-      linkedProviders: user.oauthAccounts.map((acc) => acc.provider),
+      hasGoogleAuth: Boolean(user.googleId),
+      linkedProviders: providers,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  /**
+   * Get safe user profile with linked provider information
+   */
+  async getUserProfile(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      const error = new Error("User not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    return this._toSafeUser(user);
   }
 
   /**
@@ -60,27 +63,55 @@ class UserService {
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: updateData,
-      include: {
-        oauthAccounts: {
-          select: {
-            provider: true,
-            createdAt: true,
-          },
-        },
-      },
+    });
+
+    return this._toSafeUser(updatedUser);
+  }
+
+  /**
+   * Set or change user password
+   */
+  async changePassword(userId, { currentPassword, newPassword }) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      const error = new Error("User not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // If user already has a password, verify current password
+    if (user.passwordHash) {
+      if (!currentPassword) {
+        const error = new Error("Current password is required to change password");
+        error.statusCode = 400;
+        throw error;
+      }
+      const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isValid) {
+        const error = new Error("Current password does not match");
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    const check = validatePassword(newPassword);
+    if (!check.isValid) {
+      const error = new Error(check.error);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
     });
 
     return {
-      id: updatedUser.id,
-      email: updatedUser.email,
-      name: updatedUser.name,
-      role: updatedUser.role,
-      profilePhoto: updatedUser.profilePhoto,
-      emailVerified: updatedUser.emailVerified,
-      hasPassword: Boolean(updatedUser.passwordHash),
-      linkedProviders: updatedUser.oauthAccounts.map((acc) => acc.provider),
-      createdAt: updatedUser.createdAt,
-      updatedAt: updatedUser.updatedAt,
+      success: true,
+      message: user.passwordHash
+        ? "Password changed successfully"
+        : "Password set successfully. You can now log in with email and password.",
     };
   }
 }

@@ -1,5 +1,6 @@
 const prisma = require("../config/db");
 const userService = require("../services/user.service");
+const sessionService = require("../services/session.service");
 
 /**
  * GET /api/users/me
@@ -49,6 +50,53 @@ async function updateProfile(req, res) {
 }
 
 /**
+ * POST /api/users/me/password
+ * Sets or updates user password
+ */
+async function changePassword(req, res) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const result = await userService.changePassword(req.user.id, {
+      currentPassword,
+      newPassword,
+    });
+
+    return res.status(200).json(result);
+  } catch (err) {
+    const status = err.statusCode || 400;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to update password",
+    });
+  }
+}
+
+/**
+ * GET /api/users/me/login-history
+ * Returns paginated login audit history for the authenticated user
+ */
+async function getLoginHistory(req, res) {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const result = await sessionService.getLoginHistory(req.user.id, {
+      page,
+      limit,
+    });
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to retrieve login history",
+    });
+  }
+}
+
+/**
  * Legacy createUser helper (kept for backwards compatibility)
  */
 async function createUser(req, res) {
@@ -73,5 +121,7 @@ async function createUser(req, res) {
 module.exports = {
   getProfile,
   updateProfile,
+  changePassword,
+  getLoginHistory,
   createUser,
 };
