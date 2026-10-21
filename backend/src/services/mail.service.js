@@ -18,35 +18,59 @@ class MailService {
    * @returns {Promise<{ sent: boolean, simulated?: boolean }>}
    */
   async sendVerificationEmail({ toEmail, name, token }) {
-    const verificationUrl = `${env.FRONTEND_URL}/verify-email?token=${token}`;
-    const subject = "Verify your email - Dormammu Loop";
+    const directVerifyUrl = `${env.BACKEND_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const verificationUrl = directVerifyUrl;
+    const frontendVerifyUrl = `${env.FRONTEND_URL}/?token=${encodeURIComponent(token)}`;
+    const subject = "Verify your email address - Dormammu Loop";
     const displayName = name || "there";
 
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <h2 style="color: #6366f1;">Welcome to Dormammu Loop!</h2>
-        <p>Hi ${displayName},</p>
-        <p>Thank you for signing up for Dormammu Loop — Distributed DAG Workflow & Automation Engine.</p>
-        <p>Please click the button below to verify your email address. This link is valid for ${env.EMAIL_VERIFICATION_EXPIRATION_HOURS} hours:</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${verificationUrl}" style="background-color: #6366f1; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Verify Email Address</a>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Verify your email</title>
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; margin: 0; padding: 40px 20px;">
+        <div style="max-width: 560px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 36px; color: #f8fafc; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #818cf8; font-size: 24px; margin: 0; font-weight: 700; letter-spacing: -0.5px;">Dormammu Loop</h1>
+            <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Distributed DAG Workflow & Automation Engine</p>
+          </div>
+          
+          <h2 style="color: #f1f5f9; font-size: 18px; margin-bottom: 16px;">Welcome, ${displayName}!</h2>
+          <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+            Thank you for creating an account. To activate your account and start building automated loops, please verify your email address by clicking the button below:
+          </p>
+          
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${directVerifyUrl}" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);">
+              Activate Account & Verify Email
+            </a>
+          </div>
+
+          <p style="color: #94a3b8; font-size: 12px; line-height: 1.5;">
+            This link is valid for <strong>${env.EMAIL_VERIFICATION_EXPIRATION_HOURS} hours</strong>. If you did not sign up for Dormammu Loop, you can safely disregard this email.
+          </p>
+          
+          <hr style="border: none; border-top: 1px solid #334155; margin: 28px 0 16px 0;" />
+          <p style="color: #64748b; font-size: 11px; text-align: center; margin: 0;">
+            Sent by Dormammu Loop • Secure Account Authentication
+          </p>
         </div>
-        <p style="color: #666; font-size: 14px;">Or copy and paste this URL into your browser:</p>
-        <p style="word-break: break-all; color: #6366f1; font-size: 13px;">${verificationUrl}</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="color: #999; font-size: 12px;">If you did not create this account, you can safely ignore this email.</p>
-      </div>
+      </body>
+      </html>
     `;
 
     const textContent = `
 Hi ${displayName},
 
-Please verify your email address for Dormammu Loop by opening the following link in your browser:
-${verificationUrl}
+Welcome to Dormammu Loop!
 
-This link is valid for ${env.EMAIL_VERIFICATION_EXPIRATION_HOURS} hours.
+Please verify your email address and activate your account by clicking the following link:
+${directVerifyUrl}
 
-If you did not create this account, please ignore this email.
+This link is valid for ${env.EMAIL_VERIFICATION_EXPIRATION_HOURS} hours. If you did not create this account, please ignore this email.
     `.trim();
 
     if (!this.client) {

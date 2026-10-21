@@ -41,10 +41,8 @@ class AuthController {
           accessToken: result.accessToken || null,
           refreshToken: result.refreshToken || null,
           session: result.session || null,
-          verificationToken: result.verificationToken || null,
-          verificationUrl: result.verificationUrl || null,
+          requiresVerification: Boolean(result.requiresVerification),
           mailSent: result.mailSent || false,
-          mailError: result.mailError || null,
         },
       });
     } catch (err) {
@@ -145,15 +143,41 @@ class AuthController {
     try {
       const token = req.body?.token || req.query?.token;
       if (!token) {
+        if (req.method === "GET") {
+          return res.redirect(`${env.FRONTEND_URL}/?error=${encodeURIComponent("Verification token is required")}`);
+        }
         return res.status(400).json({
           success: false,
           message: "Verification token is required",
         });
       }
 
-      const result = await authService.verifyEmail(token);
+      const userAgent = req.headers["user-agent"] || null;
+      const ipAddress = getClientIp(req);
+
+      const result = await authService.verifyEmail({
+        token,
+        userAgent,
+        ipAddress,
+      });
+
+      if (req.method === "GET") {
+        const redirectUrl = new URL(env.FRONTEND_URL);
+        redirectUrl.searchParams.set("verified", "true");
+        if (result.accessToken && result.refreshToken) {
+          redirectUrl.searchParams.set("token", result.accessToken);
+          redirectUrl.searchParams.set("refreshToken", result.refreshToken);
+        }
+        return res.redirect(redirectUrl.toString());
+      }
       return res.status(200).json(result);
     } catch (err) {
+      if (req.method === "GET") {
+        if (err.message && err.message.includes("already been used")) {
+          return res.redirect(`${env.FRONTEND_URL}/?verified=already`);
+        }
+        return res.redirect(`${env.FRONTEND_URL}/?error=${encodeURIComponent(err.message || "Email verification failed")}`);
+      }
       const status = err.statusCode || 400;
       return res.status(status).json({
         success: false,
@@ -194,7 +218,7 @@ class AuthController {
     try {
       const idToken = req.body.idToken || req.body.credential || req.body.token;
       const userAgent = req.headers["user-agent"] || null;
-      const ipAddress = req.ip || req.connection?.remoteAddress || null;
+      const ipAddress = getClientIp(req);
 
       if (!idToken) {
         return res.status(400).json({
@@ -256,7 +280,7 @@ class AuthController {
 
     if (error || !code) {
       return res.redirect(
-        `${env.FRONTEND_URL}/login?error=${encodeURIComponent(error || "Google authentication was cancelled")}`
+        `${env.FRONTEND_URL}/?error=${encodeURIComponent(error || "Google authentication was cancelled")}`
       );
     }
 
@@ -309,12 +333,12 @@ class AuthController {
       });
 
       // Redirect to frontend with tokens
-      const redirectUrl = `${env.FRONTEND_URL}/auth/callback?token=${result.accessToken}&refreshToken=${result.refreshToken}`;
+      const redirectUrl = `${env.FRONTEND_URL}/?token=${encodeURIComponent(result.accessToken)}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
       return res.redirect(redirectUrl);
     } catch (err) {
       console.error("Google callback error:", err);
       return res.redirect(
-        `${env.FRONTEND_URL}/login?error=${encodeURIComponent(err.message || "Google authentication failed")}`
+        `${env.FRONTEND_URL}/?error=${encodeURIComponent(err.message || "Google authentication failed")}`
       );
     }
   }
@@ -324,8 +348,14 @@ class AuthController {
    */
   async logout(req, res) {
     try {
-      const refreshToken = req.body.refreshToken || req.headers["x-refresh-token"];
-      await authService.logout(refreshToken);
+      const refreshToken = req.body?.refreshToken || req.headers["x-refresh-token"];
+      let sessionId = null;
+      if (req.headers.authorization?.startsWith("Bearer ")) {
+        const { verifyAccessToken } = require("../utils/tokens");
+        const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
+        if (decoded?.sid) sessionId = decoded.sid;
+      }
+      await authService.logout(refreshToken, sessionId);
 
       return res.status(200).json({
         success: true,
@@ -335,6 +365,31 @@ class AuthController {
       return res.status(500).json({
         success: false,
         message: err.message || "Logout failed",
+      });
+    }
+  }
+
+  /**
+   * GET /api/auth/login-history
+   */
+  async getLoginHistory(req, res) {
+    try {
+      const sessionService = require("../services/session.service");
+      const { page = 1, limit = 20 } = req.query;
+      const history = await sessionService.getLoginHistory(req.user.id, {
+        page,
+        limit,
+      });
+
+      return res.status(200).json({
+        success: true,
+        ...history,
+      });
+    } catch (err) {
+      const status = err.statusCode || 500;
+      return res.status(status).json({
+        success: false,
+        message: err.message || "Failed to retrieve login history",
       });
     }
   }

@@ -268,17 +268,12 @@ async function main() {
       assert(res.user.profilePhoto === "https://lh3.googleusercontent.com/photo.jpg", "Profile photo set");
       googleUser = res.user;
 
-      // Check OAuthAccount record
-      const oauthAcc = await prisma.oAuthAccount.findUnique({
-        where: {
-          provider_providerAccountId: {
-            provider: "google",
-            providerAccountId: "google_sub_12345",
-          },
-        },
+      // Check User record googleId directly on users table
+      const dbUser = await prisma.user.findUnique({
+        where: { id: googleUser.id },
       });
-      assert(oauthAcc !== null, "OAuthAccount record exists");
-      assert(oauthAcc.userId === googleUser.id, "OAuthAccount links to user");
+      assert(dbUser !== null, "User record exists");
+      assert(dbUser.googleId === "google_sub_12345", "User googleId set directly on users table");
     } finally {
       authService.verifyGoogleToken = originalVerify;
       await prisma.user.deleteMany({ where: { email: "test_google_user@dormammu.dev" } });
@@ -318,12 +313,12 @@ async function main() {
       
       const dbUser = await prisma.user.findUnique({
         where: { id: nativeRes.user.id },
-        include: { oauthAccounts: true },
       });
 
       assert(dbUser.passwordHash !== null, "Original password hash preserved!");
-      assert(dbUser.oauthAccounts.length === 1, "OAuthAccount linked");
-      assert(dbUser.oauthAccounts[0].providerAccountId === "google_sub_merge_9999", "Provider ID matches");
+      assert(dbUser.googleId === "google_sub_merge_9999", "Google sub saved directly into user.googleId");
+      assert(googleRes.user.linkedProviders.includes("credentials"), "linkedProviders includes credentials");
+      assert(googleRes.user.linkedProviders.includes("google"), "linkedProviders includes google");
 
       // Verify user can STILL log in with their native password!
       const nativeLoginRes = await authService.login({
@@ -442,6 +437,49 @@ async function main() {
 
     const dbUser = await prisma.user.findUnique({ where: { id: user2.id } });
     assert(dbUser.role === "USER", "Role is still USER in database");
+  });
+
+  // 21. Login history is accurately recorded and retrieved
+  await runTest(21, "Login history is accurately recorded and retrieved", async () => {
+    const history = await sessionService.getLoginHistory(user1.id);
+    assert(history && Array.isArray(history.data), "Login history returned as array");
+    assert(history.data.length > 0, "User1 has recorded login events");
+    const failedEvent = history.data.find((e) => e.status === "FAILED");
+    const successEvent = history.data.find((e) => e.status === "SUCCESS");
+    assert(failedEvent, "Failed login attempt was audited in history");
+    assert(failedEvent.reason === "Invalid password", "Failure reason recorded accurately");
+    assert(successEvent, "Successful login was audited in history");
+    assert(successEvent.method === "CREDENTIALS", "Login method is CREDENTIALS");
+    assert(successEvent.ipAddress, "IP address is tracked and normalized");
+  });
+
+  // 22. User password update / setup works and verifies current password
+  await runTest(22, "User password update works and verifies current password", async () => {
+    // Incorrect current password fails
+    let wrongPassFailed = false;
+    try {
+      await userService.changePassword(user2.id, {
+        currentPassword: "WrongPassword123!",
+        newPassword: "BrandNewPassword123!",
+      });
+    } catch (err) {
+      if (err.statusCode === 400) wrongPassFailed = true;
+    }
+    assert(wrongPassFailed, "Invalid current password rejected");
+
+    // Correct password update succeeds
+    const res = await userService.changePassword(user2.id, {
+      currentPassword: "Password123!",
+      newPassword: "BrandNewPassword123!",
+    });
+    assert(res.success === true, "Password changed successfully");
+
+    // Can log in with new password
+    const loginRes = await authService.login({
+      email: "test_runner_2@dormammu.dev",
+      password: "BrandNewPassword123!",
+    });
+    assert(loginRes.accessToken, "Login with new password succeeded");
   });
 
   // Cleanup test data

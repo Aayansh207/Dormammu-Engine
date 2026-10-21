@@ -24,6 +24,10 @@ class AuthService {
    */
   _toSafeUser(user) {
     if (!user) return null;
+    const providers = [];
+    if (user.passwordHash) providers.push("credentials");
+    if (user.googleId) providers.push("google");
+
     return {
       id: user.id,
       email: user.email,
@@ -32,6 +36,8 @@ class AuthService {
       profilePhoto: user.profilePhoto,
       emailVerified: user.emailVerified,
       hasPassword: Boolean(user.passwordHash),
+      hasGoogleAuth: Boolean(user.googleId),
+      linkedProviders: providers,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -95,6 +101,16 @@ class AuthService {
 
       const accessToken = generateAccessToken(user, session.id);
 
+      await sessionService.recordLoginHistory({
+        userId: user.id,
+        email: user.email,
+        status: "SUCCESS",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: "Account created (Instant access)",
+      });
+
       return {
         user: this._toSafeUser(user),
         message: "Registration successful! You are now logged in.",
@@ -131,12 +147,11 @@ class AuthService {
 
     return {
       user: this._toSafeUser(user),
+      requiresVerification: true,
       message: mailResult.sent
-        ? "Registration successful. Please check your email to verify your account."
-        : "Registration successful. Note: Mailjet delivery was paused by your provider. You can verify using the link below.",
+        ? "Registration successful! A verification email has been sent. Please verify your email to activate your account."
+        : "Registration successful! Please check your email to activate your account before logging in.",
       mailSent: mailResult.sent,
-      verificationToken: rawVerificationToken,
-      verificationUrl: mailResult.verificationUrl,
       mailError: mailResult.error || null,
     };
   }
@@ -150,6 +165,15 @@ class AuthService {
     if (!normalizedEmail || !password) {
       const err = new Error("Email and password are required");
       err.statusCode = 400;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email: normalizedEmail || "unknown",
+        status: "FAILED",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: err.message,
+      });
       throw err;
     }
 
@@ -160,6 +184,15 @@ class AuthService {
     if (!user) {
       const err = new Error("Invalid email or password");
       err.statusCode = 401;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email: normalizedEmail,
+        status: "FAILED",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: "User not found",
+      });
       throw err;
     }
 
@@ -168,6 +201,15 @@ class AuthService {
         "This account was registered with Google. Please use Continue with Google."
       );
       err.statusCode = 400;
+      await sessionService.recordLoginHistory({
+        userId: user.id,
+        email: normalizedEmail,
+        status: "FAILED",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: "No password set (Google account)",
+      });
       throw err;
     }
 
@@ -175,15 +217,33 @@ class AuthService {
     if (!isValid) {
       const err = new Error("Invalid email or password");
       err.statusCode = 401;
+      await sessionService.recordLoginHistory({
+        userId: user.id,
+        email: normalizedEmail,
+        status: "FAILED",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: "Invalid password",
+      });
       throw err;
     }
 
     // Email verification check (only enforced when REQUIRE_EMAIL_VERIFICATION is enabled)
     if (env.REQUIRE_EMAIL_VERIFICATION && !user.emailVerified) {
-      const err = new Error("Email not verified. Please verify your email before logging in.");
+      const err = new Error("Account not activated. Please verify your email before logging in.");
       err.statusCode = 403;
       err.unverified = true;
       err.email = user.email;
+      await sessionService.recordLoginHistory({
+        userId: user.id,
+        email: normalizedEmail,
+        status: "FAILED",
+        method: "CREDENTIALS",
+        ipAddress,
+        userAgent,
+        reason: "Account not activated (Email unverified)",
+      });
       throw err;
     }
 
@@ -197,6 +257,16 @@ class AuthService {
     });
 
     const accessToken = generateAccessToken(user, session.id);
+
+    await sessionService.recordLoginHistory({
+      userId: user.id,
+      email: user.email,
+      status: "SUCCESS",
+      method: "CREDENTIALS",
+      ipAddress,
+      userAgent,
+      reason: null,
+    });
 
     return {
       user: this._toSafeUser(user),
@@ -261,9 +331,21 @@ class AuthService {
   }
 
   /**
-   * Email Verification
+   * Email Verification & Automatic Login
    */
-  async verifyEmail(rawToken) {
+  async verifyEmail(tokenOrOptions) {
+    let rawToken;
+    let userAgent = null;
+    let ipAddress = null;
+
+    if (typeof tokenOrOptions === "string") {
+      rawToken = tokenOrOptions;
+    } else if (tokenOrOptions && typeof tokenOrOptions === "object") {
+      rawToken = tokenOrOptions.token || tokenOrOptions.rawToken;
+      userAgent = tokenOrOptions.userAgent || null;
+      ipAddress = tokenOrOptions.ipAddress || null;
+    }
+
     if (!rawToken || typeof rawToken !== "string") {
       const err = new Error("Verification token is required");
       err.statusCode = 400;
@@ -296,7 +378,7 @@ class AuthService {
     }
 
     // Mark token as used & set user emailVerified = true
-    await prisma.$transaction([
+    const [, updatedUser] = await prisma.$transaction([
       prisma.emailVerificationToken.update({
         where: { id: verificationRecord.id },
         data: { usedAt: new Date() },
@@ -307,9 +389,37 @@ class AuthService {
       }),
     ]);
 
+    // Automatically sign in the user by creating an active session & tokens
+    const rawRefreshToken = generateRefreshToken();
+    const session = await sessionService.createSession({
+      userId: updatedUser.id,
+      refreshToken: rawRefreshToken,
+      userAgent,
+      ipAddress,
+    });
+
+    const accessToken = generateAccessToken(updatedUser, session.id);
+
+    await sessionService.recordLoginHistory({
+      userId: updatedUser.id,
+      email: updatedUser.email,
+      status: "SUCCESS",
+      method: "CREDENTIALS",
+      ipAddress,
+      userAgent,
+      reason: "Email verification auto-login",
+    });
+
     return {
       success: true,
-      message: "Email successfully verified. You can now log in.",
+      message: "Email successfully verified. You are now logged in.",
+      user: this._toSafeUser(updatedUser),
+      accessToken,
+      refreshToken: rawRefreshToken,
+      session: {
+        id: session.id,
+        expiresAt: session.expiresAt,
+      },
     };
   }
 
@@ -391,10 +501,8 @@ class AuthService {
       success: true,
       message: mailResult.sent
         ? "A new verification email has been sent."
-        : "Verification link generated. (Mailjet account temporarily blocked by Mailjet).",
+        : "Failed to dispatch email. Please try again later.",
       mailSent: mailResult.sent,
-      verificationToken: rawVerificationToken,
-      verificationUrl: mailResult.verificationUrl,
       mailError: mailResult.error || null,
     };
   }
@@ -425,9 +533,12 @@ class AuthService {
           .on("error", (err) => reject(err));
       });
     } catch (err) {
-      const decoded = jwt.decode(idToken);
-      if (decoded && decoded.sub && decoded.email) {
-        return decoded;
+      // In dev/test environments, allow mock tokens for tests
+      if (process.env.NODE_ENV !== "production") {
+        const decoded = jwt.decode(idToken);
+        if (decoded && decoded.sub && decoded.email) {
+          return decoded;
+        }
       }
       throw err;
     }
@@ -440,6 +551,15 @@ class AuthService {
     if (!idToken) {
       const err = new Error("Google credential token is required");
       err.statusCode = 400;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email: "unknown",
+        status: "FAILED",
+        method: "GOOGLE",
+        ipAddress,
+        userAgent,
+        reason: err.message,
+      });
       throw err;
     }
 
@@ -449,6 +569,15 @@ class AuthService {
     } catch (err) {
       const error = new Error(`Google token verification failed: ${err.message}`);
       error.statusCode = 401;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email: "unknown",
+        status: "FAILED",
+        method: "GOOGLE",
+        ipAddress,
+        userAgent,
+        reason: error.message,
+      });
       throw error;
     }
 
@@ -464,6 +593,15 @@ class AuthService {
     if (!sub || !email) {
       const err = new Error("Invalid Google profile response");
       err.statusCode = 400;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email: email || "unknown",
+        status: "FAILED",
+        method: "GOOGLE",
+        ipAddress,
+        userAgent,
+        reason: err.message,
+      });
       throw err;
     }
 
@@ -472,6 +610,15 @@ class AuthService {
     if (!isGoogleVerified) {
       const err = new Error("Google account email is not verified");
       err.statusCode = 403;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email,
+        status: "FAILED",
+        method: "GOOGLE",
+        ipAddress,
+        userAgent,
+        reason: "Google email not verified",
+      });
       throw err;
     }
 
@@ -479,37 +626,38 @@ class AuthService {
     if (env.GOOGLE_CLIENT_ID && aud && aud !== env.GOOGLE_CLIENT_ID) {
       const err = new Error("Google token was not issued for this application client ID");
       err.statusCode = 401;
+      await sessionService.recordLoginHistory({
+        userId: null,
+        email,
+        status: "FAILED",
+        method: "GOOGLE",
+        ipAddress,
+        userAgent,
+        reason: "Invalid client audience",
+      });
       throw err;
     }
 
     const normalizedEmail = normalizeEmail(email);
 
-    // 1. Check if OAuth account is already linked
-    const existingOAuth = await prisma.oAuthAccount.findUnique({
-      where: {
-        provider_providerAccountId: {
-          provider: "google",
-          providerAccountId: sub,
-        },
-      },
-      include: { user: true },
+    // 1. Check if user with this googleId already exists
+    let user = await prisma.user.findUnique({
+      where: { googleId: sub },
     });
 
-    let user;
-
-    if (existingOAuth) {
-      // Account is already linked
-      user = existingOAuth.user;
-    } else {
-      // 2. Check if a User with this email already exists
+    if (!user) {
+      // 2. Check if a User with this email already exists (registered natively)
       const existingUser = await prisma.user.findUnique({
         where: { email: normalizedEmail },
       });
 
       if (existingUser) {
-        // Safe Account Linking: Link Google to existing user!
-        // DO NOT overwrite passwordHash or existing profile details!
-        const updateData = {};
+        // Safe Account Merging in one table: Link Google to existing user!
+        // Automatically marks emailVerified = true (since Google verifies email)
+        // Never overwrites passwordHash or existing profile details!
+        const updateData = {
+          googleId: sub,
+        };
         if (!existingUser.emailVerified) {
           updateData.emailVerified = true;
         }
@@ -517,37 +665,19 @@ class AuthService {
           updateData.profilePhoto = picture;
         }
 
-        user = await prisma.$transaction(async (tx) => {
-          await tx.oAuthAccount.create({
-            data: {
-              provider: "google",
-              providerAccountId: sub,
-              userId: existingUser.id,
-            },
-          });
-
-          if (Object.keys(updateData).length > 0) {
-            return tx.user.update({
-              where: { id: existingUser.id },
-              data: updateData,
-            });
-          }
-          return existingUser;
+        user = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: updateData,
         });
       } else {
-        // 3. New User Registration via Google
+        // 3. New User Registration via Google directly in User table
         user = await prisma.user.create({
           data: {
             email: normalizedEmail,
             name: sanitizeName(name),
+            googleId: sub,
             profilePhoto: picture || null,
             emailVerified: true, // Verified by Google
-            oauthAccounts: {
-              create: {
-                provider: "google",
-                providerAccountId: sub,
-              },
-            },
           },
         });
       }
@@ -564,6 +694,16 @@ class AuthService {
 
     const accessToken = generateAccessToken(user, session.id);
 
+    await sessionService.recordLoginHistory({
+      userId: user.id,
+      email: user.email,
+      status: "SUCCESS",
+      method: "GOOGLE",
+      ipAddress,
+      userAgent,
+      reason: null,
+    });
+
     return {
       user: this._toSafeUser(user),
       accessToken,
@@ -578,12 +718,18 @@ class AuthService {
   /**
    * Logout from current session
    */
-  async logout(refreshToken) {
-    if (!refreshToken) return { success: true };
-    const session = await sessionService.findSessionByToken(refreshToken);
-    if (session && !session.revokedAt) {
-      await prisma.session.update({
-        where: { id: session.id },
+  async logout(refreshToken, sessionId = null) {
+    if (refreshToken) {
+      const session = await sessionService.findSessionByToken(refreshToken);
+      if (session && !session.revokedAt) {
+        await prisma.session.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        });
+      }
+    } else if (sessionId) {
+      await prisma.session.updateMany({
+        where: { id: sessionId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
     }

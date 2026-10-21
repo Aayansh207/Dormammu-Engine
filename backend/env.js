@@ -11,7 +11,7 @@ const env = {
   JWT_ACCESS_EXPIRATION: process.env.JWT_ACCESS_EXPIRATION || "15m",
   REFRESH_TOKEN_EXPIRATION_DAYS: Number(process.env.REFRESH_TOKEN_EXPIRATION_DAYS) || 7,
   EMAIL_VERIFICATION_EXPIRATION_HOURS: Number(process.env.EMAIL_VERIFICATION_EXPIRATION_HOURS) || 24,
-  REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION === "true", // false by default: instant login without email!
+  REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION !== "false", // Mandatory by default!
 
   // URLs
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5174",

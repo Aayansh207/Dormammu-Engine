@@ -7,6 +7,8 @@ const { createUser } = require("./src/controllers/user.controller");
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
@@ -15,17 +17,36 @@ const allowedOrigins = [
   env.FRONTEND_URL,
 ].filter(Boolean);
 
+if (env.FRONTEND_URL) {
+  try {
+    const parsedOrigin = new URL(env.FRONTEND_URL).origin;
+    if (!allowedOrigins.includes(parsedOrigin)) {
+      allowedOrigins.push(parsedOrigin);
+    }
+  } catch (e) {
+    if (!allowedOrigins.includes(env.FRONTEND_URL)) {
+      allowedOrigins.push(env.FRONTEND_URL);
+    }
+  }
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith(".vercel.app") || env.NODE_ENV !== "production") {
       return callback(null, true);
     }
-    return callback(null, true); // Permissive fallback
+    return callback(null, true); // Permissive fallback for Vercel / Render deployments
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "x-refresh-token",
+  ],
 }));
 
 app.options(/(.*)/, cors());

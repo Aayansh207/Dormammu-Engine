@@ -22,5 +22,6 @@ router.get("/google/callback", (req, res) => authController.googleCallback(req, 
 // Logout & Session invalidation
 router.post("/logout", (req, res) => authController.logout(req, res));
 router.post("/logout-all", requireAuth, (req, res) => authController.logoutAll(req, res));
+router.get("/login-history", requireAuth, (req, res) => authController.getLoginHistory(req, res));
 
 module.exports = router;
