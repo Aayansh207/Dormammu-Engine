@@ -127,7 +127,7 @@ export default function Hero({ user, onOpenAuth, onNavigateProfile }) {
         )}
       </div>
 
-      {/* Feature Badges */}
+      {/* Features */}
       <div 
         style={{
           display: "flex",
