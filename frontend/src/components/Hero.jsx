@@ -12,7 +12,7 @@ export default function Hero() {
       padding: "20px 24px"
     }}>
       <h1 style={{
-        fontSize: "clamp(3.2rem, 9vw, 6.5rem)",
+        fontSize: "clamp(2.8rem, 8.5vw, 6.5rem)",
         fontWeight: "800",
         letterSpacing: "-0.035em",
         lineHeight: "1.05",

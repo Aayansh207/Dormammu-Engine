@@ -99,46 +99,55 @@ export default function AuthModal({
   };
 
   return (
-    <div style={{
-      position: "fixed",
-      inset: 0,
-      zIndex: 50,
-      background: "rgba(0, 0, 0, 0.75)",
-      backdropFilter: "blur(10px)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "20px"
-    }}>
+    <div 
+      className="auth-modal-overlay"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        background: "rgba(0, 0, 0, 0.8)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "14px 12px",
+        overflowY: "auto"
+      }}
+    >
       <div
-        className="glass-panel"
+        className="glass-panel auth-modal-card"
         style={{
           width: "100%",
           maxWidth: "460px",
-          padding: "36px",
+          padding: "32px 28px",
           position: "relative",
-          animation: "floatLoop 0s ease"
+          maxHeight: "calc(100vh - 28px)",
+          overflowY: "auto",
+          margin: "auto"
         }}
       >
         <button
           onClick={onClose}
+          aria-label="Close Authentication Modal"
           style={{
             position: "absolute",
-            top: "20px",
-            right: "20px",
-            background: "rgba(255, 255, 255, 0.05)",
+            top: "14px",
+            right: "14px",
+            background: "rgba(255, 255, 255, 0.08)",
             border: "1px solid var(--border-subtle)",
             borderRadius: "50%",
-            width: "32px",
-            height: "32px",
+            width: "34px",
+            height: "34px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             color: "var(--text-secondary)",
-            cursor: "pointer"
+            cursor: "pointer",
+            zIndex: 10
           }}
         >
-          <X size={16} />
+          <X size={17} />
         </button>
 
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
@@ -324,7 +333,7 @@ export default function AuthModal({
               </p>
             </div>
 
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={handleResend}
@@ -442,7 +451,7 @@ export default function AuthModal({
             </div>
 
             <a
-              href={`${BACKEND_URL}/api/auth/google`}
+              href={`${BACKEND_URL}/api/auth/google?redirect=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "")}`}
               className="btn btn-secondary"
               style={{
                 width: "100%",
@@ -464,6 +473,14 @@ export default function AuthModal({
           </form>
         )}
       </div>
+
+      <style>{`
+        @media (max-width: 480px) {
+          .auth-modal-card {
+            padding: 24px 18px !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

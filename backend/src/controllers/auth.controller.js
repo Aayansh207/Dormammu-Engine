@@ -264,9 +264,29 @@ class AuthController {
       });
     }
 
+    // Determine redirect URI: use host header if local, fallback to env.GOOGLE_CALLBACK_URL
+    let callbackUrl = env.GOOGLE_CALLBACK_URL;
+    const host = req.get("host") || "";
+    if (host.includes("localhost") || host.includes("127.0.0.1")) {
+      const proto = req.protocol || "http";
+      callbackUrl = `${proto}://${host}/api/auth/google/callback`;
+    }
+
+    // Capture originating frontend redirect target in state
+    let state = req.query.redirect || req.query.state || "";
+    if (!state && req.headers.referer) {
+      try {
+        state = new URL(req.headers.referer).origin;
+      } catch (e) {}
+    }
+    if (!state) state = env.FRONTEND_URL;
+
+    // Pack both target frontend and the callbackUrl used into state so callback knows which redirect_uri was used
+    const statePayload = Buffer.from(JSON.stringify({ target: state, callback: callbackUrl })).toString("base64");
+
     const scope = encodeURIComponent("openid email profile");
-    const redirectUri = encodeURIComponent(env.GOOGLE_CALLBACK_URL);
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${scope}&access_type=offline&prompt=consent`;
+    const redirectUri = encodeURIComponent(callbackUrl);
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(statePayload)}`;
 
     return res.redirect(googleAuthUrl);
   }
@@ -276,21 +296,56 @@ class AuthController {
    * Handles Google OAuth2 code exchange redirect
    */
   async googleCallback(req, res) {
-    const { code, error } = req.query;
+    const { code, error, state } = req.query;
+
+    let targetFrontend = env.FRONTEND_URL;
+    let callbackUrl = env.GOOGLE_CALLBACK_URL;
+
+    if (state) {
+      try {
+        // Try decoding JSON state payload
+        const decoded = JSON.parse(Buffer.from(state, "base64").toString("utf8"));
+        if (decoded.target) {
+          const parsedTarget = new URL(decoded.target);
+          if (
+            parsedTarget.hostname === "localhost" ||
+            parsedTarget.hostname === "127.0.0.1" ||
+            parsedTarget.hostname.endsWith(".vercel.app")
+          ) {
+            targetFrontend = parsedTarget.origin;
+          }
+        }
+        if (decoded.callback) {
+          callbackUrl = decoded.callback;
+        }
+      } catch (e) {
+        // Fallback for plain URL state string
+        try {
+          const parsed = new URL(state);
+          if (
+            parsed.hostname === "localhost" ||
+            parsed.hostname === "127.0.0.1" ||
+            parsed.hostname.endsWith(".vercel.app")
+          ) {
+            targetFrontend = parsed.origin;
+          }
+        } catch (_) {}
+      }
+    }
 
     if (error || !code) {
       return res.redirect(
-        `${env.FRONTEND_URL}/?error=${encodeURIComponent(error || "Google authentication was cancelled")}`
+        `${targetFrontend}/?error=${encodeURIComponent(error || "Google authentication was cancelled")}`
       );
     }
 
     try {
-      // Exchange code for tokens with Google
+      // Exchange code for tokens with Google using the matching callback URL
       const postData = new URLSearchParams({
         code: String(code),
         client_id: env.GOOGLE_CLIENT_ID,
         client_secret: env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: env.GOOGLE_CALLBACK_URL,
+        redirect_uri: callbackUrl,
         grant_type: "authorization_code",
       }).toString();
 
@@ -332,13 +387,13 @@ class AuthController {
         ipAddress,
       });
 
-      // Redirect to frontend with tokens
-      const redirectUrl = `${env.FRONTEND_URL}/?token=${encodeURIComponent(result.accessToken)}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
+      // Redirect to target frontend with tokens
+      const redirectUrl = `${targetFrontend}/?token=${encodeURIComponent(result.accessToken)}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
       return res.redirect(redirectUrl);
     } catch (err) {
       console.error("Google callback error:", err);
       return res.redirect(
-        `${env.FRONTEND_URL}/?error=${encodeURIComponent(err.message || "Google authentication failed")}`
+        `${targetFrontend}/?error=${encodeURIComponent(err.message || "Google authentication failed")}`
       );
     }
   }

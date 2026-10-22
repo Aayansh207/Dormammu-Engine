@@ -330,55 +330,61 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
   };
 
   return (
-    <div style={{
+    <div className="profile-container" style={{
       maxWidth: "1100px",
       margin: "40px auto 100px auto",
       padding: "0 24px"
     }}>
-      <div className="glass-panel" style={{
-        padding: "36px",
-        marginBottom: "32px",
+      <div className="glass-panel profile-card profile-header-card" style={{
+        padding: "32px",
+        marginBottom: "28px",
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: "24px"
+        gap: "20px"
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+        <div className="profile-user-info" style={{ display: "flex", alignItems: "center", gap: "18px", flexWrap: "wrap" }}>
           {photo || profile?.profilePhoto ? (
             <img 
               src={photo || profile.profilePhoto} 
               alt={profile?.name || profile?.email}
+              className="profile-avatar"
               style={{
-                width: "80px",
-                height: "80px",
+                width: "76px",
+                height: "76px",
                 borderRadius: "50%",
                 objectFit: "cover",
                 border: "2px solid var(--primary)",
-                boxShadow: "0 0 25px var(--primary-glow)"
+                boxShadow: "0 0 25px var(--primary-glow)",
+                flexShrink: 0
               }}
             />
           ) : (
-            <div style={{
-              width: "80px",
-              height: "80px",
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "2rem",
-              fontWeight: "700",
-              color: "#fff",
-              boxShadow: "0 0 25px var(--primary-glow)"
-            }}>
+            <div 
+              className="profile-avatar"
+              style={{
+                width: "76px",
+                height: "76px",
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "1.85rem",
+                fontWeight: "700",
+                color: "#fff",
+                boxShadow: "0 0 25px var(--primary-glow)",
+                flexShrink: 0
+              }}
+            >
               {(profile?.name || profile?.email || "U")[0].toUpperCase()}
             </div>
           )}
 
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-              <h2 style={{ fontSize: "1.6rem" }}>{profile?.name || "Anonymous Engineer"}</h2>
+          <div style={{ flex: 1, minWidth: "200px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px", flexWrap: "wrap" }}>
+              <h2 style={{ fontSize: "1.5rem" }}>{profile?.name || "Anonymous Engineer"}</h2>
               <span style={{
                 fontSize: "0.75rem",
                 fontWeight: "700",
@@ -392,16 +398,18 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
               </span>
             </div>
             
-            <div style={{ color: "var(--text-secondary)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
-              <Mail size={15} color="var(--text-muted)" />
-              <span>{profile?.email}</span>
+            <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", wordBreak: "break-all" }}>
+                <Mail size={15} color="var(--text-muted)" />
+                {profile?.email}
+              </span>
               {profile?.emailVerified ? (
                 <span style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "4px",
                   color: "var(--accent-emerald)",
-                  fontSize: "0.8rem",
+                  fontSize: "0.78rem",
                   fontWeight: "600"
                 }}>
                   <ShieldCheck size={14} /> Verified
@@ -412,7 +420,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                   alignItems: "center",
                   gap: "4px",
                   color: "var(--accent-amber)",
-                  fontSize: "0.8rem",
+                  fontSize: "0.78rem",
                   fontWeight: "600"
                 }}>
                   <ShieldAlert size={14} /> Unverified
@@ -420,37 +428,37 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
               )}
             </div>
 
-            <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "8px" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "6px" }}>
               Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : "2026"} // Active on Dormammu Cloud
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <div className="profile-header-actions" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <button 
             onClick={onLogout} 
             className="btn btn-secondary"
-            style={{ fontSize: "0.875rem" }}
+            style={{ fontSize: "0.85rem", padding: "9px 16px" }}
           >
-            <LogOut size={16} /> Sign Out
+            <LogOut size={15} /> Sign Out
           </button>
           <button 
             onClick={handleLogoutAll} 
             disabled={loggingOutAll}
             className="btn btn-danger"
-            style={{ fontSize: "0.875rem" }}
+            style={{ fontSize: "0.85rem", padding: "9px 16px" }}
           >
-            <Trash2 size={16} /> {loggingOutAll ? "Revoking..." : "Logout All Devices"}
+            <Trash2 size={15} /> {loggingOutAll ? "Revoking..." : "Logout All Devices"}
           </button>
         </div>
       </div>
 
-      <div style={{
+      <div className="profile-grid" style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
-        gap: "32px"
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+        gap: "24px"
       }}>
-        <div className="glass-panel" style={{ padding: "32px" }}>
+        <div className="glass-panel profile-card" style={{ padding: "32px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
             <KeyRound size={20} color="var(--primary-light)" />
             <h3 style={{ fontSize: "1.2rem" }}>Profile Information</h3>
@@ -508,11 +516,12 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                 style={{
                   border: isDragging ? "2px dashed var(--primary)" : "1px dashed var(--border-subtle)",
                   borderRadius: "var(--radius-md)",
-                  padding: "18px",
+                  padding: "16px",
                   background: isDragging ? "rgba(124, 58, 237, 0.15)" : "rgba(11, 14, 24, 0.6)",
                   display: "flex",
                   alignItems: "center",
-                  gap: "16px",
+                  gap: "14px",
+                  flexWrap: "wrap",
                   cursor: "pointer",
                   transition: "all 0.2s ease"
                 }}
@@ -624,7 +633,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
           </form>
         </div>
 
-        <div className="glass-panel" style={{ padding: "32px" }}>
+        <div className="glass-panel profile-card" style={{ padding: "32px" }}>
           <div style={{
             display: "flex",
             justifyContent: "space-between",
@@ -678,6 +687,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                 return (
                   <div 
                     key={sess.id}
+                    className="session-item-card"
                     style={{
                       padding: "16px 18px",
                       borderRadius: "var(--radius-md)",
@@ -686,7 +696,8 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      gap: "16px",
+                      gap: "14px",
+                      flexWrap: "wrap",
                       transition: "all 0.2s ease"
                     }}
                   >
@@ -818,7 +829,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
         </div>
 
         {/* Login & Security History Card */}
-        <div className="glass-panel" style={{ padding: "32px", marginTop: "24px" }}>
+        <div className="glass-panel profile-card profile-history-card" style={{ padding: "32px", marginTop: "12px", gridColumn: "1 / -1" }}>
           <div style={{
             display: "flex",
             justifyContent: "space-between",
@@ -921,6 +932,39 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
           )}
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .profile-container {
+            padding: 0 14px !important;
+            margin: 18px auto 60px auto !important;
+          }
+          .profile-grid {
+            grid-template-columns: 1fr !important;
+            gap: 18px !important;
+          }
+          .profile-card {
+            padding: 20px 16px !important;
+          }
+          .profile-header-actions {
+            width: 100% !important;
+          }
+          .profile-header-actions button {
+            flex: 1 !important;
+            justify-content: center !important;
+          }
+          .profile-avatar {
+            width: 62px !important;
+            height: 62px !important;
+            font-size: 1.5rem !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .session-item-card {
+            padding: 12px 14px !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
