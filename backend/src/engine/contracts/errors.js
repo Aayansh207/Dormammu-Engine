@@ -1,0 +1,62 @@
+/**
+ * Webster Execution Engine - Standardized Error Contracts
+ */
+
+const ErrorCodes = {
+  // Graph / Validation Errors
+  WORKFLOW_SCHEMA_UNSUPPORTED: "WORKFLOW_SCHEMA_UNSUPPORTED",
+  DUPLICATE_NODE_ID: "DUPLICATE_NODE_ID",
+  DUPLICATE_EDGE_ID: "DUPLICATE_EDGE_ID",
+  UNKNOWN_NODE_TYPE: "UNKNOWN_NODE_TYPE",
+  NODE_CONFIG_INVALID: "NODE_CONFIG_INVALID",
+  EDGE_SOURCE_NOT_FOUND: "EDGE_SOURCE_NOT_FOUND",
+  EDGE_TARGET_NOT_FOUND: "EDGE_TARGET_NOT_FOUND",
+  UNKNOWN_SOURCE_PORT: "UNKNOWN_SOURCE_PORT",
+  UNKNOWN_TARGET_PORT: "UNKNOWN_TARGET_PORT",
+  MULTIPLE_INPUTS_NOT_SUPPORTED: "MULTIPLE_INPUTS_NOT_SUPPORTED",
+  REQUIRED_INPUT_MISSING: "REQUIRED_INPUT_MISSING",
+  PORT_TYPE_MISMATCH: "PORT_TYPE_MISMATCH",
+  CYCLE_DETECTED: "CYCLE_DETECTED",
+  NO_ENTRY_NODES: "NO_ENTRY_NODES",
+  DISCONNECTED_GRAPH_WARNING: "DISCONNECTED_GRAPH_WARNING",
+  UNSUPPORTED_CONSTRUCT: "UNSUPPORTED_CONSTRUCT",
+
+  // Runtime & Execution Errors
+  DEADLOCK_DETECTED: "DEADLOCK_DETECTED",
+  HANDLER_EXECUTION_FAILED: "HANDLER_EXECUTION_FAILED",
+  INVALID_OUTPUT_PORT: "INVALID_OUTPUT_PORT",
+  MISSING_REQUIRED_OUTPUT: "MISSING_REQUIRED_OUTPUT",
+  DIVISION_BY_ZERO: "DIVISION_BY_ZERO",
+  INVALID_JSON: "INVALID_JSON",
+  EXECUTION_TIMEOUT: "EXECUTION_TIMEOUT",
+  EXECUTION_CANCELLED: "EXECUTION_CANCELLED",
+  INVALID_RUN_STATE: "INVALID_RUN_STATE",
+};
+
+class EngineError extends Error {
+  /**
+   * @param {string} code - Stable error code from ErrorCodes
+   * @param {string} message - Human-readable explanation
+   * @param {Object} [details={}] - Contextual details (nodeId, edgeId, port, etc.)
+   */
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = "EngineError";
+    this.code = code;
+    this.details = details;
+    Error.captureStackTrace(this, this.constructor);
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      details: this.details,
+    };
+  }
+}
+
+module.exports = {
+  ErrorCodes,
+  EngineError,
+};

@@ -11,8 +11,9 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "test:engine": "node test_engine.js",
     "test:auth": "node test_auth.js",
-    "test": "node test_auth.js"
+    "test": "node test_engine.js && node test_auth.js"
   },
   "keywords": [],
   "author": "",
