@@ -1,11 +1,26 @@
 /**
  * Webster Execution Engine - Workflow Validator
+ * Enforces Levels 1-4 standard validation rules.
  */
 
 const { ErrorCodes } = require("../contracts/errors");
 const { defaultRegistry } = require("../registry/node.registry");
 
-const SUPPORTED_SCHEMA_VERSIONS = ["1.0"];
+const SUPPORTED_SCHEMA_VERSIONS = [1, "1", "1.0", 1.0];
+
+/**
+ * Normalizes an error object to the standard Webster error response contract.
+ */
+function normalizeError(err) {
+  return {
+    code: err.code || "VALIDATION_ERROR",
+    message: err.message || "Validation failed",
+    nodeId: err.nodeId !== undefined ? err.nodeId : null,
+    edgeId: err.edgeId !== undefined ? err.edgeId : null,
+    field: err.field !== undefined ? err.field : null,
+    ...(err.cycle ? { cycle: err.cycle } : {}),
+  };
+}
 
 /**
  * Validates a workflow definition against structure, registry, port bindings, and DAG rules.
@@ -14,151 +29,196 @@ const SUPPORTED_SCHEMA_VERSIONS = ["1.0"];
  * @returns {{ valid: boolean, errors: Array<Object>, warnings: Array<Object> }}
  */
 function validateWorkflow(workflow, registry = defaultRegistry) {
-  const errors = [];
-  const warnings = [];
+  const rawErrors = [];
+  const rawWarnings = [];
 
-  // 1. Definition shape & schema version
+  // ==========================================
+  // LEVEL 1: Structural validation
+  // ==========================================
   if (!workflow || typeof workflow !== "object") {
-    errors.push({
+    rawErrors.push({
       code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
       message: "Workflow definition must be an object",
+      nodeId: null,
+      edgeId: null,
+      field: null,
     });
-    return { valid: false, errors, warnings };
+    return {
+      valid: false,
+      errors: rawErrors.map(normalizeError),
+      warnings: [],
+    };
   }
 
-  if (!SUPPORTED_SCHEMA_VERSIONS.includes(workflow.schemaVersion)) {
-    errors.push({
+  const isSupportedVersion = SUPPORTED_SCHEMA_VERSIONS.includes(workflow.schemaVersion);
+  if (!isSupportedVersion) {
+    rawErrors.push({
       code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
-      message: `Unsupported schema version '${workflow.schemaVersion}'. Supported: ${SUPPORTED_SCHEMA_VERSIONS.join(", ")}`,
+      message: `Unsupported schema version '${workflow.schemaVersion}'. Supported: 1, 1.0`,
+      nodeId: null,
+      edgeId: null,
+      field: "schemaVersion",
     });
   }
 
   if (!Array.isArray(workflow.nodes) || workflow.nodes.length === 0) {
-    errors.push({
+    rawErrors.push({
       code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
       message: "Workflow must contain a non-empty 'nodes' array",
+      nodeId: null,
+      edgeId: null,
+      field: "nodes",
     });
-    return { valid: false, errors, warnings };
+    return {
+      valid: false,
+      errors: rawErrors.map(normalizeError),
+      warnings: [],
+    };
   }
 
   const edges = Array.isArray(workflow.edges) ? workflow.edges : [];
 
-  // 2. Validate Nodes
+  // Validate Nodes
   const nodeMap = new Map();
   for (let i = 0; i < workflow.nodes.length; i++) {
     const node = workflow.nodes[i];
     if (!node || typeof node !== "object") {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
         message: `Node at index ${i} is not a valid object`,
+        nodeId: null,
+        edgeId: null,
+        field: `nodes[${i}]`,
       });
       continue;
     }
 
     if (!node.id || typeof node.id !== "string" || node.id.trim() === "") {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
         message: `Node at index ${i} is missing a non-empty string 'id'`,
+        nodeId: null,
+        edgeId: null,
+        field: `nodes[${i}].id`,
       });
       continue;
     }
 
     if (nodeMap.has(node.id)) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.DUPLICATE_NODE_ID,
         message: `Duplicate node ID '${node.id}' detected`,
         nodeId: node.id,
+        edgeId: null,
+        field: "id",
       });
       continue;
     }
 
     if (!node.type || typeof node.type !== "string") {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
         message: `Node '${node.id}' is missing a valid 'type'`,
         nodeId: node.id,
+        edgeId: null,
+        field: "type",
       });
       continue;
     }
 
     if (!registry.has(node.type)) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.UNKNOWN_NODE_TYPE,
         message: `Node '${node.id}' references unknown node type '${node.type}'`,
         nodeId: node.id,
-        nodeType: node.type,
+        edgeId: null,
+        field: "type",
       });
       continue;
     }
 
-    // Config validation
+    // ==========================================
+    // LEVEL 3: Node configuration validation
+    // ==========================================
     const config = node.config || {};
     const configResult = registry.validateConfig(node.type, config);
     if (!configResult.valid) {
-      errors.push({
+      const errMsg = (configResult.errors || []).join("; ") || "Invalid node configuration";
+      rawErrors.push({
         code: ErrorCodes.NODE_CONFIG_INVALID,
-        message: `Node '${node.id}' config invalid: ${(configResult.errors || []).join("; ")}`,
+        message: `Node '${node.id}' configuration invalid: ${errMsg}`,
         nodeId: node.id,
-        nodeType: node.type,
+        edgeId: null,
+        field: configResult.field || "config",
       });
     }
 
     nodeMap.set(node.id, node);
   }
 
-  // 3. Validate Edges
+  // ==========================================
+  // LEVEL 2: Graph validation (Edges & Ports)
+  // ==========================================
   const edgeMap = new Map();
-  const inputPortIncomingEdges = new Map(); // `${targetNodeId}:${targetPort}` -> count
+  const inputPortIncomingEdges = new Map();
 
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i];
     if (!edge || typeof edge !== "object") {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED,
         message: `Edge at index ${i} is not an object`,
+        nodeId: null,
+        edgeId: null,
+        field: `edges[${i}]`,
       });
       continue;
     }
 
-    const edgeId = edge.id || `edge-${i}`;
+    const edgeId = edge.id || `edge_${i}`;
     if (edgeMap.has(edgeId)) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.DUPLICATE_EDGE_ID,
         message: `Duplicate edge ID '${edgeId}' detected`,
+        nodeId: null,
         edgeId,
+        field: "id",
       });
     }
     edgeMap.set(edgeId, edge);
 
     // Source check
     if (!edge.source || !nodeMap.has(edge.source)) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.EDGE_SOURCE_NOT_FOUND,
-        message: `Edge '${edgeId}' references non-existent source node '${edge.source}'`,
+        message: `The edge references a source node '${edge.source}' that does not exist.`,
+        nodeId: null,
         edgeId,
-        source: edge.source,
+        field: "source",
       });
       continue;
     }
 
     // Target check
     if (!edge.target || !nodeMap.has(edge.target)) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.EDGE_TARGET_NOT_FOUND,
-        message: `Edge '${edgeId}' references non-existent target node '${edge.target}'`,
+        message: `The edge references a target node '${edge.target}' that does not exist.`,
+        nodeId: null,
         edgeId,
-        target: edge.target,
+        field: "target",
       });
       continue;
     }
 
     // Self-loop check
     if (edge.source === edge.target) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.CYCLE_DETECTED,
-        message: `Self-loop detected on node '${edge.source}' in edge '${edgeId}'`,
-        edgeId,
+        message: `Self-loop connection detected on node '${edge.source}' in edge '${edgeId}'`,
         nodeId: edge.source,
+        edgeId,
+        field: null,
       });
       continue;
     }
@@ -170,59 +230,61 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
 
     // Source port check
     if (!edge.sourcePort || !sourceDef.outputs[edge.sourcePort]) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.UNKNOWN_SOURCE_PORT,
         message: `Edge '${edgeId}' references unknown source port '${edge.sourcePort}' on node '${edge.source}' (${sourceNode.type})`,
-        edgeId,
         nodeId: edge.source,
-        port: edge.sourcePort,
+        edgeId,
+        field: "sourcePort",
       });
     }
 
     // Target port check
     if (!edge.targetPort || !targetDef.inputs[edge.targetPort]) {
-      errors.push({
+      rawErrors.push({
         code: ErrorCodes.UNKNOWN_TARGET_PORT,
         message: `Edge '${edgeId}' references unknown target port '${edge.targetPort}' on node '${edge.target}' (${targetNode.type})`,
-        edgeId,
         nodeId: edge.target,
-        port: edge.targetPort,
+        edgeId,
+        field: "targetPort",
       });
     } else {
-      // Check for multiple incoming connections to a single-value port
       const targetPortKey = `${edge.target}:${edge.targetPort}`;
       const existingCount = inputPortIncomingEdges.get(targetPortKey) || 0;
       const targetPortDef = targetDef.inputs[edge.targetPort];
 
       if (existingCount >= 1 && !targetPortDef.allowMultiple) {
-        errors.push({
+        rawErrors.push({
           code: ErrorCodes.MULTIPLE_INPUTS_NOT_SUPPORTED,
           message: `Target port '${edge.targetPort}' on node '${edge.target}' has multiple incoming edges, which is not supported for single-value ports`,
-          edgeId,
           nodeId: edge.target,
-          port: edge.targetPort,
+          edgeId,
+          field: "targetPort",
         });
       }
       inputPortIncomingEdges.set(targetPortKey, existingCount + 1);
 
-      // Port Type Compatibility Warning/Check
+      // Port Type Compatibility Check
       if (sourceDef.outputs[edge.sourcePort]) {
         const srcType = sourceDef.outputs[edge.sourcePort].type;
         const tgtType = targetPortDef.type;
         if (srcType !== "any" && tgtType !== "any" && srcType !== tgtType) {
-          warnings.push({
+          rawWarnings.push({
             code: ErrorCodes.PORT_TYPE_MISMATCH,
             message: `Potential port type mismatch from ${edge.source}.${edge.sourcePort} (${srcType}) to ${edge.target}.${edge.targetPort} (${tgtType})`,
+            nodeId: edge.target,
             edgeId,
-            source: edge.source,
-            target: edge.target,
+            field: "targetPort",
           });
         }
       }
     }
   }
 
-  // 4. Required Inputs Check
+  // ==========================================
+  // LEVEL 4: Semantic validation
+  // ==========================================
+  // Required Inputs Check
   for (const [nodeId, node] of nodeMap.entries()) {
     const nodeDef = registry.get(node.type);
     for (const [portName, portDef] of Object.entries(nodeDef.inputs)) {
@@ -232,18 +294,19 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
         const hasConfigFallback = node.config && node.config[portName] !== undefined;
 
         if (!hasIncomingEdge && !hasConfigFallback) {
-          errors.push({
+          rawErrors.push({
             code: ErrorCodes.REQUIRED_INPUT_MISSING,
             message: `Node '${nodeId}' (${node.type}) requires input port '${portName}', but no edge is connected and no default is provided`,
             nodeId,
-            port: portName,
+            edgeId: null,
+            field: `config.${portName}`,
           });
         }
       }
     }
   }
 
-  // 5. Cycle Detection using DFS (3-state coloring)
+  // Cycle Detection using DFS (3-state coloring)
   const adjacency = new Map();
   for (const nodeId of nodeMap.keys()) {
     adjacency.set(nodeId, []);
@@ -296,17 +359,40 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
   }
 
   if (cycleNodes.length > 0) {
-    errors.push({
+    rawErrors.push({
       code: ErrorCodes.CYCLE_DETECTED,
       message: `Cycle detected in graph: ${cycleNodes[0].join(" -> ")}`,
+      nodeId: null,
+      edgeId: null,
+      field: null,
       cycle: cycleNodes[0],
     });
   }
 
+  // Check unreachable / disconnected nodes warning (if more than 1 node)
+  if (nodeMap.size > 1 && edges.length > 0) {
+    const connectedNodes = new Set();
+    for (const edge of edges) {
+      connectedNodes.add(edge.source);
+      connectedNodes.add(edge.target);
+    }
+    for (const nodeId of nodeMap.keys()) {
+      if (!connectedNodes.has(nodeId)) {
+        rawWarnings.push({
+          code: ErrorCodes.DISCONNECTED_GRAPH_WARNING,
+          message: `Node '${nodeId}' is disconnected from the workflow graph.`,
+          nodeId,
+          edgeId: null,
+          field: null,
+        });
+      }
+    }
+  }
+
   return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
+    valid: rawErrors.length === 0,
+    errors: rawErrors.map(normalizeError),
+    warnings: rawWarnings.map(normalizeError),
   };
 }
 

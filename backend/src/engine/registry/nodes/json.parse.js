@@ -8,27 +8,41 @@ const { ErrorCodes, EngineError } = require("../../contracts/errors");
 
 module.exports = {
   type: "json.parse",
-  version: "1.0.0",
+  version: 1,
   category: "json",
   label: "JSON Parse",
   description: "Parses a valid JSON string into an object or primitive value",
   inputs: {
-    text: defineInputPort({ name: "text", type: PortTypes.STRING, required: true, description: "JSON string to parse" }),
+    input: defineInputPort({ name: "input", type: PortTypes.STRING, required: false, description: "JSON string to parse" }),
+    text: defineInputPort({ name: "text", type: PortTypes.STRING, required: false, description: "JSON string to parse (alias)" }),
   },
   outputs: {
-    data: defineOutputPort({ name: "data", type: PortTypes.ANY, description: "Parsed JSON data" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.ANY, description: "Parsed JSON data" }),
+    data: defineOutputPort({ name: "data", type: PortTypes.ANY, description: "Parsed JSON data (alias)" }),
+  },
+  configSchema: {
+    defaultText: {
+      type: "string",
+      required: false,
+      default: "{}",
+      description: "Default JSON string if input port is not provided",
+    },
   },
   validateConfig: () => ({ valid: true }),
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
+    const raw = inputs.input !== undefined
+      ? inputs.input
+      : (inputs.text !== undefined ? inputs.text : (node.config && node.config.defaultText ? node.config.defaultText : "{}"));
+
     try {
-      const parsed = JSON.parse(inputs.text);
-      return { data: parsed };
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return { output: parsed, data: parsed };
     } catch (err) {
       throw new EngineError(
         ErrorCodes.INVALID_JSON,
         `Failed to parse JSON string: ${err.message}`,
-        { nodeId: node && node.id, textSample: String(inputs.text).slice(0, 100) }
+        { nodeId: node && node.id, textSample: String(raw).slice(0, 100) }
       );
     }
   },

@@ -29,7 +29,7 @@ function isValueCompatibleWithType(value, declaredType) {
     case PortTypes.STRING:
       return typeof value === "string";
     case PortTypes.NUMBER:
-      return typeof value === "number" && !Number.isNaN(value);
+      return typeof value === "number" ? !Number.isNaN(value) : (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value)));
     case PortTypes.BOOLEAN:
       return typeof value === "boolean";
     case PortTypes.OBJECT:

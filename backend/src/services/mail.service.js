@@ -105,7 +105,25 @@ This link is valid for ${env.EMAIL_VERIFICATION_EXPIRATION_HOURS} hours. If you 
           ],
         });
 
-      return { sent: true, data: response.body, verificationUrl, token };
+      const message = response.body?.Messages?.[0];
+
+      console.log("Mailjet message status:", message?.Status);
+
+      if (message?.Status !== "success") {
+        console.error(
+          "Mailjet message errors:",
+          JSON.stringify(message?.Errors || [], null, 2)
+        );
+
+        return {
+          sent: false,
+          error: "Mailjet did not accept the message",
+        };
+      }
+
+      console.log("Mailjet accepted the verification email.");
+
+      return { sent: true, data: response.body };
     } catch (err) {
       console.error("Mailjet API send failure:", err && err.message ? err.message : err);
       // Fallback log so link isn't lost

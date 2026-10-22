@@ -212,8 +212,12 @@ async function executeWorkflow(workflow, options = {}) {
       await onTaskStateChange(runId, taskRecord);
 
       // If this is an output.return node, capture the final return value
-      if (currentNode.type === "output.return" && execResult.outputs.finalValue !== undefined) {
-        finalOutput = execResult.outputs.finalValue;
+      if (currentNode.type === "output.return") {
+        if (execResult.outputs.output !== undefined) {
+          finalOutput = execResult.outputs.output;
+        } else if (execResult.outputs.finalValue !== undefined) {
+          finalOutput = execResult.outputs.finalValue;
+        }
       }
 
       // Propagate readiness to downstream targets

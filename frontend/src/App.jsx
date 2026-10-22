@@ -3,11 +3,14 @@ import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import AuthModal from "./components/AuthModal";
 import ProfilePage from "./components/ProfilePage";
+import WorkflowList from "./components/workflow/WorkflowList";
+import WorkflowEditor from "./components/workflow/WorkflowEditor";
 import { api, BACKEND_URL } from "./services/api";
 
 export default function App() {
   const [user, setUser] = useState(api.currentUser);
-  const [activeView, setActiveView] = useState("home");
+  const [activeView, setActiveView] = useState("home"); // "home" | "workflows" | "workflow-editor" | "profile"
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState("login");
   const [authModalError, setAuthModalError] = useState(null);
@@ -50,7 +53,7 @@ export default function App() {
           if (res?.data) {
             api.setSession(token, refreshToken, res.data);
             setUser(res.data);
-            setActiveView("profile");
+            setActiveView("workflows");
             setAuthModalOpen(false);
           }
         })
@@ -78,7 +81,7 @@ export default function App() {
           if (res?.accessToken && res?.refreshToken) {
             api.setSession(res.accessToken, res.refreshToken, res.user);
             setUser(res.user);
-            setActiveView("profile");
+            setActiveView("workflows");
             setAuthModalOpen(false);
           } else {
             setAuthModalTab("login");
@@ -117,7 +120,7 @@ export default function App() {
 
   const handleAuthSuccess = (userData) => {
     setUser(userData);
-    setActiveView("profile");
+    setActiveView("workflows");
   };
 
   const handleLogout = async () => {
@@ -126,33 +129,56 @@ export default function App() {
     setActiveView("home");
   };
 
+  const handleOpenWorkflow = (id) => {
+    setSelectedWorkflowId(id);
+    setActiveView("workflow-editor");
+  };
+
+  const handleBackToWorkflows = () => {
+    setSelectedWorkflowId(null);
+    setActiveView("workflows");
+  };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <div className="ambient-bg" />
 
-      <Navbar 
-        user={user}
-        activeView={activeView}
-        setActiveView={setActiveView}
-        onOpenAuth={handleOpenAuth}
-        onLogout={handleLogout}
-        backendHealth={backendHealth}
-      />
+      {activeView !== "workflow-editor" && (
+        <Navbar 
+          user={user}
+          activeView={activeView}
+          setActiveView={setActiveView}
+          onOpenAuth={handleOpenAuth}
+          onLogout={handleLogout}
+          backendHealth={backendHealth}
+        />
+      )}
 
-      <main style={{ flex: 1 }}>
+      <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         {activeView === "home" ? (
           <Hero 
             user={user}
             onOpenAuth={handleOpenAuth}
-            onNavigateProfile={() => setActiveView("profile")}
+            onNavigateProfile={() => setActiveView(user ? "workflows" : "home")}
           />
-        ) : (
+        ) : activeView === "profile" ? (
           <ProfilePage 
             user={user}
             onUserUpdated={(updated) => setUser(updated)}
             onLogout={handleLogout}
           />
-        )}
+        ) : activeView === "workflows" ? (
+          <WorkflowList
+            user={user}
+            onOpenWorkflow={handleOpenWorkflow}
+            onOpenAuth={handleOpenAuth}
+          />
+        ) : activeView === "workflow-editor" ? (
+          <WorkflowEditor
+            workflowId={selectedWorkflowId}
+            onBack={handleBackToWorkflows}
+          />
+        ) : null}
       </main>
 
       <AuthModal 

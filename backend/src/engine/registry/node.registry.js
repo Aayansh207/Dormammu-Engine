@@ -111,8 +111,29 @@ class NodeRegistry {
       description: node.description,
       inputs: node.inputs,
       outputs: node.outputs,
+      configSchema: node.configSchema,
       capabilities: node.capabilities,
     }));
+  }
+
+  /**
+   * Returns serializable metadata for a single node type.
+   * @param {string} type
+   * @returns {Object}
+   */
+  getMetadata(type) {
+    const node = this.get(type);
+    return {
+      type: node.type,
+      version: node.version,
+      category: node.category,
+      label: node.label,
+      description: node.description,
+      inputs: node.inputs,
+      outputs: node.outputs,
+      configSchema: node.configSchema,
+      capabilities: node.capabilities,
+    };
   }
 
   /**
@@ -180,3 +201,10 @@ module.exports = {
   NodeRegistry,
   defaultRegistry,
 };
+
+// Auto-register core nodes into default singleton registry
+try {
+  require("./nodes");
+} catch (e) {
+  // Ignore in case of circular bootstrap
+}

@@ -1,26 +1,49 @@
 /**
  * Node: math.add
- * Computes a + b
+ * Computes a + b (or input + addend)
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
 
 module.exports = {
   type: "math.add",
-  version: "1.0.0",
-  category: "math",
+  version: 1,
+  category: "mathematical",
   label: "Add",
-  description: "Computes the sum of two numbers (a + b)",
+  description: "Computes the sum of numbers (a + b or input + addend)",
   inputs: {
-    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: true, description: "First number" }),
-    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: true, description: "Second number" }),
+    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "First number" }),
+    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "First number (a)" }),
+    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Second number (b)" }),
   },
   outputs: {
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Sum result" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Sum result" }),
+    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Sum result (alias)" }),
   },
-  validateConfig: () => ({ valid: true }),
+  configSchema: {
+    addend: {
+      type: "number",
+      required: false,
+      default: 0,
+      description: "Default number to add if port 'b' is not connected",
+    },
+  },
+  validateConfig: (config = {}) => {
+    if (config.addend !== undefined) {
+      if (typeof config.addend !== "number" || !Number.isFinite(config.addend)) {
+        return { valid: false, errors: ["Addend must be a finite number"], field: "config.addend" };
+      }
+    }
+    return { valid: true };
+  },
   capabilities: { pure: true, sideEffects: false, retryable: true },
-  handler: async (inputs) => {
-    return { result: Number(inputs.a) + Number(inputs.b) };
+  handler: async (inputs, node) => {
+    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const addend = inputs.b !== undefined
+      ? inputs.b
+      : (node.config && node.config.addend !== undefined ? node.config.addend : 0);
+
+    const sum = Number(rawVal || 0) + Number(addend || 0);
+    return { output: sum, result: sum };
   },
 };

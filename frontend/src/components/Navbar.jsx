@@ -161,6 +161,22 @@ export default function Navbar({
             Engine Home
           </button>
 
+          <button 
+            onClick={() => handleNavClick("workflows")}
+            style={{
+              background: "none",
+              border: "none",
+              color: activeView === "workflows" || activeView === "workflow-editor" ? "var(--primary-light)" : "var(--text-secondary)",
+              fontWeight: activeView === "workflows" || activeView === "workflow-editor" ? "600" : "500",
+              fontSize: "0.9rem",
+              cursor: "pointer",
+              transition: "color 0.2s ease",
+              padding: "6px 8px"
+            }}
+          >
+            Workflows
+          </button>
+
           {user && (
             <button 
               onClick={() => handleNavClick("profile")}
@@ -432,6 +448,28 @@ export default function Navbar({
                 >
                   <Home size={18} />
                   <span>Engine Home</span>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick("workflows")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    width: "100%",
+                    padding: "12px 14px",
+                    background: activeView === "workflows" || activeView === "workflow-editor" ? "rgba(124, 58, 237, 0.15)" : "transparent",
+                    border: "1px solid " + (activeView === "workflows" || activeView === "workflow-editor" ? "var(--primary-glow)" : "transparent"),
+                    borderRadius: "var(--radius-sm)",
+                    color: activeView === "workflows" || activeView === "workflow-editor" ? "var(--primary-light)" : "var(--text-primary)",
+                    fontWeight: activeView === "workflows" || activeView === "workflow-editor" ? "600" : "500",
+                    fontSize: "0.92rem",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <Layers size={18} />
+                  <span>Workflows</span>
                 </button>
 
                 <button

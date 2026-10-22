@@ -7,19 +7,43 @@ const { defineInputPort, defineOutputPort, PortTypes } = require("../../contract
 
 module.exports = {
   type: "output.return",
-  version: "1.0.0",
+  version: 1,
   category: "output",
-  label: "Workflow Return",
-  description: "Specifies the final return value of the entire workflow run",
+  label: "Return Output",
+  description: "Declares and returns the final workflow execution output",
   inputs: {
-    value: defineInputPort({ name: "value", type: PortTypes.ANY, required: true, description: "Final return value" }),
+    input: defineInputPort({
+      name: "input",
+      type: PortTypes.ANY,
+      required: false,
+      description: "Final return value",
+    }),
+    value: defineInputPort({
+      name: "value",
+      type: PortTypes.ANY,
+      required: false,
+      description: "Final return value (alias)",
+    }),
   },
   outputs: {
-    finalValue: defineOutputPort({ name: "finalValue", type: PortTypes.ANY, description: "Propagated final value" }),
+    output: defineOutputPort({
+      name: "output",
+      type: PortTypes.ANY,
+      description: "Final value propagated",
+    }),
+    finalValue: defineOutputPort({
+      name: "finalValue",
+      type: PortTypes.ANY,
+      description: "Final value propagated (alias)",
+    }),
   },
   validateConfig: () => ({ valid: true }),
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs) => {
-    return { finalValue: inputs.value };
+    const res = inputs.input !== undefined ? inputs.input : inputs.value;
+    return {
+      output: res,
+      finalValue: res,
+    };
   },
 };

@@ -248,11 +248,82 @@ class ApiService {
     return this.request(`/sessions/${id}`, { method: "DELETE" });
   }
 
-  async getLoginHistory(page = 1, limit = 20) {
-    return this.request(`/users/me/login-history?page=${page}&limit=${limit}`, {
+  // --- Workflows, Nodes & Runs ---
+
+  async listWorkflows() {
+    return this.request("/workflows", { method: "GET" });
+  }
+
+  async getWorkflow(id) {
+    return this.request(`/workflows/${id}`, { method: "GET" });
+  }
+
+  async createWorkflow(data) {
+    return this.request("/workflows", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateWorkflow(id, data) {
+    return this.request(`/workflows/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWorkflow(id) {
+    return this.request(`/workflows/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async validateSavedWorkflow(id) {
+    return this.request(`/workflows/${id}/validate`, {
+      method: "POST",
+    });
+  }
+
+  async validateRawWorkflow(definition) {
+    return this.request("/workflows/validate", {
+      method: "POST",
+      body: JSON.stringify({ definition }),
+    });
+  }
+
+  async executeWorkflow(id, payload = {}) {
+    return this.request(`/workflows/${id}/runs`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async listWorkflowRuns(id) {
+    return this.request(`/workflows/${id}/runs`, {
       method: "GET",
     });
+  }
+
+  async getRunDetails(runId) {
+    return this.request(`/runs/${runId}`, {
+      method: "GET",
+    });
+  }
+
+  async getRunTasks(runId) {
+    return this.request(`/runs/${runId}/tasks`, {
+      method: "GET",
+    });
+  }
+
+  async getNodeCatalogue() {
+    return this.request("/nodes", { method: "GET" });
+  }
+
+  async getNodeMetadata(type) {
+    return this.request(`/nodes/${type}`, { method: "GET" });
   }
 }
 
 export const api = new ApiService();
+

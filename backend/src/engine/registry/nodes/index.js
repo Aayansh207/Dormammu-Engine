@@ -1,5 +1,5 @@
 /**
- * Webster Execution Engine - Initial Core Node Library (16 Nodes)
+ * Webster Execution Engine - Initial Core Node Library
  */
 
 const { defaultRegistry } = require("../node.registry");
@@ -16,8 +16,12 @@ const mathRound = require("./math.round");
 const mathAbs = require("./math.abs");
 const mathMin = require("./math.min");
 const mathMax = require("./math.max");
+const mathAverage = require("./math.average");
 const jsonParse = require("./json.parse");
 const jsonGet = require("./json.get");
+const textConcat = require("./text.concat");
+const utilityUuid = require("./utility.uuid");
+const utilityDatetime = require("./utility.datetime");
 const outputLog = require("./output.log");
 const outputReturn = require("./output.return");
 
@@ -34,8 +38,12 @@ const coreNodes = [
   mathAbs,
   mathMin,
   mathMax,
+  mathAverage,
   jsonParse,
   jsonGet,
+  textConcat,
+  utilityUuid,
+  utilityDatetime,
   outputLog,
   outputReturn,
 ];

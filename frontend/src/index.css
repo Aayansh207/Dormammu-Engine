@@ -327,3 +327,89 @@ h1, h2, h3, h4, .font-heading {
   animation: slideDownMenu 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* ==========================================================================
+   Workflow Builder Styles
+   ========================================================================== */
+
+.workflow-canvas-grid {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.workflow-node {
+  background: rgba(15, 20, 32, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.workflow-node:hover {
+  border-color: rgba(144, 97, 249, 0.4);
+}
+
+.workflow-node.selected {
+  border-color: var(--primary-light);
+  box-shadow: 0 0 25px rgba(124, 58, 237, 0.45), 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.workflow-node.has-error {
+  border-color: rgba(244, 63, 94, 0.8) !important;
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.35) !important;
+}
+
+.port-handle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #07090e;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: crosshair;
+}
+
+.port-handle:hover {
+  transform: scale(1.35);
+  box-shadow: 0 0 10px currentColor;
+}
+
+.connection-curve {
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.connection-curve:hover {
+  stroke-width: 4px;
+  filter: drop-shadow(0 0 6px rgba(124, 58, 237, 0.8));
+}
+
+@keyframes errorPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.85;
+  }
+}
+
+.badge-error-pulse {
+  animation: errorPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes flowDash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.running-edge-dash {
+  stroke-dasharray: 6, 6;
+  animation: flowDash 0.8s linear infinite;
+}
+
+

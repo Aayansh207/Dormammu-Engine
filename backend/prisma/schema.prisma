@@ -22,6 +22,7 @@ model User {
   sessions           Session[]
   verificationTokens EmailVerificationToken[]
   loginHistory       LoginHistory[]
+  workflows          Workflow[]
 
   @@map("users")
 }
@@ -74,4 +75,72 @@ model LoginHistory {
   @@index([userId, createdAt])
   @@index([email, createdAt])
   @@map("login_history")
+}
+
+model Workflow {
+  id          String   @id @default(uuid())
+  ownerId     String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions WorkflowVersion[]
+
+  @@index([ownerId])
+  @@map("workflows")
+}
+
+model WorkflowVersion {
+  id             String   @id @default(uuid())
+  workflowId     String
+  version        Int
+  schemaVersion  String   @default("1.0")
+  definitionJson Json
+  createdAt      DateTime @default(now())
+
+  workflow Workflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  runs     WorkflowRun[]
+
+  @@unique([workflowId, version])
+  @@index([workflowId])
+  @@map("workflow_versions")
+}
+
+model WorkflowRun {
+  id                String    @id @default(uuid())
+  workflowVersionId String
+  status            String    @default("PENDING") // "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
+  input             Json?
+  output            Json?
+  error             Json?
+  startedAt         DateTime  @default(now())
+  finishedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  workflowVersion WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
+  taskRuns        TaskRun[]
+
+  @@index([workflowVersionId])
+  @@map("workflow_runs")
+}
+
+model TaskRun {
+  id            String    @id @default(uuid())
+  workflowRunId String
+  nodeId        String
+  status        String    @default("PENDING") // "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED"
+  attempts      Int       @default(1)
+  input         Json?
+  output        Json?
+  error         Json?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowRunId, nodeId])
+  @@index([workflowRunId])
+  @@map("task_runs")
 }
