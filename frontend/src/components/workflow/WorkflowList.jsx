@@ -22,7 +22,7 @@ const STARTER_TEMPLATES = [
     name: "Canonical Math Multiply",
     description: "Standard 3-node multiply chain (Manual Trigger -> Math Multiply -> Return)",
     icon: Calculator,
-    color: "#06b6d4",
+    color: "#39AEA9",
     definition: {
       schemaVersion: 1,
       name: "Canonical Math Multiply",
@@ -75,7 +75,7 @@ const STARTER_TEMPLATES = [
     name: "JSON Data Extractor",
     description: "Parse incoming JSON string and extract nested property",
     icon: FileJson,
-    color: "#8b5cf6",
+    color: "#557B83",
     definition: {
       schemaVersion: 1,
       name: "JSON Data Extractor",
@@ -143,7 +143,7 @@ const STARTER_TEMPLATES = [
     name: "Blank Canvas",
     description: "Start from a clean canvas with an initial Manual Trigger node ready to wire",
     icon: Workflow,
-    color: "#ff5d44",
+    color: "#39AEA9",
     definition: {
       schemaVersion: 1,
       name: "Untitled Workflow",

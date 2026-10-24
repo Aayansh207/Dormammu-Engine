@@ -155,7 +155,7 @@ export default function AuthModal({
             width: "48px",
             height: "48px",
             borderRadius: "14px",
-            background: "linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%)",
+            background: "linear-gradient(135deg, #39AEA9 0%, #A2D5AB 100%)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",

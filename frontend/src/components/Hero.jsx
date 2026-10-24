@@ -41,11 +41,11 @@ const DAG_PIPELINES = {
     description: "Standard 3-node multiply chain (Manual Trigger -> Math Multiply -> Return Output)",
     tag: "Math Multiply",
     nodes: [
-      { id: "n1", type: "trigger", title: "Manual Trigger", subtitle: "trigger.manual v1", icon: Zap, color: "#ff5d44", status: "idle" },
-      { id: "n2", type: "validator", title: "Topological Validator", subtitle: "Cycle Detection (DFS)", icon: ShieldCheck, color: "#06b6d4", status: "idle" },
-      { id: "n3", type: "queue", title: "Redis BullMQ Queue", subtitle: "Priority Enqueue", icon: Server, color: "#8b5cf6", status: "idle" },
-      { id: "n4", type: "worker", title: "Math Multiply Worker", subtitle: "math.multiply (factor: 5)", icon: Cpu, color: "#10b981", status: "idle" },
-      { id: "n5", type: "output", title: "Return Output (SSE)", subtitle: "output.return v1", icon: CheckCircle2, color: "#ff5d44", status: "idle" }
+      { id: "n1", type: "trigger", title: "Manual Trigger", subtitle: "trigger.manual v1", icon: Zap, color: "#39AEA9", status: "idle" },
+      { id: "n2", type: "validator", title: "Topological Validator", subtitle: "Cycle Detection (DFS)", icon: ShieldCheck, color: "#557B83", status: "idle" },
+      { id: "n3", type: "queue", title: "Redis BullMQ Queue", subtitle: "Priority Enqueue", icon: Server, color: "#39AEA9", status: "idle" },
+      { id: "n4", type: "worker", title: "Math Multiply Worker", subtitle: "math.multiply (factor: 5)", icon: Cpu, color: "#A2D5AB", status: "idle" },
+      { id: "n5", type: "output", title: "Return Output (SSE)", subtitle: "output.return v1", icon: CheckCircle2, color: "#39AEA9", status: "idle" }
     ],
     samplePayload: {
       input: { initialValue: 12 },
@@ -66,11 +66,11 @@ const DAG_PIPELINES = {
     description: "External HTTP webhook with transient failure recovery, exponential backoff, jitter, and dead-letter queue",
     tag: "Webhook & Recovery",
     nodes: [
-      { id: "n1", type: "trigger", title: "HTTP Webhook Endpoint", subtitle: "Native Fetch / Ingest", icon: Globe, color: "#ff5d44", status: "idle" },
-      { id: "n2", type: "validator", title: "Acyclicity & Schema Check", subtitle: "Contract Verification", icon: ShieldCheck, color: "#06b6d4", status: "idle" },
-      { id: "n3", type: "queue", title: "BullMQ Distributed Queue", subtitle: "Dead-Letter Path Guard", icon: Server, color: "#8b5cf6", status: "idle" },
-      { id: "n4", type: "recovery", title: "Transient Backoff & Retry", subtitle: "Bounded Jitter Backoff", icon: Repeat, color: "#f59e0b", status: "idle" },
-      { id: "n5", type: "output", title: "Persist & SSE Stream", subtitle: "PostgreSQL & SSE Canvas", icon: CheckCircle2, color: "#10b981", status: "idle" }
+      { id: "n1", type: "trigger", title: "HTTP Webhook Endpoint", subtitle: "Native Fetch / Ingest", icon: Globe, color: "#39AEA9", status: "idle" },
+      { id: "n2", type: "validator", title: "Acyclicity & Schema Check", subtitle: "Contract Verification", icon: ShieldCheck, color: "#557B83", status: "idle" },
+      { id: "n3", type: "queue", title: "BullMQ Distributed Queue", subtitle: "Dead-Letter Path Guard", icon: Server, color: "#39AEA9", status: "idle" },
+      { id: "n4", type: "recovery", title: "Transient Backoff & Retry", subtitle: "Bounded Jitter Backoff", icon: Repeat, color: "#557B83", status: "idle" },
+      { id: "n5", type: "output", title: "Persist & SSE Stream", subtitle: "PostgreSQL & SSE Canvas", icon: CheckCircle2, color: "#A2D5AB", status: "idle" }
     ],
     samplePayload: {
       webhookPayload: { event: "order.created", orderId: "ord_9942a", amount: 149.00 },
@@ -92,11 +92,11 @@ const DAG_PIPELINES = {
     description: "Multi-node DAG pipeline parsing nested JSON payload and extracting target values through strict topological dependency counts",
     tag: "JSON Transform",
     nodes: [
-      { id: "n1", type: "trigger", title: "Cron / Scheduled Run", subtitle: "cron-parser trigger", icon: Clock, color: "#ff5d44", status: "idle" },
-      { id: "n2", type: "validator", title: "Dependency Planner", subtitle: "Kahn's Topological Sort", icon: GitBranch, color: "#06b6d4", status: "idle" },
-      { id: "n3", type: "queue", title: "Redis Distributed Queue", subtitle: "Worker Concurrency Claim", icon: Server, color: "#8b5cf6", status: "idle" },
-      { id: "n4", type: "worker", title: "JSON Parse & Get", subtitle: "json.parse -> json.get", icon: FileCode, color: "#8b5cf6", status: "idle" },
-      { id: "n5", type: "output", title: "Return Result Stream", subtitle: "SSE Live Dispatch", icon: CheckCircle2, color: "#10b981", status: "idle" }
+      { id: "n1", type: "trigger", title: "Cron / Scheduled Run", subtitle: "cron-parser trigger", icon: Clock, color: "#39AEA9", status: "idle" },
+      { id: "n2", type: "validator", title: "Dependency Planner", subtitle: "Kahn's Topological Sort", icon: GitBranch, color: "#557B83", status: "idle" },
+      { id: "n3", type: "queue", title: "Redis Distributed Queue", subtitle: "Worker Concurrency Claim", icon: Server, color: "#39AEA9", status: "idle" },
+      { id: "n4", type: "worker", title: "JSON Parse & Get", subtitle: "json.parse -> json.get", icon: FileCode, color: "#557B83", status: "idle" },
+      { id: "n5", type: "output", title: "Return Result Stream", subtitle: "SSE Live Dispatch", icon: CheckCircle2, color: "#A2D5AB", status: "idle" }
     ],
     samplePayload: {
       inputJson: '{"user": {"name": "Alex Morgan", "role": "Senior Engineer", "org": "NexFlow Cloud"}}',
@@ -228,7 +228,7 @@ export default function Hero({ user, onOpenAuth, onNavigateProfile }) {
             style={{
               position: "relative",
               display: "inline-block",
-              background: "linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%)",
+              background: "linear-gradient(135deg, #39AEA9 0%, #A2D5AB 100%)",
               WebkitBackgroundClip: "text",
               backgroundClip: "text",
               WebkitTextFillColor: "transparent"
@@ -793,7 +793,7 @@ export default function Hero({ user, onOpenAuth, onNavigateProfile }) {
                   width: "30px",
                   height: "30px",
                   borderRadius: "8px",
-                  background: "linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%)",
+                  background: "linear-gradient(135deg, #39AEA9 0%, #A2D5AB 100%)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",

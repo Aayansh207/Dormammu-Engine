@@ -9,43 +9,53 @@
   --theme: light;
   --color-scheme: light;
 
+  /* Color Palette Definition */
+  --palette-cream: #E5EFC1;
+  --palette-mint: #A2D5AB;
+  --palette-teal: #39AEA9;
+  --palette-slate: #557B83;
+
   /* Surfaces & Backgrounds */
-  --bg-main: #fbfbfc;
-  --bg-secondary: #f4f5f8;
+  --bg-main: #f8faf8;
+  --bg-secondary: #edf3ed;
   --bg-card: #ffffff;
-  --bg-card-hover: #f8fafc;
-  --bg-card-translucent: rgba(255, 255, 255, 0.85);
+  --bg-card-hover: #f3f8f4;
+  --bg-card-translucent: rgba(255, 255, 255, 0.88);
   --bg-elevated: #ffffff;
   --bg-input: #ffffff;
   --bg-input-focus: #ffffff;
-  --bg-chip: #f1f3f7;
-  --bg-chip-hover: #e5e8ef;
+  --bg-chip: rgba(162, 213, 171, 0.22);
+  --bg-chip-hover: rgba(162, 213, 171, 0.38);
 
   /* Borders & Dividers */
-  --border-subtle: #e2e5eb;
-  --border-medium: #cbd2dc;
-  --border-strong: #94a3b8;
-  --border-glow: rgba(255, 93, 68, 0.25);
+  --border-subtle: rgba(85, 123, 131, 0.18);
+  --border-medium: rgba(85, 123, 131, 0.32);
+  --border-strong: #557B83;
+  --border-glow: rgba(57, 174, 169, 0.28);
 
-  /* Brand Palette (n8n signature coral-orange / modern SaaS) */
-  --brand: #ff5d44;
-  --brand-hover: #f04e35;
-  --brand-active: #d93d25;
-  --brand-light: #fff2ef;
-  --brand-border: #ffd3cc;
-  --brand-glow: rgba(255, 93, 68, 0.28);
+  /* Brand Palette (Teal & Sage Green modern palette) */
+  --brand: #39AEA9;
+  --brand-hover: #2e948f;
+  --brand-active: #257b77;
+  --brand-light: rgba(57, 174, 169, 0.12);
+  --brand-border: #A2D5AB;
+  --brand-glow: rgba(57, 174, 169, 0.3);
 
-  --primary: #ff5d44;
-  --primary-light: #ff7c68;
-  --primary-dark: #e0442c;
-  --primary-glow: rgba(255, 93, 68, 0.25);
+  --primary: #39AEA9;
+  --primary-light: #A2D5AB;
+  --primary-dark: #557B83;
+  --primary-glow: rgba(57, 174, 169, 0.25);
+
+  --secondary: #557B83;
+  --secondary-hover: #486970;
+  --secondary-light: rgba(85, 123, 131, 0.12);
 
   /* Secondary Accents */
-  --accent-purple: #7c3aed;
-  --accent-purple-light: #ede9fe;
-  --accent-cyan: #0284c7;
-  --accent-cyan-light: #e0f2fe;
-  --accent-emerald: #059669;
+  --accent-purple: #557B83;
+  --accent-purple-light: rgba(85, 123, 131, 0.15);
+  --accent-cyan: #39AEA9;
+  --accent-cyan-light: rgba(57, 174, 169, 0.14);
+  --accent-emerald: #10b981;
   --accent-emerald-light: #ecfdf5;
   --accent-rose: #e11d48;
   --accent-rose-light: #ffe4e6;
@@ -53,35 +63,35 @@
   --accent-amber-light: #fef3c7;
 
   /* Typography */
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-light: #94a3b8;
+  --text-primary: #152224;
+  --text-secondary: #41575b;
+  --text-muted: #668085;
+  --text-light: #8ea3a7;
   --text-inverse: #ffffff;
 
   /* Navigation & Canvas */
-  --nav-bg: rgba(251, 251, 252, 0.82);
-  --nav-border: rgba(226, 229, 235, 0.8);
-  --dot-grid-color: rgba(15, 23, 42, 0.08);
+  --nav-bg: rgba(248, 250, 248, 0.85);
+  --nav-border: rgba(85, 123, 131, 0.2);
+  --dot-grid-color: rgba(85, 123, 131, 0.14);
 
   /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.06), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 12px 24px -4px rgba(0, 0, 0, 0.08), 0 4px 8px -2px rgba(0, 0, 0, 0.03);
-  --shadow-xl: 0 24px 48px -12px rgba(0, 0, 0, 0.12);
-  --shadow-card: 0 10px 30px -8px rgba(15, 23, 42, 0.08);
+  --shadow-xs: 0 1px 2px rgba(21, 34, 36, 0.05);
+  --shadow-sm: 0 1px 3px rgba(21, 34, 36, 0.06), 0 1px 2px rgba(21, 34, 36, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(21, 34, 36, 0.07), 0 2px 6px -1px rgba(21, 34, 36, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(21, 34, 36, 0.09), 0 4px 8px -2px rgba(21, 34, 36, 0.04);
+  --shadow-xl: 0 24px 48px -12px rgba(21, 34, 36, 0.14);
+  --shadow-card: 0 10px 30px -8px rgba(21, 34, 36, 0.08);
 
   /* Workflow Canvas Specific */
-  --canvas-bg: #f8fafc;
-  --canvas-grid-dot: rgba(71, 85, 105, 0.18);
+  --canvas-bg: #f3f7f3;
+  --canvas-grid-dot: rgba(85, 123, 131, 0.2);
   --node-bg: #ffffff;
-  --node-border: #e2e8f0;
-  --node-header-bg: #f8fafc;
-  --node-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
-  --node-shadow-selected: 0 0 0 2px #ff5d44, 0 12px 28px -4px rgba(255, 93, 68, 0.25);
-  --wire-default: #cbd5e1;
-  --wire-active: #ff5d44;
+  --node-border: rgba(85, 123, 131, 0.22);
+  --node-header-bg: #f3f8f4;
+  --node-shadow: 0 8px 24px -4px rgba(21, 34, 36, 0.08);
+  --node-shadow-selected: 0 0 0 2px #39AEA9, 0 12px 28px -4px rgba(57, 174, 169, 0.32);
+  --wire-default: #b0c4c2;
+  --wire-active: #39AEA9;
 
   /* Fonts */
   --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -101,79 +111,89 @@
   --theme: dark;
   --color-scheme: dark;
 
-  /* Surfaces & Backgrounds */
-  --bg-main: #090d16;
-  --bg-secondary: #0f1524;
-  --bg-card: rgba(17, 24, 39, 0.85);
-  --bg-card-hover: rgba(25, 34, 55, 0.95);
-  --bg-card-translucent: rgba(17, 24, 39, 0.8);
-  --bg-elevated: #162033;
-  --bg-input: rgba(14, 20, 32, 0.9);
-  --bg-input-focus: rgba(18, 26, 42, 1);
-  --bg-chip: rgba(255, 255, 255, 0.06);
-  --bg-chip-hover: rgba(255, 255, 255, 0.12);
+  /* Color Palette Definition */
+  --palette-cream: #E5EFC1;
+  --palette-mint: #A2D5AB;
+  --palette-teal: #39AEA9;
+  --palette-slate: #557B83;
+
+  /* Surfaces & Backgrounds (Dark moody slate from palette background) */
+  --bg-main: #0e1516;
+  --bg-secondary: #141d1f;
+  --bg-card: rgba(19, 29, 31, 0.88);
+  --bg-card-hover: rgba(26, 40, 43, 0.95);
+  --bg-card-translucent: rgba(19, 29, 31, 0.82);
+  --bg-elevated: #1c2b2e;
+  --bg-input: rgba(14, 23, 25, 0.92);
+  --bg-input-focus: rgba(20, 33, 36, 1);
+  --bg-chip: rgba(162, 213, 171, 0.10);
+  --bg-chip-hover: rgba(162, 213, 171, 0.20);
 
   /* Borders & Dividers */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-medium: rgba(255, 255, 255, 0.15);
-  --border-strong: rgba(255, 255, 255, 0.25);
-  --border-glow: rgba(255, 109, 90, 0.35);
+  --border-subtle: rgba(85, 123, 131, 0.25);
+  --border-medium: rgba(85, 123, 131, 0.42);
+  --border-strong: rgba(162, 213, 171, 0.45);
+  --border-glow: rgba(57, 174, 169, 0.4);
 
   /* Brand Palette */
-  --brand: #ff6d5a;
-  --brand-hover: #ff8271;
-  --brand-active: #f0523e;
-  --brand-light: rgba(255, 109, 90, 0.15);
-  --brand-border: rgba(255, 109, 90, 0.35);
-  --brand-glow: rgba(255, 109, 90, 0.35);
+  --brand: #39AEA9;
+  --brand-hover: #48c1bc;
+  --brand-active: #319e9a;
+  --brand-light: rgba(57, 174, 169, 0.18);
+  --brand-border: rgba(57, 174, 169, 0.42);
+  --brand-glow: rgba(57, 174, 169, 0.4);
 
-  --primary: #ff6d5a;
-  --primary-light: #ff8a7a;
-  --primary-dark: #ea4d37;
-  --primary-glow: rgba(255, 109, 90, 0.35);
+  --primary: #39AEA9;
+  --primary-light: #A2D5AB;
+  --primary-dark: #557B83;
+  --primary-glow: rgba(57, 174, 169, 0.38);
+
+  --secondary: #557B83;
+  --secondary-hover: #67929c;
+  --secondary-light: rgba(85, 123, 131, 0.25);
 
   /* Secondary Accents */
-  --accent-purple: #a78bfa;
-  --accent-purple-light: rgba(167, 139, 250, 0.15);
-  --accent-cyan: #38bdf8;
-  --accent-cyan-light: rgba(56, 189, 248, 0.15);
-  --accent-emerald: #34d399;
-  --accent-emerald-light: rgba(52, 211, 153, 0.15);
+  --accent-purple: #557B83;
+  --accent-purple-light: rgba(85, 123, 131, 0.2);
+  --accent-cyan: #39AEA9;
+  --accent-cyan-light: rgba(57, 174, 169, 0.2);
+  --accent-emerald: #A2D5AB;
+  --accent-emerald-light: rgba(162, 213, 171, 0.18);
   --accent-rose: #fb7185;
   --accent-rose-light: rgba(251, 113, 133, 0.15);
   --accent-amber: #fbbf24;
   --accent-amber-light: rgba(251, 191, 36, 0.15);
 
   /* Typography */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-light: #475569;
-  --text-inverse: #0f172a;
+  --text-primary: #f3f8f5;
+  --text-secondary: #9ab3b5;
+  --text-muted: #688285;
+  --text-light: #4e6568;
+  --text-inverse: #0e1516;
 
   /* Navigation & Canvas */
-  --nav-bg: rgba(9, 13, 22, 0.82);
-  --nav-border: rgba(255, 255, 255, 0.08);
-  --dot-grid-color: rgba(255, 255, 255, 0.08);
+  --nav-bg: rgba(14, 21, 22, 0.85);
+  --nav-border: rgba(85, 123, 131, 0.28);
+  --dot-grid-color: rgba(162, 213, 171, 0.12);
 
   /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.55);
-  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.65);
-  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.75);
-  --shadow-card: 0 12px 36px rgba(0, 0, 0, 0.6);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.7);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 12px 36px rgba(0, 0, 0, 0.65);
 
   /* Workflow Canvas Specific */
-  --canvas-bg: #090d16;
-  --canvas-grid-dot: rgba(255, 255, 255, 0.08);
-  --node-bg: rgba(17, 24, 39, 0.95);
-  --node-border: rgba(255, 255, 255, 0.12);
-  --node-header-bg: rgba(14, 20, 34, 0.9);
-  --node-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  --node-shadow-selected: 0 0 0 2px #ff6d5a, 0 12px 30px rgba(255, 109, 90, 0.35);
-  --wire-default: rgba(255, 255, 255, 0.2);
-  --wire-active: #ff6d5a;
+  --canvas-bg: #0a1012;
+  --canvas-grid-dot: rgba(85, 123, 131, 0.25);
+  --node-bg: rgba(19, 29, 31, 0.95);
+  --node-border: rgba(85, 123, 131, 0.35);
+  --node-header-bg: rgba(14, 23, 25, 0.9);
+  --node-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  --node-shadow-selected: 0 0 0 2px #39AEA9, 0 12px 30px rgba(57, 174, 169, 0.45);
+  --wire-default: rgba(85, 123, 131, 0.45);
+  --wire-active: #39AEA9;
 }
 
 /* ==========================================================================
@@ -257,8 +277,8 @@ body {
   z-index: 0;
   background: radial-gradient(
     ellipse at center,
-    rgba(255, 93, 68, 0.12) 0%,
-    rgba(124, 58, 237, 0.08) 40%,
+    rgba(57, 174, 169, 0.16) 0%,
+    rgba(85, 123, 131, 0.10) 40%,
     transparent 70%
   );
   filter: blur(40px);
@@ -267,8 +287,8 @@ body {
 [data-theme="dark"] .hero-radial-glow {
   background: radial-gradient(
     ellipse at center,
-    rgba(255, 109, 90, 0.18) 0%,
-    rgba(124, 58, 237, 0.14) 40%,
+    rgba(57, 174, 169, 0.22) 0%,
+    rgba(85, 123, 131, 0.16) 40%,
     transparent 70%
   );
 }
@@ -297,21 +317,28 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 }
 
 .gradient-brand {
-  background: linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%);
+  background: linear-gradient(135deg, #39AEA9 0%, #A2D5AB 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .gradient-accent {
-  background: linear-gradient(135deg, #ff5d44 0%, #a855f7 100%);
+  background: linear-gradient(135deg, #39AEA9 0%, #557B83 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-cream-mint {
+  background: linear-gradient(135deg, #E5EFC1 0%, #A2D5AB 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 /* ==========================================================================
-   BUTTONS (n8n signature pill buttons & interactions)
+   BUTTONS (Signature pill buttons & interactions)
    ========================================================================== */
 
 .btn {
@@ -343,16 +370,16 @@ h1, h2, h3, h4, h5, h6, .font-heading {
   transform: none !important;
 }
 
-/* Primary Button: n8n Signature Coral */
+/* Primary Button: Palette Teal */
 .btn-primary {
-  background: linear-gradient(135deg, var(--brand) 0%, #ff7a45 100%);
+  background: linear-gradient(135deg, #39AEA9 0%, #2e948f 100%);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.15);
   box-shadow: 0 4px 14px var(--brand-glow), 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--brand-hover) 0%, #f96d38 100%);
+  background: linear-gradient(135deg, #42bfba 0%, #359f9a 100%);
   box-shadow: 0 6px 20px var(--brand-glow), 0 2px 6px rgba(0, 0, 0, 0.12);
   transform: translateY(-1.5px);
 }
@@ -374,22 +401,33 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 
 /* Dark Contrast Button in Light Theme */
 .btn-dark {
-  background: #0f172a;
+  background: #152224;
   color: #ffffff;
-  border-color: #0f172a;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+  border-color: #152224;
+  box-shadow: 0 4px 12px rgba(21, 34, 36, 0.25);
 }
 
 [data-theme="dark"] .btn-dark {
-  background: #ffffff;
-  color: #0f172a;
-  border-color: #ffffff;
+  background: var(--palette-cream);
+  color: #152224;
+  border-color: var(--palette-cream);
 }
 
 .btn-dark:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  filter: brightness(1.1);
+  filter: brightness(1.08);
 }
+
+/* Palette Quick Utilities */
+.bg-cream { background-color: var(--palette-cream) !important; }
+.bg-mint { background-color: var(--palette-mint) !important; }
+.bg-teal { background-color: var(--palette-teal) !important; }
+.bg-slate { background-color: var(--palette-slate) !important; }
+
+.text-cream { color: var(--palette-cream) !important; }
+.text-mint { color: var(--palette-mint) !important; }
+.text-teal { color: var(--palette-teal) !important; }
+.text-slate { color: var(--palette-slate) !important; }
 
 /* Ghost Button */
 .btn-ghost {

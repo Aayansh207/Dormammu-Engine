@@ -100,7 +100,7 @@ export default function RunExecutionModal({
                 width: "32px",
                 height: "32px",
                 borderRadius: "8px",
-                background: "linear-gradient(135deg, #ff5d44, #ff8c42)",
+                background: "linear-gradient(135deg, #39AEA9, #A2D5AB)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",

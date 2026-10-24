@@ -11,12 +11,12 @@ import {
 import { CATEGORY_META } from "./NodePalette";
 
 const PORT_TYPE_COLORS = {
-  number: "#06b6d4",
-  string: "#10b981",
-  boolean: "#f59e0b",
-  object: "#8b5cf6",
-  array: "#ec4899",
-  any: "#94a3b8",
+  number: "#39AEA9",
+  string: "#A2D5AB",
+  boolean: "#E5EFC1",
+  object: "#557B83",
+  array: "#39AEA9",
+  any: "#9ab3b5",
 };
 
 export default function NodeCard({
@@ -73,7 +73,7 @@ export default function NodeCard({
         style={{
           height: "4px",
           width: "100%",
-          background: `linear-gradient(90deg, ${catMeta.color} 0%, rgba(124, 58, 237, 0.4) 100%)`,
+          background: `linear-gradient(90deg, ${catMeta.color} 0%, rgba(85, 123, 131, 0.4) 100%)`,
           borderTopLeftRadius: "11px",
           borderTopRightRadius: "11px",
         }}
