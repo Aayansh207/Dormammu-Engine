@@ -36,7 +36,7 @@ function createExecutionPlan(workflow, registry = defaultRegistry) {
     const nodeClone = {
       id: rawNode.id,
       type: rawNode.type,
-      version: rawNode.version || "1.0.0",
+      version: rawNode.version !== undefined ? rawNode.version : 1,
       name: rawNode.name || rawNode.id,
       position: rawNode.position ? { ...rawNode.position } : undefined,
       config: rawNode.config ? JSON.parse(JSON.stringify(rawNode.config)) : {},
