@@ -91,8 +91,9 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
         width: isOpen ? "300px" : "0px",
         minWidth: isOpen ? "300px" : "0px",
         height: "100%",
-        background: "rgba(10, 13, 22, 0.95)",
+        background: "var(--bg-card)",
         backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
         borderRight: "1px solid var(--border-subtle)",
         display: "flex",
         flexDirection: "column",
@@ -105,12 +106,12 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
       <div style={{ padding: "16px", borderBottom: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "12px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--primary-light)" }} />
-            <h3 style={{ fontSize: "0.95rem", fontWeight: "700", letterSpacing: "-0.01em" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--brand)" }} />
+            <h3 style={{ fontSize: "0.95rem", fontWeight: "700", letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
               Node Catalogue
             </h3>
           </div>
-          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", background: "rgba(255,255,255,0.06)", padding: "2px 8px", borderRadius: "10px" }}>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", background: "var(--bg-chip)", padding: "2px 8px", borderRadius: "10px" }}>
             {catalogue.length} Available
           </span>
         </div>
@@ -123,15 +124,10 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
             placeholder="Search nodes (e.g. multiply, json)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            className="input-control"
             style={{
-              width: "100%",
-              padding: "8px 10px 8px 32px",
-              background: "rgba(255, 255, 255, 0.05)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
+              padding: "7px 10px 7px 32px",
               fontSize: "0.82rem",
-              outline: "none",
             }}
           />
         </div>
@@ -152,9 +148,9 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
                   fontSize: "0.72rem",
                   fontWeight: isSelected ? "600" : "500",
                   whiteSpace: "nowrap",
-                  background: isSelected ? "var(--primary)" : "rgba(255, 255, 255, 0.05)",
+                  background: isSelected ? "var(--brand)" : "var(--bg-chip)",
                   color: isSelected ? "#ffffff" : "var(--text-secondary)",
-                  border: isSelected ? "1px solid var(--primary-light)" : "1px solid var(--border-subtle)",
+                  border: isSelected ? "1px solid var(--brand)" : "1px solid var(--border-subtle)",
                   cursor: "pointer",
                   transition: "all 0.15s ease",
                 }}
@@ -182,7 +178,7 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
                 key={node.type}
                 onClick={() => onAddNode(node)}
                 style={{
-                  background: "rgba(255, 255, 255, 0.03)",
+                  background: "var(--bg-secondary)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: "10px",
                   padding: "10px 12px",
@@ -196,12 +192,12 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = meta.color;
                   e.currentTarget.style.transform = "translateX(4px)";
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
+                  e.currentTarget.style.background = "var(--bg-chip-hover)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = "var(--border-subtle)";
                   e.currentTarget.style.transform = "translateX(0px)";
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                  e.currentTarget.style.background = "var(--bg-secondary)";
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

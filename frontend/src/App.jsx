@@ -159,7 +159,7 @@ export default function App() {
           <Hero 
             user={user}
             onOpenAuth={handleOpenAuth}
-            onNavigateProfile={() => setActiveView(user ? "workflows" : "home")}
+            onNavigateProfile={() => setActiveView("workflows")}
           />
         ) : activeView === "profile" ? (
           <ProfilePage 

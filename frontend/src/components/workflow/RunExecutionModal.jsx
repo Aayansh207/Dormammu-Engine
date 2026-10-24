@@ -100,7 +100,7 @@ export default function RunExecutionModal({
                 width: "32px",
                 height: "32px",
                 borderRadius: "8px",
-                background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+                background: "linear-gradient(135deg, #ff5d44, #ff8c42)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -131,7 +131,7 @@ export default function RunExecutionModal({
         </div>
 
         {/* Tab switch */}
-        <div style={{ display: "flex", borderBottom: "1px solid var(--border-subtle)", background: "rgba(0,0,0,0.2)" }}>
+        <div style={{ display: "flex", borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-secondary)" }}>
           <button
             onClick={() => setActiveTab("trigger")}
             style={{
@@ -139,8 +139,8 @@ export default function RunExecutionModal({
               padding: "10px",
               background: "transparent",
               border: "none",
-              borderBottom: activeTab === "trigger" ? "2px solid var(--primary-light)" : "2px solid transparent",
-              color: activeTab === "trigger" ? "#ffffff" : "var(--text-muted)",
+              borderBottom: activeTab === "trigger" ? "2px solid var(--brand)" : "2px solid transparent",
+              color: activeTab === "trigger" ? "var(--text-primary)" : "var(--text-muted)",
               fontWeight: "600",
               fontSize: "0.85rem",
               cursor: "pointer",
@@ -155,8 +155,8 @@ export default function RunExecutionModal({
               padding: "10px",
               background: "transparent",
               border: "none",
-              borderBottom: activeTab === "results" ? "2px solid var(--primary-light)" : "2px solid transparent",
-              color: activeTab === "results" ? "#ffffff" : "var(--text-muted)",
+              borderBottom: activeTab === "results" ? "2px solid var(--brand)" : "2px solid transparent",
+              color: activeTab === "results" ? "var(--text-primary)" : "var(--text-muted)",
               fontWeight: "600",
               fontSize: "0.85rem",
               cursor: "pointer",
@@ -189,13 +189,13 @@ export default function RunExecutionModal({
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button
                     onClick={() => setTriggerInput("10")}
-                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
                   >
                     Number 10
                   </button>
                   <button
                     onClick={() => setTriggerInput('{"userId": "usr_99", "amount": 250}')}
-                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
                   >
                     JSON Object
                   </button>
@@ -210,7 +210,7 @@ export default function RunExecutionModal({
                 style={{
                   width: "100%",
                   padding: "12px",
-                  background: "rgba(0, 0, 0, 0.4)",
+                  background: "var(--bg-input)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: "10px",
                   color: "var(--text-primary)",

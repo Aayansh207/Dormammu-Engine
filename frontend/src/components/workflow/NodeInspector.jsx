@@ -54,8 +54,9 @@ export default function NodeInspector({
         width: "320px",
         minWidth: "320px",
         height: "100%",
-        background: "rgba(10, 13, 22, 0.95)",
+        background: "var(--bg-card)",
         backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
         borderLeft: "1px solid var(--border-subtle)",
         display: "flex",
         flexDirection: "column",
@@ -191,7 +192,7 @@ export default function NodeInspector({
                       onChange={(e) => handleConfigChange(key, e.target.value === "" ? "" : Number(e.target.value))}
                       style={{
                         padding: "8px 10px",
-                        background: "rgba(255, 255, 255, 0.05)",
+                        background: "var(--bg-input)",
                         border: `1px solid ${fieldError ? "#f43f5e" : "var(--border-subtle)"}`,
                         borderRadius: "8px",
                         color: "var(--text-primary)",
@@ -205,7 +206,7 @@ export default function NodeInspector({
                       onChange={(e) => handleConfigChange(key, e.target.value)}
                       style={{
                         padding: "8px 10px",
-                        background: "#0f1420",
+                        background: "var(--bg-card)",
                         border: `1px solid ${fieldError ? "#f43f5e" : "var(--border-subtle)"}`,
                         borderRadius: "8px",
                         color: "var(--text-primary)",
@@ -237,7 +238,7 @@ export default function NodeInspector({
                       }}
                       style={{
                         padding: "8px 10px",
-                        background: "rgba(255, 255, 255, 0.05)",
+                        background: "var(--bg-input)",
                         border: `1px solid ${fieldError ? "#f43f5e" : "var(--border-subtle)"}`,
                         borderRadius: "8px",
                         color: "var(--text-primary)",
@@ -254,7 +255,7 @@ export default function NodeInspector({
                       onChange={(e) => handleConfigChange(key, e.target.value)}
                       style={{
                         padding: "8px 10px",
-                        background: "rgba(255, 255, 255, 0.05)",
+                        background: "var(--bg-input)",
                         border: `1px solid ${fieldError ? "#f43f5e" : "var(--border-subtle)"}`,
                         borderRadius: "8px",
                         color: "var(--text-primary)",

@@ -91,7 +91,7 @@ export default function NodeCard({
           alignItems: "center",
           justifyContent: "space-between",
           cursor: "grab",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+          borderBottom: "1px solid var(--border-subtle)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
@@ -226,7 +226,7 @@ export default function NodeCard({
                 <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
                   {portName}
                 </span>
-                <span style={{ fontSize: "0.62rem", color: typeColor, background: "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: "4px" }}>
+                <span style={{ fontSize: "0.62rem", color: typeColor, background: "var(--bg-chip)", padding: "1px 5px", borderRadius: "4px" }}>
                   {portDef.type}
                 </span>
               </div>
@@ -249,7 +249,7 @@ export default function NodeCard({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontSize: "0.62rem", color: typeColor, background: "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: "4px" }}>
+                <span style={{ fontSize: "0.62rem", color: typeColor, background: "var(--bg-chip)", padding: "1px 5px", borderRadius: "4px" }}>
                   {portDef.type}
                 </span>
                 <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
@@ -283,8 +283,8 @@ export default function NodeCard({
       {node.config && Object.keys(node.config).length > 0 && (
         <div style={{
           padding: "6px 12px 8px 12px",
-          borderTop: "1px solid rgba(255, 255, 255, 0.04)",
-          background: "rgba(0, 0, 0, 0.2)",
+          borderTop: "1px solid var(--border-subtle)",
+          background: "var(--bg-secondary)",
           fontSize: "0.68rem",
           color: "var(--text-muted)",
           display: "flex",

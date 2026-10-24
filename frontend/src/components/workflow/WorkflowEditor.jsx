@@ -450,8 +450,9 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         style={{
           height: "56px",
           borderBottom: "1px solid var(--border-subtle)",
-          background: "rgba(10, 13, 22, 0.9)",
+          background: "var(--bg-card)",
           backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -465,11 +466,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             onClick={onBack}
             title="Back to workflows"
             style={{
-              padding: "6px 10px",
-              background: "rgba(255, 255, 255, 0.05)",
+              padding: "6px 12px",
+              background: "var(--bg-secondary)",
               border: "1px solid var(--border-subtle)",
-              borderRadius: "8px",
-              color: "var(--text-secondary)",
+              borderRadius: "var(--radius-full)",
+              color: "var(--text-primary)",
               display: "flex",
               alignItems: "center",
               gap: "6px",
@@ -486,11 +487,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             onClick={() => setIsPaletteOpen(!isPaletteOpen)}
             title="Toggle Node Catalogue"
             style={{
-              padding: "6px 8px",
-              background: isPaletteOpen ? "rgba(124, 58, 237, 0.2)" : "rgba(255, 255, 255, 0.05)",
-              border: `1px solid ${isPaletteOpen ? "rgba(124, 58, 237, 0.4)" : "var(--border-subtle)"}`,
-              borderRadius: "8px",
-              color: isPaletteOpen ? "var(--primary-light)" : "var(--text-secondary)",
+              padding: "6px 10px",
+              background: isPaletteOpen ? "var(--brand-light)" : "var(--bg-secondary)",
+              border: `1px solid ${isPaletteOpen ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              borderRadius: "var(--radius-sm)",
+              color: isPaletteOpen ? "var(--brand)" : "var(--text-secondary)",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -510,7 +511,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               style={{
                 background: "transparent",
                 border: "none",
-                borderBottom: "1px dashed rgba(255, 255, 255, 0.2)",
+                borderBottom: "1px dashed var(--border-medium)",
                 color: "var(--text-primary)",
                 fontSize: "1.05rem",
                 fontWeight: "700",
@@ -526,9 +527,9 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                 fontWeight: "700",
                 padding: "2px 8px",
                 borderRadius: "10px",
-                background: "rgba(124, 58, 237, 0.2)",
-                color: "var(--primary-light)",
-                border: "1px solid rgba(124, 58, 237, 0.3)",
+                background: "var(--brand-light)",
+                color: "var(--brand)",
+                border: "1px solid var(--brand-border)",
               }}
             >
               v{workflowVersion}
@@ -588,17 +589,17 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             disabled={isSaving}
             style={{
               padding: "7px 14px",
-              background: isDirty ? "var(--primary)" : "rgba(255, 255, 255, 0.08)",
-              border: `1px solid ${isDirty ? "var(--primary-light)" : "var(--border-subtle)"}`,
-              borderRadius: "8px",
-              color: "#ffffff",
+              background: isDirty ? "var(--brand)" : "var(--bg-secondary)",
+              border: `1px solid ${isDirty ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              borderRadius: "var(--radius-sm)",
+              color: isDirty ? "#ffffff" : "var(--text-secondary)",
               fontSize: "0.85rem",
               fontWeight: "600",
               cursor: isSaving ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              boxShadow: isDirty ? "0 0 14px var(--primary-glow)" : "none",
+              boxShadow: isDirty ? "0 0 14px var(--brand-glow)" : "none",
               transition: "all 0.2s ease",
             }}
           >
@@ -609,19 +610,12 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           {/* Run Button */}
           <button
             onClick={() => setIsRunModalOpen(true)}
+            className="btn btn-primary"
             style={{
               padding: "7px 18px",
-              background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
-              border: "none",
-              borderRadius: "8px",
-              color: "#ffffff",
               fontSize: "0.88rem",
-              fontWeight: "700",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              boxShadow: "0 0 20px rgba(124, 58, 237, 0.4)",
+              height: "36px",
+              borderRadius: "var(--radius-full)"
             }}
           >
             <Play size={14} fill="#ffffff" />
@@ -662,8 +656,9 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               position: "absolute",
               bottom: "20px",
               right: selectedNode ? "340px" : "20px",
-              background: "rgba(15, 20, 32, 0.9)",
+              background: "var(--bg-card)",
               backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
               border: "1px solid var(--border-subtle)",
               borderRadius: "10px",
               padding: "4px",
@@ -671,7 +666,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               alignItems: "center",
               gap: "4px",
               zIndex: 20,
-              boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+              boxShadow: "var(--shadow-md)",
               transition: "right 0.2s ease",
             }}
           >

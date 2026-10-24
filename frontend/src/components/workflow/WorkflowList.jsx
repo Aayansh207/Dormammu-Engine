@@ -20,7 +20,7 @@ const STARTER_TEMPLATES = [
   {
     id: "canonical_math",
     name: "Canonical Math Multiply",
-    description: "Standard 3-node multiply chain from Webster specification (Trigger -> Math Multiply -> Return)",
+    description: "Standard 3-node multiply chain (Manual Trigger -> Math Multiply -> Return)",
     icon: Calculator,
     color: "#06b6d4",
     definition: {
@@ -141,13 +141,22 @@ const STARTER_TEMPLATES = [
   {
     id: "blank",
     name: "Blank Canvas",
-    description: "Start from a clean canvas with no pre-configured nodes",
+    description: "Start from a clean canvas with an initial Manual Trigger node ready to wire",
     icon: Workflow,
-    color: "#7c3aed",
+    color: "#ff5d44",
     definition: {
       schemaVersion: 1,
       name: "Untitled Workflow",
-      nodes: [],
+      nodes: [
+        {
+          id: "trigger_01",
+          type: "trigger.manual",
+          version: 1,
+          name: "Manual Trigger",
+          position: { x: 160, y: 180 },
+          config: {},
+        },
+      ],
       edges: [],
     },
   },
@@ -224,10 +233,10 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
     return (
       <div style={{ maxWidth: "800px", margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
         <div className="glass-panel" style={{ padding: "40px" }}>
-          <Workflow size={48} color="var(--primary-light)" style={{ margin: "0 auto 16px auto" }} />
-          <h2 style={{ fontSize: "1.6rem", fontWeight: "800", marginBottom: "8px" }}>Sign In to Webster Workflows</h2>
+          <Workflow size={48} color="var(--brand)" style={{ margin: "0 auto 16px auto" }} />
+          <h2 style={{ fontSize: "1.6rem", fontWeight: "800", marginBottom: "8px", color: "var(--text-primary)" }}>Sign In to NexFlow</h2>
           <p style={{ color: "var(--text-secondary)", marginBottom: "24px", fontSize: "0.95rem" }}>
-            Create, persist, validate, and execute directed acyclic graph (DAG) workflows with the Dormammu Engine.
+            Build, validate, persist, and execute directed acyclic graph (DAG) pipelines with the Dormammu Loop engine.
           </p>
           <button
             onClick={() => onOpenAuth("login")}
@@ -256,23 +265,14 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
         <button
           onClick={() => setIsTemplateModalOpen(true)}
+          className="btn btn-primary"
           style={{
             padding: "10px 20px",
-            background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
-            border: "none",
-            borderRadius: "10px",
-            color: "#ffffff",
             fontSize: "0.92rem",
-            fontWeight: "700",
-            cursor: "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            boxShadow: "0 0 20px rgba(124, 58, 237, 0.4)",
-            transition: "all 0.2s ease",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-2px)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0px)")}
         >
           <Plus size={18} />
           New Workflow
@@ -281,21 +281,16 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
       {/* Search Bar */}
       <div style={{ marginBottom: "24px", maxWidth: "380px", position: "relative" }}>
-        <Search size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+        <Search size={16} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
         <input
           type="text"
           placeholder="Search workflows..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          className="input-control"
           style={{
-            width: "100%",
-            padding: "10px 14px 10px 38px",
-            background: "rgba(255, 255, 255, 0.04)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: "10px",
-            color: "var(--text-primary)",
-            fontSize: "0.88rem",
-            outline: "none",
+            paddingLeft: "40px",
+            borderRadius: "var(--radius-full)"
           }}
         />
       </div>
@@ -303,7 +298,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
       {/* Workflows Grid */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
-          <Loader2 size={32} color="var(--primary-light)" className="animate-spin" />
+          <Loader2 size={32} color="var(--brand)" className="animate-spin" />
         </div>
       ) : filteredWorkflows.length === 0 ? (
         <div 
@@ -317,8 +312,8 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
             gap: "14px",
           }}
         >
-          <div style={{ width: "50px", height: "50px", borderRadius: "12px", background: "rgba(124,58,237,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Workflow size={24} color="var(--primary-light)" />
+          <div style={{ width: "50px", height: "50px", borderRadius: "12px", background: "var(--brand-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Workflow size={24} color="var(--brand)" />
           </div>
           <h3 style={{ fontSize: "1.2rem", fontWeight: "700" }}>No Workflows Found</h3>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", maxWidth: "420px" }}>
@@ -326,15 +321,10 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
           </p>
           <button
             onClick={() => setIsTemplateModalOpen(true)}
+            className="btn btn-primary"
             style={{
               padding: "10px 20px",
-              background: "var(--primary)",
-              border: "1px solid var(--primary-light)",
-              borderRadius: "8px",
-              color: "#ffffff",
               fontSize: "0.88rem",
-              fontWeight: "600",
-              cursor: "pointer",
             }}
           >
             Create First Workflow
@@ -359,13 +349,13 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = "translateY(-3px)";
-                e.currentTarget.style.borderColor = "rgba(124, 58, 237, 0.4)";
-                e.currentTarget.style.boxShadow = "0 15px 35px rgba(0, 0, 0, 0.5)";
+                e.currentTarget.style.borderColor = "var(--brand)";
+                e.currentTarget.style.boxShadow = "var(--shadow-lg)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = "translateY(0px)";
                 e.currentTarget.style.borderColor = "var(--border-subtle)";
-                e.currentTarget.style.boxShadow = "0 20px 40px -15px rgba(0, 0, 0, 0.6)";
+                e.currentTarget.style.boxShadow = "var(--shadow-card)";
               }}
             >
               <div>
@@ -380,9 +370,9 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                       fontWeight: "700",
                       padding: "2px 8px",
                       borderRadius: "10px",
-                      background: "rgba(124, 58, 237, 0.15)",
-                      color: "var(--primary-light)",
-                      border: "1px solid rgba(124, 58, 237, 0.3)",
+                      background: "var(--brand-light)",
+                      color: "var(--brand)",
+                      border: "1px solid var(--brand-border)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -398,10 +388,10 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
               </div>
 
               {/* Stats & Timestamps */}
-              <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.05)", paddingTop: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                    <Layers size={13} color="var(--primary-light)" />
+                    <Layers size={13} color="var(--brand)" />
                     {wf.nodesCount} Nodes
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -424,7 +414,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                       display: "flex",
                       alignItems: "center",
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = "#f43f5e")}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-rose)")}
                     onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
                   >
                     <Trash2 size={15} />
@@ -435,7 +425,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                       width: "28px",
                       height: "28px",
                       borderRadius: "6px",
-                      background: "rgba(255, 255, 255, 0.06)",
+                      background: "var(--bg-chip)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -458,8 +448,9 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
             position: "fixed",
             inset: 0,
             zIndex: 60,
-            background: "rgba(0, 0, 0, 0.8)",
+            background: "rgba(0, 0, 0, 0.6)",
             backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -475,12 +466,14 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
               display: "flex",
               flexDirection: "column",
               gap: "18px",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
+              border: "1px solid var(--border-medium)",
+              background: "var(--bg-card)",
+              boxShadow: "var(--shadow-xl)"
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <h3 style={{ fontSize: "1.2rem", fontWeight: "800" }}>Choose Starter Template</h3>
+                <h3 style={{ fontSize: "1.2rem", fontWeight: "800", color: "var(--text-primary)" }}>Choose Starter Template</h3>
                 <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "2px" }}>
                   Select a workflow pipeline configuration to begin
                 </p>
@@ -488,7 +481,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
               <button
                 onClick={() => setIsTemplateModalOpen(false)}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "1.2rem" }}
               >
                 ✕
               </button>
@@ -503,7 +496,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                     onClick={() => handleCreateFromTemplate(tmpl)}
                     style={{
                       padding: "14px 16px",
-                      background: "rgba(255, 255, 255, 0.03)",
+                      background: "var(--bg-secondary)",
                       border: "1px solid var(--border-subtle)",
                       borderRadius: "10px",
                       cursor: "pointer",
@@ -514,12 +507,12 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = tmpl.color;
-                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
+                      e.currentTarget.style.background = "var(--bg-chip-hover)";
                       e.currentTarget.style.transform = "translateX(4px)";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.borderColor = "var(--border-subtle)";
-                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                      e.currentTarget.style.background = "var(--bg-secondary)";
                       e.currentTarget.style.transform = "translateX(0px)";
                     }}
                   >

@@ -1,5 +1,5 @@
 /**
- * Webster Standard Workflow Types and Contracts
+ * NexFlow Standard Workflow Types and Contracts
  */
 
 export type NodeCategory =

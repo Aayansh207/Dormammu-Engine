@@ -57,10 +57,10 @@ export default function EdgePath({
   const midX = (start.x + end.x) / 2;
   const midY = (start.y + end.y) / 2;
 
-  let strokeColor = "rgba(144, 97, 249, 0.65)";
-  if (hasError) strokeColor = "#f43f5e";
-  else if (isSelected) strokeColor = "var(--primary-light)";
-  else if (isHovered) strokeColor = "var(--accent-cyan)";
+  let strokeColor = "var(--wire-default)";
+  if (hasError) strokeColor = "var(--accent-rose)";
+  else if (isSelected) strokeColor = "var(--brand)";
+  else if (isHovered) strokeColor = "var(--brand-hover)";
 
   return (
     <g 
@@ -111,7 +111,7 @@ export default function EdgePath({
             cx="10" 
             cy="10" 
             fill="#f43f5e" 
-            stroke="#07090e" 
+            stroke="var(--bg-main)" 
             strokeWidth="2" 
           />
           <line x1="7" y1="7" x2="13" y2="13" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" />

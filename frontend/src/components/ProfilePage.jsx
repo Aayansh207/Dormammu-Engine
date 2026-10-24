@@ -33,6 +33,8 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
   const [profileMsg, setProfileMsg] = useState(null);
   const [profileErr, setProfileErr] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const fileInputRef = useRef(null);
 
   const [sessions, setSessions] = useState([]);
@@ -54,7 +56,10 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
       const res = await api.getProfile();
       setProfile(res.data);
       setName(res.data.name || "");
-      setPhoto(res.data.profilePhoto || "");
+      const cleanPhoto = res.data.profilePhoto && !res.data.profilePhoto.startsWith("blob:") ? res.data.profilePhoto : "";
+      setPhoto(cleanPhoto);
+      setAvatarError(false);
+      setPreviewError(false);
       onUserUpdated(res.data);
     } catch (e) {
     }
@@ -150,28 +155,41 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
     setProfileErr(null);
 
     try {
-      let updatedUser = null;
+      let updatedUser = profile;
 
       // 1. If a new image file was selected, upload directly to Cloudinary
       if (selectedFile) {
         setProfileMsg("Uploading image to Cloudinary...");
         const uploadRes = await api.uploadAvatar(selectedFile);
-        updatedUser = uploadRes.data;
+        if (uploadRes?.data) {
+          updatedUser = uploadRes.data;
+          setPhoto(updatedUser.profilePhoto || "");
+        }
         setSelectedFile(null);
       }
 
-      // 2. If name changed or photo was cleared, update profile
-      const photoPayload = photo === "" ? null : (selectedFile ? undefined : photo);
-      const res = await api.updateProfile({ 
-        name, 
-        ...(photoPayload !== undefined ? { profilePhoto: photoPayload } : {}) 
-      });
-      updatedUser = res.data;
+      // 2. If name changed or photo was removed, update profile
+      const hasNameChanged = name.trim() !== (profile?.name || "").trim();
+      const hasPhotoRemoved = photo === "" && profile?.profilePhoto;
+
+      if (hasNameChanged || hasPhotoRemoved) {
+        const payload = {};
+        if (hasNameChanged) payload.name = name.trim();
+        if (hasPhotoRemoved) payload.profilePhoto = null;
+
+        const res = await api.updateProfile(payload);
+        if (res?.data) {
+          updatedUser = { ...updatedUser, ...res.data };
+        }
+      }
 
       setProfile(updatedUser);
+      setName(updatedUser.name || "");
       setPhoto(updatedUser.profilePhoto || "");
+      setAvatarError(false);
+      setPreviewError(false);
       onUserUpdated(updatedUser);
-      setProfileMsg("Profile updated and synced with Cloudinary successfully!");
+      setProfileMsg("Profile updated and synced successfully!");
     } catch (err) {
       setProfileErr(err.message || "Failed to update profile");
     } finally {
@@ -345,18 +363,19 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
         gap: "20px"
       }}>
         <div className="profile-user-info" style={{ display: "flex", alignItems: "center", gap: "18px", flexWrap: "wrap" }}>
-          {photo || profile?.profilePhoto ? (
+          {(photo || profile?.profilePhoto) && !avatarError ? (
             <img 
               src={photo || profile.profilePhoto} 
               alt={profile?.name || profile?.email}
+              onError={() => setAvatarError(true)}
               className="profile-avatar"
               style={{
                 width: "76px",
                 height: "76px",
                 borderRadius: "50%",
                 objectFit: "cover",
-                border: "2px solid var(--primary)",
-                boxShadow: "0 0 25px var(--primary-glow)",
+                border: "2px solid var(--brand)",
+                boxShadow: "0 0 20px var(--brand-glow)",
                 flexShrink: 0
               }}
             />
@@ -367,14 +386,14 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                 width: "76px",
                 height: "76px",
                 borderRadius: "50%",
-                background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
+                background: "linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: "1.85rem",
                 fontWeight: "700",
                 color: "#fff",
-                boxShadow: "0 0 25px var(--primary-glow)",
+                boxShadow: "0 0 20px var(--brand-glow)",
                 flexShrink: 0
               }}
             >
@@ -384,15 +403,15 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
 
           <div style={{ flex: 1, minWidth: "200px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px", flexWrap: "wrap" }}>
-              <h2 style={{ fontSize: "1.5rem" }}>{profile?.name || "Anonymous Engineer"}</h2>
+              <h2 style={{ fontSize: "1.5rem", fontWeight: "800", color: "var(--text-primary)" }}>{profile?.name || "Anonymous Engineer"}</h2>
               <span style={{
                 fontSize: "0.75rem",
                 fontWeight: "700",
                 padding: "2px 8px",
-                borderRadius: "4px",
-                background: "rgba(124, 58, 237, 0.2)",
-                color: "#a78bfa",
-                border: "1px solid rgba(124, 58, 237, 0.4)"
+                borderRadius: "var(--radius-full)",
+                background: "var(--brand-light)",
+                color: "var(--brand)",
+                border: "1px solid var(--brand-border)"
               }}>
                 {profile?.role || "USER"}
               </span>
@@ -429,7 +448,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
             </div>
 
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "6px" }}>
-              Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : "2026"} // Active on Dormammu Cloud
+              Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : "2026"} • Active on NexFlow Engine
             </div>
           </div>
         </div>
@@ -438,7 +457,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
           <button 
             onClick={onLogout} 
             className="btn btn-secondary"
-            style={{ fontSize: "0.85rem", padding: "9px 16px" }}
+            style={{ fontSize: "0.85rem", padding: "9px 18px", display: "inline-flex", alignItems: "center", gap: "8px" }}
           >
             <LogOut size={15} /> Sign Out
           </button>
@@ -446,7 +465,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
             onClick={handleLogoutAll} 
             disabled={loggingOutAll}
             className="btn btn-danger"
-            style={{ fontSize: "0.85rem", padding: "9px 16px" }}
+            style={{ fontSize: "0.85rem", padding: "9px 18px", display: "inline-flex", alignItems: "center", gap: "8px" }}
           >
             <Trash2 size={15} /> {loggingOutAll ? "Revoking..." : "Logout All Devices"}
           </button>
@@ -498,7 +517,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
 
           <form onSubmit={handleUpdateProfile}>
             <div className="input-group">
-              <label className="input-label">Profile Photo</label>
+              <label className="input-label" style={{ fontWeight: "700", marginBottom: "8px", display: "block" }}>Profile Photo</label>
               
               <input 
                 type="file" 
@@ -514,70 +533,84 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                 onDragLeave={handleDragLeave}
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  border: isDragging ? "2px dashed var(--primary)" : "1px dashed var(--border-subtle)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "16px",
-                  background: isDragging ? "rgba(124, 58, 237, 0.15)" : "rgba(11, 14, 24, 0.6)",
+                  border: isDragging ? "2px dashed var(--brand)" : "1.5px dashed var(--border-medium)",
+                  borderRadius: "var(--radius-lg)",
+                  padding: "18px 20px",
+                  background: isDragging ? "var(--brand-light)" : "var(--bg-secondary)",
                   display: "flex",
                   alignItems: "center",
-                  gap: "14px",
+                  gap: "16px",
                   flexWrap: "wrap",
                   cursor: "pointer",
                   transition: "all 0.2s ease"
                 }}
               >
                 <div style={{
-                  width: "56px",
-                  height: "56px",
+                  width: "60px",
+                  height: "60px",
                   borderRadius: "50%",
                   overflow: "hidden",
-                  border: "2px solid var(--primary)",
+                  border: "2px solid var(--brand)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: "rgba(255, 255, 255, 0.05)",
+                  background: "var(--bg-card)",
                   flexShrink: 0
                 }}>
-                  {photo ? (
+                  {photo && !previewError ? (
                     <img 
                       src={photo} 
                       alt="Preview" 
+                      onError={() => setPreviewError(true)}
                       style={{ width: "100%", height: "100%", objectFit: "cover" }} 
                     />
                   ) : (
-                    <Camera size={22} color="var(--primary-light)" />
+                    <Camera size={24} color="var(--brand)" />
                   )}
                 </div>
 
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Upload size={15} color="var(--accent-cyan)" />
+                <div style={{ flex: 1, minWidth: "160px" }}>
+                  <div style={{ fontSize: "0.92rem", fontWeight: "700", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <Upload size={16} color="var(--brand)" />
                     <span>Upload New Photo</span>
                   </div>
-                  <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                    Click or drag & drop an image (PNG, JPG, WebP)
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "3px" }}>
+                    Drag &amp; drop or click to browse (PNG, JPG, WebP up to 10MB)
                   </div>
                 </div>
 
-                {photo && (
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemovePhoto();
+                      fileInputRef.current?.click();
                     }}
                     className="btn btn-secondary"
-                    style={{ padding: "6px 10px", fontSize: "0.75rem", color: "#fb7185" }}
-                    title="Remove Photo"
+                    style={{ padding: "7px 14px", fontSize: "0.8rem" }}
                   >
-                    <X size={14} /> Remove
+                    Browse
                   </button>
-                )}
+                  {photo && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemovePhoto();
+                      }}
+                      className="btn btn-danger"
+                      style={{ padding: "7px 12px", fontSize: "0.8rem" }}
+                      title="Remove Photo"
+                    >
+                      <X size={14} /> Remove
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
             <div className="input-group">
-              <label className="input-label">Display Name</label>
+              <label className="input-label" style={{ fontWeight: "600", marginBottom: "6px", display: "block" }}>Display Name</label>
               <input 
                 type="text" 
                 className="input-control"
@@ -588,34 +621,34 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
             </div>
 
             <div className="input-group">
-              <label className="input-label">Email Address (Read-only)</label>
+              <label className="input-label" style={{ fontWeight: "600", marginBottom: "6px", display: "block" }}>Email Address (Read-only)</label>
               <input 
                 type="text" 
                 disabled 
                 className="input-control"
                 value={profile?.email || ""}
-                style={{ opacity: 0.6, cursor: "not-allowed" }}
+                style={{ opacity: 0.7, cursor: "not-allowed" }}
               />
             </div>
 
             <div style={{
-              padding: "12px",
-              borderRadius: "var(--radius-sm)",
-              background: "rgba(0, 0, 0, 0.25)",
+              padding: "14px 16px",
+              borderRadius: "var(--radius-md)",
+              background: "var(--bg-secondary)",
               border: "1px solid var(--border-subtle)",
               marginBottom: "20px",
-              fontSize: "0.825rem",
+              fontSize: "0.85rem",
               color: "var(--text-secondary)"
             }}>
-              <div style={{ fontWeight: "600", marginBottom: "4px" }}>Linked Identity Methods:</div>
+              <div style={{ fontWeight: "700", marginBottom: "6px", color: "var(--text-primary)" }}>Linked Identity Methods:</div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "6px" }}>
                 {profile?.hasPassword && (
-                  <span className="glass-pill" style={{ padding: "4px 10px", fontSize: "0.75rem", color: "#e2e8f0" }}>
+                  <span className="glass-pill" style={{ padding: "4px 12px", fontSize: "0.78rem", fontWeight: "600", color: "var(--text-primary)" }}>
                     ✔ Native Password
                   </span>
                 )}
                 {profile?.linkedProviders?.includes("google") && (
-                  <span className="glass-pill" style={{ padding: "4px 10px", fontSize: "0.75rem", color: "#60a5fa" }}>
+                  <span className="glass-pill" style={{ padding: "4px 12px", fontSize: "0.78rem", fontWeight: "600", color: "#3b82f6" }}>
                     ✔ Google OAuth
                   </span>
                 )}
@@ -626,7 +659,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
               type="submit" 
               disabled={savingProfile}
               className="btn btn-primary"
-              style={{ width: "100%" }}
+              style={{ width: "100%", padding: "12px", fontSize: "0.95rem", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
             >
               <Save size={16} /> {savingProfile ? "Saving Changes..." : "Save Profile"}
             </button>
@@ -691,8 +724,8 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                     style={{
                       padding: "16px 18px",
                       borderRadius: "var(--radius-md)",
-                      background: sess.isCurrent ? "rgba(124, 58, 237, 0.08)" : "rgba(11, 14, 24, 0.8)",
-                      border: "1px solid " + (sess.isCurrent ? "var(--primary-glow)" : "var(--border-subtle)"),
+                      background: sess.isCurrent ? "var(--brand-light)" : "var(--bg-secondary)",
+                      border: "1px solid " + (sess.isCurrent ? "var(--brand-border)" : "var(--border-subtle)"),
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
@@ -706,12 +739,12 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                         width: "42px",
                         height: "42px",
                         borderRadius: "10px",
-                        background: sess.isCurrent ? "linear-gradient(135deg, #7c3aed, #4f46e5)" : "rgba(255, 255, 255, 0.05)",
-                        border: "1px solid " + (sess.isCurrent ? "var(--primary)" : "var(--border-subtle)"),
+                        background: sess.isCurrent ? "linear-gradient(135deg, var(--brand), #ff8c42)" : "var(--bg-chip)",
+                        border: "1px solid " + (sess.isCurrent ? "var(--brand)" : "var(--border-subtle)"),
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        color: "#fff",
+                        color: sess.isCurrent ? "#fff" : "var(--text-primary)",
                         boxShadow: sess.isCurrent ? "0 0 15px var(--primary-glow)" : "none",
                         flexShrink: 0
                       }}>
@@ -802,7 +835,7 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                         onClick={() => handleRevokeSession(sess.id)}
                         disabled={revokingId === sess.id}
                         className="btn btn-danger"
-                        style={{ padding: "6px 12px", fontSize: "0.78rem", flexShrink: 0 }}
+                        style={{ padding: "7px 14px", fontSize: "0.8rem", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "6px" }}
                         title="Revoke this device session"
                       >
                         <Trash2 size={13} />
@@ -812,13 +845,16 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
                       <div style={{
                         fontSize: "0.75rem",
                         color: "var(--accent-emerald)",
-                        fontWeight: "600",
-                        padding: "4px 8px",
+                        fontWeight: "700",
+                        padding: "5px 10px",
+                        background: "rgba(16, 185, 129, 0.12)",
+                        border: "1px solid rgba(16, 185, 129, 0.25)",
+                        borderRadius: "var(--radius-full)",
                         display: "flex",
                         alignItems: "center",
-                        gap: "4px"
+                        gap: "5px"
                       }}>
-                        <ShieldCheck size={14} /> Current
+                        <ShieldCheck size={14} /> Active
                       </div>
                     )}
                   </div>
@@ -837,13 +873,13 @@ export default function ProfilePage({ user, onUserUpdated, onLogout }) {
             marginBottom: "20px"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <History size={20} color="var(--primary)" />
-              <h3 style={{ fontSize: "1.2rem" }}>Recent Login History</h3>
+              <History size={20} color="var(--brand)" />
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "800", color: "var(--text-primary)" }}>Recent Login History</h3>
             </div>
             <button 
               onClick={loadHistory} 
               className="btn btn-secondary"
-              style={{ padding: "6px 12px", fontSize: "0.8rem" }}
+              style={{ padding: "7px 14px", fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
               title="Refresh login history"
             >
               <RefreshCw size={13} className={loadingHistory ? "animate-spin" : ""} /> Refresh

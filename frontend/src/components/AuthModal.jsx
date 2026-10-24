@@ -155,23 +155,23 @@ export default function AuthModal({
             width: "48px",
             height: "48px",
             borderRadius: "14px",
-            background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
+            background: "linear-gradient(135deg, #ff5d44 0%, #ff8c42 100%)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
             marginBottom: "14px",
-            boxShadow: "0 0 25px var(--primary-glow)"
+            boxShadow: "0 0 25px var(--brand-glow)"
           }}>
             <Zap size={24} color="#ffffff" />
           </div>
           <h2 style={{ fontSize: "1.5rem", marginBottom: "6px" }}>
-            {tab === "login" && "Welcome to NexFlow"}
+            {tab === "login" && "Welcome to Dormammu"}
             {tab === "signup" && "Create Developer Account"}
             {tab === "verifyNotice" && "Verify Your Email"}
           </h2>
           <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
             {tab === "login" && "Authenticate to access your DAG workflow engine"}
-            {tab === "signup" && "Join Dormammu Loop with cryptographic session protection"}
+            {tab === "signup" && "Join Dormammu with cryptographic session protection"}
             {tab === "verifyNotice" && "Check your inbox for your single-use verification link"}
           </p>
         </div>
@@ -179,7 +179,7 @@ export default function AuthModal({
         {tab !== "verifyNotice" && (
           <div style={{
             display: "flex",
-            background: "rgba(0, 0, 0, 0.3)",
+            background: "var(--bg-secondary)",
             padding: "4px",
             borderRadius: "var(--radius-sm)",
             border: "1px solid var(--border-subtle)",
@@ -196,7 +196,7 @@ export default function AuthModal({
                 borderRadius: "6px",
                 border: "none",
                 cursor: "pointer",
-                background: tab === "login" ? "var(--primary)" : "transparent",
+                background: tab === "login" ? "var(--brand)" : "transparent",
                 color: tab === "login" ? "#ffffff" : "var(--text-secondary)",
                 transition: "all 0.2s"
               }}
@@ -214,7 +214,7 @@ export default function AuthModal({
                 borderRadius: "6px",
                 border: "none",
                 cursor: "pointer",
-                background: tab === "signup" ? "var(--primary)" : "transparent",
+                background: tab === "signup" ? "var(--brand)" : "transparent",
                 color: tab === "signup" ? "#ffffff" : "var(--text-secondary)",
                 transition: "all 0.2s"
               }}
@@ -284,7 +284,7 @@ export default function AuthModal({
         {tab === "verifyNotice" ? (
           <div>
             <div style={{
-              background: "rgba(11, 14, 24, 0.8)",
+              background: "var(--bg-secondary)",
               border: "1px solid var(--border-subtle)",
               borderRadius: "var(--radius-md)",
               padding: "24px",
@@ -295,18 +295,18 @@ export default function AuthModal({
                 width: "56px",
                 height: "56px",
                 borderRadius: "50%",
-                background: "rgba(99, 102, 241, 0.15)",
-                border: "1px solid rgba(99, 102, 241, 0.3)",
+                background: "var(--brand-light)",
+                border: "1px solid var(--brand-border)",
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
                 marginBottom: "16px",
-                color: "var(--accent-cyan)"
+                color: "var(--brand)"
               }}>
                 <Mail size={28} />
               </div>
 
-              <h3 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "8px", color: "#f1f5f9" }}>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "8px", color: "var(--text-primary)" }}>
                 Verify your email address
               </h3>
 
@@ -317,8 +317,8 @@ export default function AuthModal({
               <div style={{
                 fontSize: "0.95rem",
                 fontWeight: "700",
-                color: "var(--accent-cyan)",
-                background: "rgba(15, 23, 42, 0.6)",
+                color: "var(--brand)",
+                background: "var(--bg-chip)",
                 padding: "8px 16px",
                 borderRadius: "6px",
                 border: "1px solid var(--border-subtle)",
