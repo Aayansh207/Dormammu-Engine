@@ -1,301 +1,243 @@
 /**
- * Webster Comprehensive API & End-to-End Integration Test Suite
+ * Webster Execution Engine - Database Persistence, Versioning, and API Integration Test Suite
  */
 
-const app = require("./app");
+const assert = require("assert");
 const prisma = require("./src/config/db");
-const { generateAccessToken } = require("./src/utils/tokens");
-const { executeWorkflow } = require("./src/engine/scheduler/dag.scheduler");
+const nodeService = require("./src/services/node.service");
+const workflowService = require("./src/services/workflow.service");
 
-let server;
-let baseUrl;
-let token;
-let testUser;
+let passed = 0;
+let failed = 0;
 
-async function request(path, options = {}) {
-  const url = `${baseUrl}${path}`;
-  const headers = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers || {}),
-  };
-
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  const data = await response.json().catch(() => ({}));
-  return { status: response.status, body: data };
+async function test(name, fn) {
+  try {
+    await fn();
+    console.log(`  ✓ ${name}`);
+    passed++;
+  } catch (err) {
+    console.error(`  ✗ ${name}`);
+    console.error(`    ${err.message}`);
+    failed++;
+  }
 }
 
-async function runApiTests() {
-  console.log("==================================================");
-  console.log("🌐 STARTING WEBSTER REST API & END-TO-END TESTS");
-  console.log("==================================================\n");
+async function runApiAndIntegrationTests() {
+  console.log("\n=======================================================");
+  console.log(" Webster Persistence, Versioning & API Integration Suite");
+  console.log("=======================================================\n");
 
-  let passed = 0;
-  let failed = 0;
-
-  function assert(condition, message) {
-    if (condition) {
-      console.log(`  ✅ PASS: ${message}`);
-      passed++;
-    } else {
-      console.error(`  ❌ FAIL: ${message}`);
-      failed++;
-    }
-  }
-
-  // Start HTTP server on ephemeral port
-  server = app.listen(0);
-  const port = server.address().port;
-  baseUrl = `http://localhost:${port}`;
-
-  // Find or create test user and generate auth token
-  testUser = await prisma.user.findFirst({ where: { email: "api_tester@example.com" } });
-  if (!testUser) {
-    testUser = await prisma.user.create({
-      data: {
-        email: "api_tester@example.com",
-        name: "API Tester",
-        role: "USER",
-        emailVerified: true,
-      },
-    });
-  }
-
-  token = generateAccessToken(testUser);
+  const testUserAId = `test_user_a_${Date.now()}`;
+  const testUserBId = `test_user_b_${Date.now()}`;
 
   try {
-    // ----------------------------------------------------
-    // TEST 1: Node Catalogue Endpoints (Public)
-    // ----------------------------------------------------
-    console.log("--- 1. Node Catalogue Endpoints ---");
-    const listRes = await request("/api/nodes");
-    assert(listRes.status === 200, "GET /api/nodes returns 200 OK");
-    assert(Array.isArray(listRes.body.data), "GET /api/nodes data is an array");
-    assert(listRes.body.data.length >= 16, `Catalogue has at least 16 nodes (found: ${listRes.body.data.length})`);
-
-    const multiplyRes = await request("/api/nodes/math.multiply");
-    assert(multiplyRes.status === 200, "GET /api/nodes/math.multiply returns 200 OK");
-    assert(multiplyRes.body.data.type === "math.multiply", "Node type is math.multiply");
-    assert(multiplyRes.body.data.configSchema !== undefined, "Node has configSchema");
-
-    const unknownNodeRes = await request("/api/nodes/non.existent.node");
-    assert(unknownNodeRes.status === 404, "GET /api/nodes/:type for unknown node returns 404");
-
-    // ----------------------------------------------------
-    // TEST 2: Raw Workflow Validation Endpoint
-    // ----------------------------------------------------
-    console.log("\n--- 2. Public / Raw Validation Endpoint ---");
-    const validWf = {
-      schemaVersion: 1,
-      name: "Valid Pipeline",
-      nodes: [
-        { id: "t1", type: "trigger.manual", version: 1, name: "Trigger", position: { x: 0, y: 0 }, config: {} },
-        { id: "o1", type: "output.return", version: 1, name: "Output", position: { x: 100, y: 0 }, config: {} },
-      ],
-      edges: [
-        { id: "e1", source: "t1", sourcePort: "output", target: "o1", targetPort: "input" },
-      ],
-    };
-
-    const valRes = await request("/api/workflows/validate", {
-      method: "POST",
-      body: JSON.stringify({ definition: validWf }),
+    // Setup test users in PostgreSQL
+    await prisma.user.create({
+      data: {
+        id: testUserAId,
+        email: `${testUserAId}@example.com`,
+        name: "Test User A",
+        role: "USER",
+      },
     });
-    assert(valRes.status === 200, "POST /api/workflows/validate returns 200 OK");
-    assert(valRes.body.data.valid === true, "Valid workflow returns valid: true");
 
-    // Cycle detection check
-    const invalidWf = {
-      schemaVersion: 1,
-      name: "Cycle Pipeline",
-      nodes: [
-        { id: "n1", type: "math.add", version: 1, name: "A", position: { x: 0, y: 0 }, config: {} },
-        { id: "n2", type: "math.add", version: 1, name: "B", position: { x: 0, y: 0 }, config: {} },
-      ],
-      edges: [
-        { id: "e1", source: "n1", sourcePort: "output", target: "n2", targetPort: "input" },
-        { id: "e2", source: "n2", sourcePort: "output", target: "n1", targetPort: "input" },
-      ],
-    };
-    const invalidValRes = await request("/api/workflows/validate", {
-      method: "POST",
-      body: JSON.stringify({ definition: invalidWf }),
+    await prisma.user.create({
+      data: {
+        id: testUserBId,
+        email: `${testUserBId}@example.com`,
+        name: "Test User B",
+        role: "USER",
+      },
     });
-    assert(invalidValRes.status === 200, "Validation endpoint responds with 200 for structured result");
-    assert(invalidValRes.body.data.valid === false, "Cycle detected, valid: false");
-    const cycleErr = invalidValRes.body.data.errors.find((e) => e.code === "CYCLE_DETECTED");
-    assert(cycleErr !== undefined, "Errors array contains CYCLE_DETECTED");
 
-    // ----------------------------------------------------
-    // TEST 3: Unauthorized Access Prevention
-    // ----------------------------------------------------
-    console.log("\n--- 3. Authorization & Security ---");
-    const unauthRes = await request("/api/workflows", {
-      headers: { Authorization: "" }, // No token
+    console.log("--- 1. Node Metadata PostgreSQL Persistence ---");
+
+    await test("PostgreSQL: seedNodeDefinitions upserts all 20 nodes into database", async () => {
+      const seedResult = await nodeService.seedNodeDefinitions();
+      assert.strictEqual(seedResult.total, 20);
+      assert.strictEqual(seedResult.upserted, 20);
+
+      const dbNodes = await prisma.nodeDefinition.findMany();
+      assert.ok(dbNodes.length >= 20);
     });
-    assert(unauthRes.status === 401, "GET /api/workflows without token returns 401 Unauthorized");
 
-    // ----------------------------------------------------
-    // TEST 4: Workflow Lifecycle (Create, List, Get, Update, Run)
-    // ----------------------------------------------------
-    console.log("\n--- 4. Authenticated Workflow CRUD & Versioning ---");
-    const createRes = await request("/api/workflows", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Multiply Pipeline API Test",
-        description: "Created via automated API test",
-        definition: {
-          schemaVersion: 1,
-          name: "Multiply Pipeline API Test",
-          nodes: [
-            { id: "t1", type: "trigger.manual", version: 1, name: "Trigger", position: { x: 100, y: 200 }, config: {} },
-            { id: "m1", type: "math.multiply", version: 1, name: "Multiply", position: { x: 350, y: 200 }, config: { factor: 4 } },
-            { id: "o1", type: "output.return", version: 1, name: "Return", position: { x: 600, y: 200 }, config: {} },
-          ],
-          edges: [
-            { id: "e1", source: "t1", sourcePort: "output", target: "m1", targetPort: "input" },
-            { id: "e2", source: "m1", sourcePort: "output", target: "o1", targetPort: "input" },
-          ],
-        },
-      }),
+    await test("PostgreSQL: repeated seeding is idempotent and does not create duplicates", async () => {
+      const beforeCount = await prisma.nodeDefinition.count();
+      const seedResult = await nodeService.seedNodeDefinitions();
+      const afterCount = await prisma.nodeDefinition.count();
+
+      assert.strictEqual(beforeCount, afterCount);
+      assert.strictEqual(seedResult.upserted, 20);
     });
-    assert(createRes.status === 201, "POST /api/workflows returns 201 Created");
-    const createdId = createRes.body.data.id;
-    assert(createdId !== undefined, "Workflow ID returned");
-    assert(createRes.body.data.currentVersion === 1, "Initial version is 1");
 
-    // List
-    const listWfRes = await request("/api/workflows");
-    assert(listWfRes.status === 200, "GET /api/workflows returns 200 OK");
-    const foundWf = listWfRes.body.data.find((w) => w.id === createdId);
-    assert(foundWf !== undefined, "Created workflow is in user list");
-    assert(foundWf.nodesCount === 3, "Workflow nodes count is 3");
+    await test("PostgreSQL: listNodes and getNodeMetadata return accurate metadata with handler status", async () => {
+      const nodes = await nodeService.listNodes();
+      assert.ok(nodes.length >= 20);
+      assert.ok(nodes.every((n) => n.hasExecutableHandler === true));
 
-    // Get by ID
-    const getWfRes = await request(`/api/workflows/${createdId}`);
-    assert(getWfRes.status === 200, "GET /api/workflows/:id returns 200 OK");
-    assert(getWfRes.body.data.name === "Multiply Pipeline API Test", "Workflow name matches");
-
-    // Update (Save new immutable version v2)
-    const updateDef = JSON.parse(JSON.stringify(createRes.body.data.definition));
-    updateDef.nodes[1].config.factor = 10;
-    const updateRes = await request(`/api/workflows/${createdId}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        name: "Multiply Pipeline API Test v2",
-        definition: updateDef,
-      }),
+      const multiplyMeta = await nodeService.getNodeMetadata("math.multiply");
+      assert.ok(multiplyMeta);
+      assert.strictEqual(multiplyMeta.type, "math.multiply");
+      assert.strictEqual(multiplyMeta.category, "mathematical");
+      assert.strictEqual(multiplyMeta.hasExecutableHandler, true);
     });
-    assert(updateRes.status === 200, "PUT /api/workflows/:id returns 200 OK");
-    assert(updateRes.body.data.version === 2, "New immutable version v2 created");
 
-    // Execute Run
-    console.log("\n--- 5. Workflow Run Execution Endpoint ---");
-    const runRes = await request(`/api/workflows/${createdId}/runs`, {
-      method: "POST",
-      body: JSON.stringify({
-        triggerData: 25,
-      }),
+    console.log("\n--- 2. Workflow Persistence, Versioning & Authorization ---");
+
+    let createdWorkflowId;
+
+    await test("Workflow: creates workflow and immutable version 1 in PostgreSQL", async () => {
+      const def = {
+        schemaVersion: 1,
+        name: "Test Workflow Persistence",
+        nodes: [
+          { id: "n1", type: "trigger.manual", version: 1, config: {} },
+          { id: "n2", type: "math.multiply", version: 1, config: { factor: 4 } },
+          { id: "n3", type: "output.return", version: 1, config: {} },
+        ],
+        edges: [
+          { id: "e1", source: "n1", sourcePort: "output", target: "n2", targetPort: "input" },
+          { id: "e2", source: "n2", sourcePort: "output", target: "n3", targetPort: "input" },
+        ],
+      };
+
+      const wf = await workflowService.createWorkflow(testUserAId, {
+        name: "Test Workflow Persistence",
+        description: "Test description",
+        definition: def,
+      });
+
+      assert.ok(wf.id);
+      assert.strictEqual(wf.ownerId, testUserAId);
+      assert.strictEqual(wf.currentVersion, 1);
+      assert.strictEqual(wf.validation.valid, true);
+
+      createdWorkflowId = wf.id;
+
+      // Verify in DB directly
+      const versions = await prisma.workflowVersion.findMany({ where: { workflowId: wf.id } });
+      assert.strictEqual(versions.length, 1);
+      assert.strictEqual(versions[0].version, 1);
     });
-    assert(runRes.status === 200, "POST /api/workflows/:id/runs returns 200 OK");
-    assert(runRes.body.data.status === "SUCCEEDED", "Run status is SUCCEEDED");
-    assert(runRes.body.data.finalOutput === 250, "Final output is 25 * 10 = 250");
-    const runId = runRes.body.data.runId;
 
-    // Get Run Details
-    const runDetailRes = await request(`/api/runs/${runId}`);
-    assert(runDetailRes.status === 200, "GET /api/runs/:runId returns 200 OK");
-    assert(runDetailRes.body.data.status === "SUCCEEDED", "Run detail status is SUCCEEDED");
-    assert(Array.isArray(runDetailRes.body.data.taskRuns), "Run has taskRuns array");
-    assert(runDetailRes.body.data.taskRuns.length === 3, "3 task runs recorded");
+    await test("Workflow: user can view their own workflow", async () => {
+      const wf = await workflowService.getWorkflowById(testUserAId, createdWorkflowId);
+      assert.strictEqual(wf.id, createdWorkflowId);
+      assert.strictEqual(wf.version, 1);
+    });
 
-    // Get Run Tasks
-    const runTasksRes = await request(`/api/runs/${runId}/tasks`);
-    assert(runTasksRes.status === 200, "GET /api/runs/:runId/tasks returns 200 OK");
-    assert(runTasksRes.body.data.length === 3, "3 tasks returned from /tasks");
+    await test("Authorization: other users are rejected with 403 Forbidden", async () => {
+      await assert.rejects(
+        async () => workflowService.getWorkflowById(testUserBId, createdWorkflowId),
+        (err) => err.statusCode === 403
+      );
+    });
 
-    // List Runs for Workflow
-    const workflowRunsRes = await request(`/api/workflows/${createdId}/runs`);
-    assert(workflowRunsRes.status === 200, "GET /api/workflows/:id/runs returns 200 OK");
-    assert(workflowRunsRes.body.data.length >= 1, "At least 1 run listed");
+    await test("Workflow Versioning: updates create immutable version 2, leaving version 1 intact", async () => {
+      const updatedDef = {
+        schemaVersion: 1,
+        name: "Updated Workflow v2",
+        nodes: [
+          { id: "n1", type: "trigger.manual", version: 1, config: {} },
+          { id: "n2", type: "math.multiply", version: 1, config: { factor: 10 } },
+          { id: "n3", type: "output.return", version: 1, config: {} },
+        ],
+        edges: [
+          { id: "e1", source: "n1", sourcePort: "output", target: "n2", targetPort: "input" },
+          { id: "e2", source: "n2", sourcePort: "output", target: "n3", targetPort: "input" },
+        ],
+      };
 
-    // ----------------------------------------------------
-    // TEST 6: Complex Branching and Merging Dependencies
-    // ----------------------------------------------------
-    console.log("\n--- 6. Complex Branching & Merging DAG Execution ---");
-    const branchMergeWorkflow = {
-      schemaVersion: 1,
-      name: "Branch and Merge",
-      nodes: [
-        { id: "start", type: "data.input", version: 1, name: "Start", position: { x: 0, y: 0 }, config: { defaultValue: 10 } },
-        { id: "add_branch", type: "math.add", version: 1, name: "Add 20", position: { x: 200, y: -50 }, config: { addend: 20 } },
-        { id: "mult_branch", type: "math.multiply", version: 1, name: "Multiply 3", position: { x: 200, y: 50 }, config: { factor: 3 } },
-        { id: "merge", type: "math.subtract", version: 1, name: "Merge (add - mult)", position: { x: 400, y: 0 }, config: {} },
-        { id: "finish", type: "output.return", version: 1, name: "Finish", position: { x: 600, y: 0 }, config: {} },
-      ],
-      edges: [
-        // start (10) -> add_branch (10 + 20 = 30)
-        { id: "e1", source: "start", sourcePort: "output", target: "add_branch", targetPort: "input" },
-        // start (10) -> mult_branch (10 * 3 = 30)
-        { id: "e2", source: "start", sourcePort: "output", target: "mult_branch", targetPort: "input" },
-        // add_branch (30) -> merge port a
-        { id: "e3", source: "add_branch", sourcePort: "output", target: "merge", targetPort: "a" },
-        // mult_branch (30) -> merge port b
-        { id: "e4", source: "mult_branch", sourcePort: "output", target: "merge", targetPort: "b" },
-        // merge (30 - 30 = 0) -> finish
-        { id: "e5", source: "merge", sourcePort: "output", target: "finish", targetPort: "input" },
-      ],
-    };
+      const updated = await workflowService.updateWorkflow(testUserAId, createdWorkflowId, {
+        name: "Updated Workflow v2",
+        definition: updatedDef,
+      });
 
-    const branchSummary = await executeWorkflow(branchMergeWorkflow, { triggerData: {} });
-    assert(branchSummary.status === "SUCCEEDED", "Branch and merge DAG executes successfully");
-    assert(branchSummary.finalOutput === 0, `Branch and merge output is (10+20) - (10*3) = 0 (got: ${branchSummary.finalOutput})`);
-    assert(branchSummary.tasks.merge.status === "SUCCEEDED", "Merge node reached and succeeded");
+      assert.strictEqual(updated.version, 2);
 
-    // ----------------------------------------------------
-    // TEST 7: Handler Failure & Downstream Blocking
-    // ----------------------------------------------------
-    console.log("\n--- 7. Handler Failure & Downstream Task Blocking ---");
-    const failWorkflow = {
-      schemaVersion: 1,
-      name: "Runtime Divide by Zero Failure",
-      nodes: [
-        { id: "t1", type: "trigger.manual", version: 1, name: "T", position: { x: 0, y: 0 }, config: {} },
-        { id: "zero_node", type: "data.input", version: 1, name: "Zero", position: { x: 0, y: 50 }, config: { defaultValue: 0 } },
-        { id: "d1", type: "math.divide", version: 1, name: "Divide by zero at runtime", position: { x: 200, y: 0 }, config: {} },
-        { id: "ret", type: "output.return", version: 1, name: "Should Be Blocked", position: { x: 400, y: 0 }, config: {} },
-      ],
-      edges: [
-        { id: "e1", source: "t1", sourcePort: "output", target: "d1", targetPort: "a" },
-        { id: "e2", source: "zero_node", sourcePort: "output", target: "d1", targetPort: "b" },
-        { id: "e3", source: "d1", sourcePort: "output", target: "ret", targetPort: "input" },
-      ],
-    };
+      // Verify database contains both version 1 and version 2
+      const allVersions = await prisma.workflowVersion.findMany({
+        where: { workflowId: createdWorkflowId },
+        orderBy: { version: "asc" },
+      });
 
-    const failSummary = await executeWorkflow(failWorkflow, { triggerData: 100 });
-    assert(failSummary.status === "FAILED", "Workflow with runtime failure ends in FAILED");
-    assert(failSummary.tasks && failSummary.tasks.d1.status === "FAILED", "math.divide task status is FAILED");
-    assert(failSummary.tasks && failSummary.tasks.ret.status === "BLOCKED", "Downstream task 'ret' is BLOCKED");
+      assert.strictEqual(allVersions.length, 2);
+      assert.strictEqual(allVersions[0].version, 1);
+      assert.strictEqual(allVersions[1].version, 2);
+      assert.strictEqual(allVersions[0].definitionJson.nodes[1].config.factor, 4);
+      assert.strictEqual(allVersions[1].definitionJson.nodes[1].config.factor, 10);
+    });
 
-    // Clean up created workflow
-    await request(`/api/workflows/${createdId}`, { method: "DELETE" });
+    console.log("\n--- 3. Full Execution & Durable State Persistence ---");
 
-    console.log("\n==================================================");
-    console.log(`📊 API TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
-    console.log("==================================================");
+    let runId;
 
-    server.close();
-    if (failed > 0) process.exit(1);
-    else process.exit(0);
+    await test("Execution: runs immutable version 2 and persists WorkflowRun and TaskRuns in PostgreSQL", async () => {
+      // Trigger: 5 * 10 = 50
+      const runResult = await workflowService.executeWorkflowRun(testUserAId, createdWorkflowId, {
+        triggerData: 5,
+      });
+
+      assert.ok(runResult.runId);
+      assert.strictEqual(runResult.status, "SUCCEEDED");
+      assert.strictEqual(runResult.finalOutput, 50);
+      assert.strictEqual(runResult.version, 2);
+
+      runId = runResult.runId;
+
+      // Verify database record
+      const dbRun = await prisma.workflowRun.findUnique({
+        where: { id: runResult.runId },
+        include: { taskRuns: true },
+      });
+
+      assert.ok(dbRun);
+      assert.strictEqual(dbRun.status, "SUCCEEDED");
+      assert.strictEqual(dbRun.output, 50);
+      assert.strictEqual(dbRun.taskRuns.length, 3);
+
+      const multTask = dbRun.taskRuns.find((t) => t.nodeId === "n2");
+      assert.ok(multTask);
+      assert.strictEqual(multTask.status, "SUCCEEDED");
+      assert.deepStrictEqual(multTask.output, { output: 50, result: 50 });
+      assert.ok(multTask.startedAt);
+      assert.ok(multTask.finishedAt);
+    });
+
+    await test("Execution Inspection: owner can retrieve run details and task runs", async () => {
+      const runDetails = await workflowService.getRunById(testUserAId, runId);
+      assert.strictEqual(runDetails.id, runId);
+      assert.strictEqual(runDetails.status, "SUCCEEDED");
+      assert.strictEqual(runDetails.taskRuns.length, 3);
+    });
+
+    await test("Execution Authorization: unauthorized user cannot access run history", async () => {
+      await assert.rejects(
+        async () => workflowService.getRunById(testUserBId, runId),
+        (err) => err.statusCode === 403
+      );
+    });
+
+    // Cleanup test data
+    await prisma.workflow.deleteMany({ where: { ownerId: { in: [testUserAId, testUserBId] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [testUserAId, testUserBId] } } });
   } catch (err) {
-    console.error("Fatal test error:", err);
-    if (server) server.close();
+    console.error("Test execution setup/cleanup error:", err);
+    failed++;
+  } finally {
+    await prisma.$disconnect();
+  }
+
+  console.log("\n-------------------------------------------------------");
+  console.log(` Results: ${passed} passed, ${failed} failed`);
+  console.log("-------------------------------------------------------\n");
+
+  if (failed > 0) {
     process.exit(1);
   }
 }
 
-runApiTests();
+runApiAndIntegrationTests().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});

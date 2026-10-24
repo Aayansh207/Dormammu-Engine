@@ -2,8 +2,16 @@ const app = require("./app");
 const env = require("./env");
 const prisma = require("./src/config/db");
 
-const server = app.listen(env.PORT, () => {
+const nodeService = require("./src/services/node.service");
+
+const server = app.listen(env.PORT, async () => {
   console.log(`Server is running on port ${env.PORT}`);
+  try {
+    const syncRes = await nodeService.seedNodeDefinitions();
+    console.log(`✅ Synchronized ${syncRes.upserted} node definitions with PostgreSQL.`);
+  } catch (err) {
+    console.warn("⚠️  Could not sync node definitions on startup:", err.message);
+  }
 });
 
 server.on("error", (error) => {

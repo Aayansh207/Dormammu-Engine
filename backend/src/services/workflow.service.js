@@ -342,7 +342,7 @@ class WorkflowService {
           update: {
             status: taskRecord.status,
             attempts: taskRecord.attempts || 1,
-            input: taskRecord.resolvedInputs !== undefined ? taskRecord.resolvedInputs : null,
+            input: taskRecord.inputs !== undefined ? taskRecord.inputs : null,
             output: taskRecord.outputs !== undefined ? taskRecord.outputs : null,
             error: taskRecord.error !== undefined ? taskRecord.error : null,
             startedAt: taskRecord.startedAt ? new Date(taskRecord.startedAt) : null,
@@ -353,7 +353,7 @@ class WorkflowService {
             nodeId: taskRecord.nodeId,
             status: taskRecord.status,
             attempts: taskRecord.attempts || 1,
-            input: taskRecord.resolvedInputs !== undefined ? taskRecord.resolvedInputs : null,
+            input: taskRecord.inputs !== undefined ? taskRecord.inputs : null,
             output: taskRecord.outputs !== undefined ? taskRecord.outputs : null,
             error: taskRecord.error !== undefined ? taskRecord.error : null,
             startedAt: taskRecord.startedAt ? new Date(taskRecord.startedAt) : null,

@@ -144,3 +144,25 @@ model TaskRun {
   @@index([workflowRunId])
   @@map("task_runs")
 }
+
+model NodeDefinition {
+  id           String   @id @default(uuid())
+  type         String
+  version      Int      @default(1)
+  label        String
+  description  String?
+  category     String
+  inputs       Json
+  outputs      Json
+  configSchema Json?
+  capabilities Json?
+  isAvailable  Boolean  @default(true)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([type, version])
+  @@index([type])
+  @@index([category])
+  @@map("node_definitions")
+}

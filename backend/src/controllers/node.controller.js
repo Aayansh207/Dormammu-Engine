@@ -1,13 +1,18 @@
 /**
  * Webster Execution Engine - Node Catalogue Controller
+ * Exposes canonical node metadata backed by PostgreSQL
  */
 
-const { defaultRegistry } = require("../engine/registry/node.registry");
+const nodeService = require("../services/node.service");
 
 class NodeController {
   async listNodes(req, res, next) {
     try {
-      const nodes = defaultRegistry.list();
+      const { category, includeUnavailable } = req.query || {};
+      const nodes = await nodeService.listNodes({
+        category,
+        includeUnavailable: includeUnavailable === "true",
+      });
       return res.status(200).json({
         success: true,
         data: nodes,
@@ -20,16 +25,32 @@ class NodeController {
   async getNodeMetadata(req, res, next) {
     try {
       const { type } = req.params;
-      if (!defaultRegistry.has(type)) {
+      const { version } = req.query || {};
+      const metadata = await nodeService.getNodeMetadata(type, version);
+
+      if (!metadata) {
         return res.status(404).json({
           success: false,
-          message: `Node type '${type}' not found in registry catalogue`,
+          message: `Node type '${type}' not found in catalogue`,
         });
       }
-      const metadata = defaultRegistry.getMetadata(type);
+
       return res.status(200).json({
         success: true,
         data: metadata,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async seedNodes(req, res, next) {
+    try {
+      const result = await nodeService.seedNodeDefinitions();
+      return res.status(200).json({
+        success: true,
+        message: `Successfully seeded ${result.upserted} node definitions into PostgreSQL`,
+        data: result,
       });
     } catch (err) {
       next(err);

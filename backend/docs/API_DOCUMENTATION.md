@@ -193,6 +193,17 @@ Returns metadata catalogue for all registered nodes. Public.
 #### `GET /api/nodes/:type`
 Returns catalogue metadata for a single node type.
 
+#### `POST /api/nodes/seed`
+Idempotently synchronizes trusted node definitions into PostgreSQL table `node_definitions`.
+**Response `200 OK`:**
+```json
+{
+  "success": true,
+  "message": "Successfully seeded 20 node definitions into PostgreSQL",
+  "data": { "total": 20, "upserted": 20 }
+}
+```
+
 ---
 
 ### 4.2 Workflows

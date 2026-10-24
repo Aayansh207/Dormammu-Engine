@@ -8,13 +8,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  Undo2,
   Sidebar as SidebarIcon,
-  Sparkles,
-  Layers,
-  HelpCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
 } from "lucide-react";
 import { api } from "../../services/api";
 import NodePalette from "./NodePalette";
@@ -69,6 +65,90 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
   const canvasRef = useRef(null);
 
+  // Construct current standard workflow JSON object
+  const getWorkflowJson = useCallback(() => {
+    return {
+      schemaVersion: 1,
+      name: workflowName,
+      nodes,
+      edges,
+    };
+  }, [workflowName, nodes, edges]);
+
+  // Validate current definition
+  const validateDefinition = useCallback(async (customDef = null) => {
+    setIsValidating(true);
+    try {
+      const def = customDef || getWorkflowJson();
+      const res = await api.validateRawWorkflow(def);
+      if (res && res.data) {
+        setValidationResult(res.data);
+      }
+    } catch (err) {
+      console.error("Validation error:", err);
+    } finally {
+      setIsValidating(false);
+    }
+  }, [getWorkflowJson]);
+
+  // Save workflow definition to backend
+  const handleSave = useCallback(async () => {
+    if (!workflowId) return;
+    setIsSaving(true);
+    setSaveSuccessMsg("");
+
+    try {
+      const definition = getWorkflowJson();
+      const res = await api.updateWorkflow(workflowId, {
+        name: workflowName,
+        definition,
+      });
+
+      if (res && res.data) {
+        setWorkflow(res.data);
+        setWorkflowVersion(res.data.version);
+        setIsDirty(false);
+        setSaveSuccessMsg(`Saved as v${res.data.version}`);
+        setTimeout(() => setSaveSuccessMsg(""), 3000);
+
+        if (res.data.validation) {
+          setValidationResult(res.data.validation);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save workflow:", err);
+      alert(`Save failed: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [workflowId, workflowName, getWorkflowJson]);
+
+  // Delete node and attached edges
+  const handleDeleteNode = useCallback((nodeId) => {
+    setNodes((prevNodes) => {
+      const nextNodes = prevNodes.filter((n) => n.id !== nodeId);
+      setEdges((prevEdges) => {
+        const nextEdges = prevEdges.filter((e) => e.source !== nodeId && e.target !== nodeId);
+        validateDefinition({ ...getWorkflowJson(), nodes: nextNodes, edges: nextEdges });
+        return nextEdges;
+      });
+      return nextNodes;
+    });
+    setSelectedElement((prev) => (prev?.id === nodeId ? null : prev));
+    setIsDirty(true);
+  }, [getWorkflowJson, validateDefinition]);
+
+  // Delete edge
+  const handleDeleteEdge = useCallback((edgeId) => {
+    setEdges((prevEdges) => {
+      const nextEdges = prevEdges.filter((e) => e.id !== edgeId);
+      validateDefinition({ ...getWorkflowJson(), edges: nextEdges });
+      return nextEdges;
+    });
+    setSelectedElement((prev) => (prev?.id === edgeId ? null : prev));
+    setIsDirty(true);
+  }, [getWorkflowJson, validateDefinition]);
+
   // 1. Load Catalogue and Workflow Definition
   useEffect(() => {
     let mounted = true;
@@ -111,7 +191,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     return () => {
       mounted = false;
     };
-  }, [workflowId]);
+  }, [workflowId, validateDefinition]);
 
   // Keyboard Shortcuts (Delete, Save)
   useEffect(() => {
@@ -123,7 +203,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       }
       // Delete or Backspace to delete selected element
       if ((e.key === "Delete" || e.key === "Backspace") && selectedElement) {
-        // Only if not actively typing in an input or textarea
         if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
         if (selectedElement.type === "node") {
           handleDeleteNode(selectedElement.id);
@@ -141,33 +220,8 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedElement, nodes, edges, workflowName]);
+  }, [selectedElement, handleSave, handleDeleteNode, handleDeleteEdge]);
 
-  // Construct current standard workflow JSON object
-  const getWorkflowJson = useCallback(() => {
-    return {
-      schemaVersion: 1,
-      name: workflowName,
-      nodes,
-      edges,
-    };
-  }, [workflowName, nodes, edges]);
-
-  // Validate current definition
-  const validateDefinition = async (customDef = null) => {
-    setIsValidating(true);
-    try {
-      const def = customDef || getWorkflowJson();
-      const res = await api.validateRawWorkflow(def);
-      if (res && res.data) {
-        setValidationResult(res.data);
-      }
-    } catch (err) {
-      console.error("Validation error:", err);
-    } finally {
-      setIsValidating(false);
-    }
-  };
 
   // Add a node to the canvas
   const handleAddNode = (catalogueNode) => {
@@ -223,30 +277,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     validateDefinition({ ...getWorkflowJson(), nodes: nextNodes });
   };
 
-  // Delete node and attached edges
-  const handleDeleteNode = (nodeId) => {
-    const nextNodes = nodes.filter((n) => n.id !== nodeId);
-    const nextEdges = edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
-
-    setNodes(nextNodes);
-    setEdges(nextEdges);
-    if (selectedElement?.id === nodeId) {
-      setSelectedElement(null);
-    }
-    setIsDirty(true);
-    validateDefinition({ ...getWorkflowJson(), nodes: nextNodes, edges: nextEdges });
-  };
-
-  // Delete edge
-  const handleDeleteEdge = (edgeId) => {
-    const nextEdges = edges.filter((e) => e.id !== edgeId);
-    setEdges(nextEdges);
-    if (selectedElement?.id === edgeId) {
-      setSelectedElement(null);
-    }
-    setIsDirty(true);
-    validateDefinition({ ...getWorkflowJson(), edges: nextEdges });
-  };
 
   // Start dragging a node
   const handleStartDragNode = (nodeId, e) => {
@@ -383,37 +413,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
   };
 
-  // Save workflow definition to backend
-  const handleSave = async () => {
-    if (!workflowId) return;
-    setIsSaving(true);
-    setSaveSuccessMsg("");
-
-    try {
-      const definition = getWorkflowJson();
-      const res = await api.updateWorkflow(workflowId, {
-        name: workflowName,
-        definition,
-      });
-
-      if (res && res.data) {
-        setWorkflow(res.data);
-        setWorkflowVersion(res.data.version);
-        setIsDirty(false);
-        setSaveSuccessMsg(`Saved as v${res.data.version}`);
-        setTimeout(() => setSaveSuccessMsg(""), 3000);
-
-        if (res.data.validation) {
-          setValidationResult(res.data.validation);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to save workflow:", err);
-      alert(`Save failed: ${err.message}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   // Run execution
   const handleExecuteRun = async (triggerData) => {

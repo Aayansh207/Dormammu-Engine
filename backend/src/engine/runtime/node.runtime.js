@@ -116,13 +116,18 @@ async function executeNodeRuntime({
     }
   } catch (err) {
     if (err instanceof EngineError) {
+      if (!err.details) err.details = {};
+      if (err.details.inputs === undefined) err.details.inputs = resolvedInputs;
+      err.resolvedInputs = resolvedInputs;
       throw err;
     }
-    throw new EngineError(
+    const engineErr = new EngineError(
       ErrorCodes.HANDLER_EXECUTION_FAILED,
       `Handler error in node '${node.id}': ${err.message}`,
-      { nodeId: node.id, originalMessage: err.message }
+      { nodeId: node.id, originalMessage: err.message, inputs: resolvedInputs }
     );
+    engineErr.resolvedInputs = resolvedInputs;
+    throw engineErr;
   }
 
   // 5. Validate outputs

@@ -243,6 +243,9 @@ async function executeWorkflow(workflow, options = {}) {
       taskRecord.completedAt = new Date().toISOString();
       taskRecord.durationMs = Date.now() - new Date(taskRecord.startedAt).getTime();
       taskRecord.error = structuredError;
+      if (err.resolvedInputs !== undefined) {
+        taskRecord.inputs = err.resolvedInputs;
+      }
 
       recordTrace(currentNodeId, TaskRunStatus.FAILED, { error: structuredError });
       await onTaskStateChange(runId, taskRecord);

@@ -52,22 +52,38 @@ module.exports = {
       default: "",
       description: "Dot notation path to extract (e.g., 'data.count' or 'user.name')",
     },
+    defaultValue: {
+      type: "any",
+      required: false,
+      default: null,
+      description: "Default fallback value if path is not found",
+    },
   },
-  validateConfig: (config) => {
-    if (config && config.path !== undefined && typeof config.path !== "string") {
+  validateConfig: (config = {}) => {
+    if (config.path !== undefined && typeof config.path !== "string") {
       return { valid: false, errors: ["Config 'path' must be a string"], field: "config.path" };
     }
     return { valid: true };
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const srcObj = inputs.input !== undefined ? inputs.input : inputs.object;
+    let srcObj = inputs.input !== undefined ? inputs.input : inputs.object;
+    if (typeof srcObj === "string") {
+      try {
+        srcObj = JSON.parse(srcObj);
+      } catch {
+        // keep string
+      }
+    }
+
     const path = inputs.path !== undefined && inputs.path !== null
       ? inputs.path
       : (node.config && node.config.path !== undefined ? node.config.path : "");
 
+    const fallback = (node.config && node.config.defaultValue !== undefined) ? node.config.defaultValue : null;
+
     const extracted = getPropertyByPath(srcObj, path);
-    const result = extracted !== undefined ? extracted : null;
+    const result = extracted !== undefined ? extracted : fallback;
     return { output: result, value: result };
   },
 };

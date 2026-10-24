@@ -1,25 +1,30 @@
 /**
  * Node: math.abs
- * Computes absolute value
+ * Computes absolute value of a number
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
 
 module.exports = {
   type: "math.abs",
-  version: "1.0.0",
-  category: "math",
+  version: 1,
+  category: "mathematical",
   label: "Absolute Value",
-  description: "Computes the absolute value of a number",
+  description: "Computes the absolute value of a number (|x|)",
   inputs: {
-    value: defineInputPort({ name: "value", type: PortTypes.NUMBER, required: true, description: "Number" }),
+    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "Number" }),
+    value: defineInputPort({ name: "value", type: PortTypes.NUMBER, required: false, description: "Number (alias)" }),
   },
   outputs: {
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Absolute value" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Absolute value" }),
+    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Absolute value (alias)" }),
   },
+  configSchema: {},
   validateConfig: () => ({ valid: true }),
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs) => {
-    return { result: Math.abs(Number(inputs.value)) };
+    const raw = inputs.input !== undefined ? inputs.input : inputs.value;
+    const absVal = Math.abs(Number(raw || 0));
+    return { output: absVal, result: absVal };
   },
 };
