@@ -9,7 +9,12 @@ import {
   Terminal, 
   ArrowRightCircle, 
   HelpCircle,
-  Play
+  Play,
+  GitFork,
+  Clock,
+  Layers,
+  Globe,
+  Bot
 } from "lucide-react";
 
 export const CATEGORY_META = {
@@ -18,6 +23,36 @@ export const CATEGORY_META = {
     color: "#39AEA9",
     glow: "rgba(57, 174, 169, 0.35)",
     icon: Play,
+  },
+  logic: {
+    label: "Logic & Branching",
+    color: "#E5A93B",
+    glow: "rgba(229, 169, 59, 0.35)",
+    icon: GitFork,
+  },
+  flow: {
+    label: "Flow Control",
+    color: "#9D65C9",
+    glow: "rgba(157, 101, 201, 0.35)",
+    icon: Clock,
+  },
+  data: {
+    label: "Data Transformation",
+    color: "#38B2AC",
+    glow: "rgba(56, 178, 172, 0.35)",
+    icon: Layers,
+  },
+  http: {
+    label: "HTTP & Webhooks",
+    color: "#3182CE",
+    glow: "rgba(49, 130, 206, 0.35)",
+    icon: Globe,
+  },
+  ai: {
+    label: "AI & Intelligence",
+    color: "#EC4899",
+    glow: "rgba(236, 72, 153, 0.35)",
+    icon: Bot,
   },
   mathematical: {
     label: "Mathematical",
@@ -38,7 +73,7 @@ export const CATEGORY_META = {
     icon: FileJson,
   },
   text: {
-    label: "Text & Utilities",
+    label: "Text & Templates",
     color: "#A2D5AB",
     glow: "rgba(162, 213, 171, 0.35)",
     icon: Type,
@@ -83,7 +118,7 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
   });
 
   // Group nodes by category
-  const categories = ["all", "trigger", "mathematical", "json", "text", "utility", "output"];
+  const categories = ["all", "trigger", "logic", "flow", "data", "ai", "http", "mathematical", "text", "json", "utility", "output"];
 
   return (
     <div 

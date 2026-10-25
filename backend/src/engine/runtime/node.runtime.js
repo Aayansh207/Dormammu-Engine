@@ -49,7 +49,18 @@ function resolveNodeInputs(node, registry, nodeOutputsStore, incomingEdges = [])
       }
     }
 
-    resolvedInputs[targetPort] = value;
+    const portDef = nodeDef.inputs[targetPort];
+    if (portDef && portDef.allowMultiple) {
+      if (resolvedInputs[targetPort] === undefined) {
+        resolvedInputs[targetPort] = [value];
+      } else if (Array.isArray(resolvedInputs[targetPort])) {
+        resolvedInputs[targetPort].push(value);
+      } else {
+        resolvedInputs[targetPort] = [resolvedInputs[targetPort], value];
+      }
+    } else {
+      resolvedInputs[targetPort] = value;
+    }
   }
 
   // For ports not satisfied by edges, check config or port defaultValue
@@ -158,12 +169,17 @@ async function executeNodeRuntime({
     );
   }
 
+  const declaredOutputs = typeof nodeDef.getDynamicOutputs === "function"
+    ? nodeDef.getDynamicOutputs(node.config)
+    : nodeDef.outputs;
+
   for (const outputPort of Object.keys(outputs)) {
-    if (!nodeDef.outputs[outputPort]) {
+    if (outputPort.startsWith("_")) continue;
+    if (!declaredOutputs || !declaredOutputs[outputPort]) {
       throw new EngineError(
         ErrorCodes.INVALID_OUTPUT_PORT,
         `Node '${node.id}' returned undeclared output port '${outputPort}'`,
-        { nodeId: node.id, port: outputPort, declaredOutputs: Object.keys(nodeDef.outputs) }
+        { nodeId: node.id, port: outputPort, declaredOutputs: declaredOutputs ? Object.keys(declaredOutputs) : [] }
       );
     }
   }

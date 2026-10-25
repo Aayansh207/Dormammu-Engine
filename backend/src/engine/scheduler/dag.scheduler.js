@@ -113,10 +113,15 @@ async function executeWorkflow(workflow, options = {}) {
   // Step 3: Build execution plan
   const plan = createExecutionPlan(workflow, registry);
 
-  // Initialize task records
+  // Initialize task records & edge states
   const tasks = {};
   const remainingDependencies = new Map();
   const nodeOutputsStore = new Map();
+  const edgeStates = new Map(); // edgeId -> "PENDING" | "ACTIVE" | "SKIPPED"
+
+  for (const edge of plan.edges) {
+    edgeStates.set(edge.id, "PENDING");
+  }
 
   for (const [nodeId, node] of plan.nodes.entries()) {
     tasks[nodeId] = {
@@ -146,6 +151,75 @@ async function executeWorkflow(workflow, options = {}) {
   let runStatus = WorkflowRunStatus.RUNNING;
   let runError = null;
   let finalOutput = null;
+
+  // Helper: Evaluates whether a target node is ready to run or should be skipped
+  const evaluateTargetReadiness = async (targetId) => {
+    if (tasks[targetId].status !== TaskRunStatus.PENDING) return;
+
+    const targetNode = plan.nodes.get(targetId);
+    const inEdges = plan.incomingEdgesByNode.get(targetId) || [];
+    const activeInEdges = inEdges.filter((e) => edgeStates.get(e.id) === "ACTIVE");
+    const skippedInEdges = inEdges.filter((e) => edgeStates.get(e.id) === "SKIPPED");
+
+    if (targetNode.type === "flow.merge") {
+      const mergeMode = (targetNode.config && targetNode.config.mode) || "first_available";
+      if (mergeMode === "all") {
+        if (skippedInEdges.length > 0) {
+          await skipNode(targetId, "missing_required_branch");
+        } else {
+          tasks[targetId].status = TaskRunStatus.READY;
+          readyQueue.push(targetId);
+          recordTrace(targetId, TaskRunStatus.READY);
+          await onTaskStateChange(runId, tasks[targetId]);
+        }
+      } else {
+        // "first_available" or "coalesce"
+        if (activeInEdges.length > 0) {
+          tasks[targetId].status = TaskRunStatus.READY;
+          readyQueue.push(targetId);
+          recordTrace(targetId, TaskRunStatus.READY);
+          await onTaskStateChange(runId, tasks[targetId]);
+        } else {
+          // All incoming branches were skipped
+          await skipNode(targetId, "all_branches_skipped");
+        }
+      }
+    } else {
+      // Ordinary node: if any incoming edge is skipped, skip this node
+      if (skippedInEdges.length > 0) {
+        await skipNode(targetId, "inactive_branch");
+      } else {
+        tasks[targetId].status = TaskRunStatus.READY;
+        readyQueue.push(targetId);
+        recordTrace(targetId, TaskRunStatus.READY);
+        await onTaskStateChange(runId, tasks[targetId]);
+      }
+    }
+  };
+
+  // Helper: Cascades skipping through inactive branch descendants
+  const skipNode = async (nodeId, reason) => {
+    if (tasks[nodeId].status === TaskRunStatus.SKIPPED) return;
+
+    tasks[nodeId].status = TaskRunStatus.SKIPPED;
+    tasks[nodeId].completedAt = new Date().toISOString();
+    tasks[nodeId].durationMs = 0;
+    recordTrace(nodeId, TaskRunStatus.SKIPPED, { reason });
+    await onTaskStateChange(runId, tasks[nodeId]);
+
+    // All outgoing edges from a skipped node become SKIPPED
+    const outgoing = plan.outgoingEdgesByNode.get(nodeId) || [];
+    for (const outEdge of outgoing) {
+      edgeStates.set(outEdge.id, "SKIPPED");
+      const outTargetId = outEdge.target;
+      const remaining = (remainingDependencies.get(outTargetId) || 1) - 1;
+      remainingDependencies.set(outTargetId, remaining);
+
+      if (remaining === 0) {
+        await evaluateTargetReadiness(outTargetId);
+      }
+    }
+  };
 
   // Step 5: Sequential execution loop
   while (readyQueue.length > 0) {
@@ -191,12 +265,13 @@ async function executeWorkflow(workflow, options = {}) {
     });
 
     try {
-      const incomingEdges = plan.incomingEdgesByNode.get(currentNodeId) || [];
+      const activeIncomingEdges = (plan.incomingEdgesByNode.get(currentNodeId) || [])
+        .filter((e) => edgeStates.get(e.id) === "ACTIVE");
       const execResult = await executeNodeRuntime({
         node: currentNode,
         registry,
         nodeOutputsStore,
-        incomingEdges,
+        incomingEdges: activeIncomingEdges,
         context: taskContext,
       });
 
@@ -220,17 +295,26 @@ async function executeWorkflow(workflow, options = {}) {
         }
       }
 
-      // Propagate readiness to downstream targets
-      const outgoingTargets = plan.adjacencyList.get(currentNodeId) || [];
-      for (const targetId of outgoingTargets) {
+      // Propagate readiness to downstream targets based on active/emitted output ports
+      const outgoingEdges = plan.outgoingEdgesByNode.get(currentNodeId) || [];
+      for (const edge of outgoingEdges) {
+        const hasPort =
+          execResult.outputs[edge.sourcePort] !== undefined ||
+          (edge.sourcePort === "output" && execResult.outputs["result"] !== undefined) ||
+          (edge.sourcePort === "result" && execResult.outputs["output"] !== undefined);
+
+        if (hasPort) {
+          edgeStates.set(edge.id, "ACTIVE");
+        } else {
+          edgeStates.set(edge.id, "SKIPPED");
+        }
+
+        const targetId = edge.target;
         const remaining = (remainingDependencies.get(targetId) || 1) - 1;
         remainingDependencies.set(targetId, remaining);
 
-        if (remaining === 0 && tasks[targetId].status === TaskRunStatus.PENDING) {
-          tasks[targetId].status = TaskRunStatus.READY;
-          readyQueue.push(targetId);
-          recordTrace(targetId, TaskRunStatus.READY);
-          await onTaskStateChange(runId, tasks[targetId]);
+        if (remaining === 0) {
+          await evaluateTargetReadiness(targetId);
         }
       }
     } catch (err) {
@@ -296,11 +380,13 @@ async function executeWorkflow(workflow, options = {}) {
       // All runnable tasks finished successfully
       runStatus = WorkflowRunStatus.SUCCEEDED;
 
-      // If no output.return node explicitly captured finalOutput, capture terminal nodes' outputs
-      if (finalOutput === null && !plan.hasReturnNode) {
+      // If no output.return node explicitly captured finalOutput, capture succeeded terminal nodes' outputs
+      if (finalOutput === null) {
         const terminalOutputs = {};
         for (const termId of plan.terminalNodeIds) {
-          terminalOutputs[termId] = nodeOutputsStore.get(termId);
+          if (tasks[termId].status === TaskRunStatus.SUCCEEDED) {
+            terminalOutputs[termId] = nodeOutputsStore.get(termId);
+          }
         }
         finalOutput = terminalOutputs;
       }

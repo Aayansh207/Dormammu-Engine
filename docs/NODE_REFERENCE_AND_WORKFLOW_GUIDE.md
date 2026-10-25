@@ -1,482 +1,467 @@
-# Dormammu Engine — Node Reference & Workflow Creation Guide
+# Dormammu Engine: Node Reference & Visual Workflow Guide
 
-A comprehensive, authoritative manual detailing the architecture, every input/output port of all 20 nodes, configuration schemas, and the standard operating procedure for designing, validating, and executing production-grade Directed Acyclic Graph (DAG) workflows.
-
----
-
-## Table of Contents
-1. [Core Concepts: What is a Dormammu Workflow?](#1-core-concepts-what-is-a-dormammu-workflow)
-2. [Step-by-Step: How to Design a Proper Process](#2-step-by-step-how-to-design-a-proper-process)
-3. [Workflow Lifecycle & Execution Mechanics](#3-workflow-lifecycle--execution-mechanics)
-4. [Complete 20-Node Specification Reference](#4-complete-20-node-specification-reference)
-   - [Triggers & Input Nodes](#41-triggers--input-nodes)
-     - [`trigger.manual`](#triggermanual---manual-trigger)
-     - [`data.input`](#datainput---input--set-value)
-   - [Mathematical Processing Nodes](#42-mathematical-processing-nodes)
-     - [`math.add`](#mathadd---addition)
-     - [`math.subtract`](#mathsubtract---subtraction)
-     - [`math.multiply`](#mathmultiply---multiplication)
-     - [`math.divide`](#mathdivide---division)
-     - [`math.modulo`](#mathmodulo---modulo--remainder)
-     - [`math.power`](#mathpower---exponentiation)
-     - [`math.round`](#mathround---rounding)
-     - [`math.abs`](#mathabs---absolute-value)
-     - [`math.min`](#mathmin---minimum)
-     - [`math.max`](#mathmax---maximum)
-     - [`math.average`](#mathaverage---average--mean)
-   - [JSON & Data Processing Nodes](#43-json--data-processing-nodes)
-     - [`json.parse`](#jsonparse---parse-json-string)
-     - [`json.get`](#jsonget---extract-nested-json-field)
-   - [Text & String Nodes](#44-text--string-nodes)
-     - [`text.concat`](#textconcat---concatenate-strings)
-   - [Utility Nodes](#45-utility-nodes)
-     - [`utility.uuid`](#utilityuuid---generate-v4-uuid)
-     - [`utility.datetime`](#utilitydatetime---timestamp--iso-datetime)
-   - [Output & Logging Nodes](#46-output--logging-nodes)
-     - [`output.log`](#outputlog---diagnostic-logger)
-     - [`output.return`](#outputreturn---workflow-final-output)
-5. [Best Practices & Validation Rules](#5-best-practices--validation-rules)
-6. [Real-World Pipeline Blueprints](#6-real-world-pipeline-blueprints)
+Welcome to the comprehensive reference guide for **Dormammu Engine (Webster Workflow Automation)**. This document provides complete technical specifications for all 32 canonical nodes, control-flow execution semantics, SSRF security architecture, and a step-by-step tutorial on building and running visual workflows.
 
 ---
 
-## 1. Core Concepts: What is a Dormammu Workflow?
+## 🌟 Table of Contents
 
-A workflow in Dormammu Engine is a **Directed Acyclic Graph (DAG)**.
-- **Nodes** represent atomic, isolated operations (fetching input, arithmetic, parsing JSON, string manipulation, logging, or returning a result).
-- **Edges** represent directed data channels connecting an **output port** of an upstream node to an **input port** of a downstream node.
-- **DAG Rule**: Data flows in strictly one direction (from upstream triggers to downstream outputs). There are **no recursive loops or cycles**.
-
-```
-[Trigger / Input] ──► [Transformation / Logic] ──► [Output / Return]
-```
-
-### Why a Directed Acyclic Graph (DAG)?
-1. **Deterministic Execution**: Every node executes only after all its dependencies (upstream nodes) have succeeded.
-2. **Infinite Loop Immunity**: The engine's multi-level validator uses a 3-color DFS cycle detector to mathematically reject any graph containing loops.
-3. **Parallel Branching & Convergence**: Multiple independent branches can execute in parallel and converge into downstream joining nodes.
-
----
-
-## 2. Step-by-Step: How to Design a Proper Process
-
-To create a clean, maintainable, and reliable workflow, follow this 5-stage blueprint:
-
-### Stage 1: Establish the Entry Point
-Every executable workflow must have at least one entry node (in-degree = 0):
-- Use **`trigger.manual`** if your workflow is initiated manually or via an API call containing a JSON payload or numeric value.
-- Use **`data.input`** if you want to extract specific fields directly from the global trigger payload with fallback defaults.
-- Use **`utility.uuid`** or **`utility.datetime`** if your workflow generates identifiers or logs events periodically.
-
-### Stage 2: Transform & Cleanse Data
-Process the raw data ingested by the entry point:
-- If receiving JSON strings (e.g. from an API request), pipe the payload into **`json.parse`**.
-- Extract target properties with **`json.get`** using dot paths (e.g. `order.total` or `user.preferences.theme`).
-
-### Stage 3: Apply Computational Logic
-Wire outputs into mathematical or text manipulation nodes:
-- Perform calculations using **`math.add`**, **`math.multiply`**, **`math.round`**, etc.
-- You can supply values in two ways:
-  1. **Dynamic Connection**: Wire another node's output into port `b`.
-  2. **Static Config**: Leave port `b` disconnected and specify a fallback in the Node Inspector (e.g. `factor: 1.18` for tax calculation).
-
-### Stage 4: Log Diagnostic Checkpoints (Optional)
-Insert **`output.log`** nodes at critical intersections. `output.log` records data to the execution audit log and immediately forwards the input value unaltered to downstream nodes, allowing non-disruptive debugging.
-
-### Stage 5: Terminate with a Final Output
-Every workflow that computes a result should end with **`output.return`**:
-- Connect the terminal computation output to `output.return`'s `input` port.
-- When the execution finishes, the value received by `output.return` is extracted as the workflow run's `finalOutput`.
+1. [Architectural Overview & Control Flow Semantics](#1-architectural-overview--control-flow-semantics)
+2. [Complete Node Catalogue (32 Nodes)](#2-complete-node-catalogue-32-nodes)
+   - [Logic & Control Flow Nodes](#logic--control-flow-nodes)
+   - [Data Transformation Nodes](#data-transformation-nodes)
+   - [HTTP & Webhook Nodes](#http--webhook-nodes)
+   - [AI & Machine Learning Nodes](#ai--machine-learning-nodes)
+   - [Triggers & Mathematical Nodes](#triggers--mathematical-nodes)
+   - [JSON, Text & Utility Nodes](#json-text--utility-nodes)
+3. [SSRF & Security Model](#3-ssrf--security-model)
+4. [Step-by-Step Workflow Tutorial: AI Support-Ticket Triage](#4-step-by-step-workflow-tutorial-ai-support-ticket-triage)
+5. [Automated Verification & Test Report](#5-automated-verification--test-report)
+6. [Known Limitations & Roadmap](#6-known-limitations--roadmap)
 
 ---
 
-## 3. Workflow Lifecycle & Execution Mechanics
+## 1. Architectural Overview & Control Flow Semantics
 
-```
-┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-│ Visual Builder  │ ────► │ Multi-Level     │ ────► │ PostgreSQL DB   │
-│ & Canvas UI     │       │ Graph Validator │       │ (Immutable vN)  │
-└─────────────────┘       └─────────────────┘       └─────────────────┘
-                                                             │
-                                                             ▼
-┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-│ Execution Modal │ ◄──── │ Sequential DAG  │ ◄──── │ Planner         │
-│ Task Statuses   │       │ Scheduler       │       │ O(V + E) Sort   │
-└─────────────────┘       └─────────────────┘       └─────────────────┘
-```
+Dormammu Engine utilizes a deterministic Directed Acyclic Graph (DAG) execution architecture. Workflows are compiled into topological execution plans and processed sequentially or concurrently with strict dependency guarantees.
 
-1. **Composition**: The visual frontend builds a standard JSON schema containing `nodes` and `edges`.
-2. **Validation**: The engine validates:
-   - **Level 1 (Structural)**: Required node keys, IDs, position numbers.
-   - **Level 2 (Graph Integrity)**: Unknown node types, port existence, self-loops, and cycles ($A \to B \to A$).
-   - **Level 3 (Configuration)**: Valid numbers, non-zero divisors, proper JSON strings.
-   - **Level 4 (Semantic)**: Port data types and connectivity.
-3. **Immutable Versioning**: Saving creates a new immutable version ($v1 \to v2 \to v3$) in PostgreSQL. Prior versions are never mutated.
-4. **Execution**:
-   - The **Planner** builds adjacency matrices and calculates in-degrees.
-   - The **Scheduler** visits nodes topologically.
-   - If a node fails, the scheduler triggers **fail-fast cascading**: all downstream dependent nodes are marked `BLOCKED`, and the run status is marked `FAILED`.
+### Control-Flow Branching & Inactive Branch Skipping
+
+Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary nodes that pass booleans while the scheduler indiscriminately executes every downstream branch. Instead:
+
+1. **Port Emission Semantics**: A branching node returns output only on the active branch port (e.g., `true` or a matched case port). Inactive ports are omitted from the returned outputs.
+2. **Edge State Transition**: Outgoing wires attached to emitted ports become `ACTIVE`. Outgoing wires attached to un-emitted ports become `SKIPPED`.
+3. **Cascading Skip**: Downstream nodes that depend on a `SKIPPED` incoming wire are marked `SKIPPED` without invoking their execution handlers. All outgoing edges from a skipped node automatically transition to `SKIPPED`, propagating down the inactive branch.
+4. **Clean Workflow Completion**: When all unfinished nodes on an inactive branch have transitioned to `SKIPPED`, the workflow status reconciles cleanly to `SUCCEEDED` (not `DEADLOCK_DETECTED`).
+5. **Flow Merge Resolution**: A `flow.merge` node connects converging branches:
+   - `first_available` mode: Evaluates when all incoming edges are resolved (`ACTIVE` or `SKIPPED`). If at least one active branch delivers data, it executes immediately using the active input.
+   - `all` mode: Requires all incoming branches to be `ACTIVE`; if any branch was skipped, the merge node is skipped.
+6. **Failure & Cancellation Propagation**: If any node fails, fail-fast propagation marks all reachable downstream descendant nodes as `BLOCKED`. If cancelled via `AbortSignal`, all unstarted tasks transition to `CANCELLED`.
 
 ---
 
-## 4. Complete 20-Node Specification Reference
+## 2. Complete Node Catalogue (32 Nodes)
 
-### Port Architecture Principles & Rationale
-To eliminate clutter, visual ambiguity, and connection errors, every node in Dormammu follows a strict, well-reasoned port contract:
-1. **Single Canonical Output (`output`)**: Every operation yields its result through exactly one standard output port: `output` (with the single exception of `utility.datetime` which also provides `timestamp` for epoch milliseconds).
-2. **Predictable Input Contracts**:
-   - **Roots / Triggers** (`trigger.manual`, `data.input`, `utility.uuid`, `utility.datetime`): `0` input ports (`inputs: {}`).
-   - **Unary Transforms** (`math.round`, `math.abs`, `json.parse`, `output.log`, `output.return`): `1` input port (`input`).
-   - **Binary Arithmetic & Operations** (`math.add`, `math.subtract`, `math.multiply`, `math.divide`, `math.modulo`, `math.min`, `math.max`, `math.average`, `text.concat`): `2` input ports (`a`, `b`).
-   - **Powers / Exponentiation** (`math.power`): `2` input ports (`base`, `exponent`).
-   - **Object Query** (`json.get`): `2` input ports (`input`, `path`).
-3. **Seamless Backwards Compatibility**: Legacy workflows referencing old port names (`result` for `output`, `input` for `a`/`base`) are automatically normalized by the engine validator and runtime.
+### Logic & Control Flow Nodes
 
----
+#### `logic.condition`
+- **Category**: `logic`
+- **Label**: `Condition (If/Else)`
+- **Description**: Evaluates a condition and routes execution along distinct `true` or `false` branch ports.
+- **Inputs**:
+  - `a` (`any`, optional): First operand or value to test.
+  - `b` (`any`, optional): Second operand for comparison.
+  - `input` (`any`, optional): Alternative alias for operand `a`.
+  - `data` (`any`, optional): Optional payload passed through the active branch port.
+- **Outputs**:
+  - `true` (`any`): Emitted only when condition evaluates to true.
+  - `false` (`any`): Emitted only when condition evaluates to false.
+  - `output` (`boolean`): The evaluated boolean outcome (`true` or `false`).
+- **Configuration**:
+  - `operator` (`string`, default: `"=="`): Supported: `==`, `===`, `!=`, `!==`, `>`, `>=`, `<`, `<=`, `truthy`, `falsy`, `empty`, `not_empty`, `contains`, `starts_with`, `ends_with`, `regex`.
+  - `value` (`any`): Comparison value fallback if port `b` is not wired.
+  - `passThrough` (`boolean`, default: `true`): If true, emits the tested data payload on the active port; if false, emits the boolean outcome.
 
-### 4.1 Triggers & Input Nodes
+#### `logic.switch`
+- **Category**: `logic`
+- **Label**: `Switch`
+- **Description**: Routes data along the matching case branch port or the default fallback branch.
+- **Inputs**:
+  - `input` (`any`, optional): Value to match against configured cases.
+  - `value` (`any`, optional): Alternative input alias.
+- **Outputs**: Dynamic case ports based on `config.cases` + `default` + `output`.
+  - `[case_port]` (`any`): Activated only for the matching case.
+  - `default` (`any`): Activated when no cases match.
+  - `output` (`any`): The matched case name or `"default"`.
+- **Configuration**:
+  - `cases` (`array`): List of matchable cases (e.g. `["urgent", "billing", "general"]` or `[{ case: "urgent", port: "urgent" }]`).
+  - `matchType` (`string`, default: `"exact"`): `"exact"`, `"case_insensitive"`, or `"contains"`.
 
-#### `trigger.manual` — Manual Trigger
-Workflow root trigger that initiates execution when a user clicks Run in the UI or invokes the execution API.
+#### `flow.merge`
+- **Category**: `flow`
+- **Label**: `Merge Branches`
+- **Description**: Combines data and execution from multiple upstream branches into a unified path.
+- **Inputs**:
+  - `input` (`any`, allowMultiple: `true`): Supports multiple incoming branch wires.
+  - `a` (`any`, optional): Branch A alternative input.
+  - `b` (`any`, optional): Branch B alternative input.
+- **Outputs**:
+  - `output` (`any`): The merged output value.
+- **Configuration**:
+  - `mode` (`string`, default: `"first_available"`):
+    - `"first_available"`: Forwards the first non-undefined value from active branches.
+    - `"coalesce"`: Forwards the first non-null, non-undefined value.
+    - `"all"`: Collects all incoming branch values into an array `[val1, val2, ...]`.
+    - `"object"`: Merges active branch objects into a single object `{ ...obj1, ...obj2 }`.
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Ports** | *None* | — | Entry point node; has 0 incoming ports. |
-| **Output Port** | `output` | `any` | Emits the trigger payload (or `defaultPayload`) to downstream nodes. |
-| **Configuration** | `triggerKey` | `string` | Optional unique targeting key when multiple manual triggers are present (e.g. `'orderData'`, `'userData'`). |
-| **Configuration** | `defaultPayload` | `json` | Default fallback payload (object or primitive) used when running without trigger input. |
-
-##### Handling Workflows with Multiple Manual Triggers
-When a workflow contains **two or more manual triggers**, Dormammu handles them deterministically:
-1. **Parallel Entry Points**: All manual triggers act as valid DAG roots and start simultaneously in the execution ready queue.
-2. **Targeted Per-Trigger Ingestion**:
-   - The execution modal allows configuring separate inputs for each trigger.
-   - The backend resolves payloads targeted by `node.id`, `node.config.triggerKey`, or `node.name`.
-   - Packaged multi-trigger payloads use `{ "$multiTrigger": true, "<nodeId>": payload, ... }`.
-3. **Broadcast Mode**: Users can toggle to "Broadcast" in the UI to send an identical shared payload to all manual triggers.
-4. **Independent Fallbacks**: Any trigger that does not receive an explicit input cleanly falls back to its own configured `defaultPayload` without blocking the workflow.
-
----
-
-#### `data.input` — Input / Set Value
-Extracts a specific property from the execution trigger payload or provides a hardcoded static value.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Ports** | *None* | — | Entry point node; has 0 incoming ports. |
-| **Output Port** | `output` | `any` | Extracted value from trigger payload or default value. |
-| **Configuration** | `key` | `string` | Property key to extract from `triggerData` (leave blank to pass entire payload). |
-| **Configuration** | `defaultValue`| `any` | Fallback value if `key` is missing in `triggerData`. |
-
----
-
-### 4.2 Mathematical Processing Nodes
-
-All binary mathematical nodes accept two dynamic inputs (`a` and `b`) or one dynamic input with a configured fallback constant.
-
-#### `math.add` — Addition
-Calculates the sum of two numbers: $\text{output} = a + b$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | First summand. |
-| **Input Port** | `b` | `number` | Second summand. |
-| **Output Port** | `output` | `number` | Computed sum ($a + b$). |
-| **Configuration** | `addend` | `number` | Fallback added to `a` if port `b` is disconnected (default: `0`). |
-
----
-
-#### `math.subtract` — Subtraction
-Calculates the difference between two numbers: $\text{output} = a - b$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | Minuend. |
-| **Input Port** | `b` | `number` | Subtrahend (number to subtract). |
-| **Output Port** | `output` | `number` | Computed difference ($a - b$). |
-| **Configuration** | `subtrahend` | `number` | Fallback subtracted from `a` if port `b` is disconnected (default: `0`). |
+#### `flow.delay`
+- **Category**: `flow`
+- **Label**: `Delay`
+- **Description**: Pauses execution for a configured duration without blocking the Node.js event loop.
+- **Inputs**:
+  - `input` (`any`, optional): Passthrough data value.
+- **Outputs**:
+  - `output` (`any`): Passthrough data value after delay.
+  - `delayedMs` (`number`): Elapsed delay in milliseconds.
+- **Configuration**:
+  - `durationMs` (`number`, default: `1000`): Delay duration in ms (0 to 300,000ms / 5 mins). Supports cancellation via `AbortSignal`.
 
 ---
 
-#### `math.multiply` — Multiplication
-Calculates the product of two numbers: $\text{output} = a \times b$.
+### Data Transformation Nodes
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | Multiplicand. |
-| **Input Port** | `b` | `number` | Multiplier. |
-| **Output Port** | `output` | `number` | Computed product ($a \times b$). |
-| **Configuration** | `factor` | `number` | Fallback multiplier if port `b` is disconnected (default: `1`). |
+#### `data.object`
+- **Category**: `data`
+- **Label**: `Build Object`
+- **Description**: Constructs structured objects from key-value pairs, nested dot paths, and dynamic inputs without arbitrary `eval`.
+- **Inputs**:
+  - `input` (`any`, optional): Optional base object or input context.
+  - `value` (`any`, optional): Dynamic value for targetKey.
+- **Outputs**:
+  - `output` (`object`): Constructed structured JSON object.
+- **Configuration**:
+  - `fields` (`array`): `[{ key: "user.id", value: 101 }, { key: "user.name", fromInput: true }]`.
+  - `targetKey` (`string`, optional): Target property path for `value` port.
+- **Security**: Hardened against prototype pollution; strictly forbids `__proto__`, `constructor`, and `prototype` paths. Preserves all falsy values (`0`, `false`, `""`, `null`).
 
----
+#### `data.array.map`
+- **Category**: `data`
+- **Label**: `Array Map`
+- **Description**: Transforms items in an array using safe, declarative mapping operations.
+- **Inputs**:
+  - `input` (`array`, required): Input array to map.
+- **Outputs**:
+  - `output` (`array`): Transformed array.
+- **Configuration**:
+  - `operation` (`string`): Supported operations:
+    - `"extract_field"`: Extracts nested property (e.g. `user.email`).
+    - `"to_uppercase"`: Transforms strings to uppercase.
+    - `"to_lowercase"`: Transforms strings to lowercase.
+    - `"trim"`: Trims whitespace from strings.
+    - `"math_multiply"`: Multiplies numeric items by `operand`.
+    - `"math_add"`: Adds `operand` to numeric items.
+    - `"wrap_object"`: Wraps each item in `{ [field]: item }`.
+    - `"filter_truthy"`: Filters out null/undefined/falsy items.
+  - `field` (`string`): Property path for extraction or wrapper key.
+  - `operand` (`number`): Operand for mathematical operations.
+- **Limits**: Enforces array size limits (max 5,000 items) and strictly avoids arbitrary code evaluation.
 
-#### `math.divide` — Division
-Calculates the quotient: $\text{output} = a / b$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | Dividend. |
-| **Input Port** | `b` | `number` | Divisor. |
-| **Output Port** | `output` | `number` | Computed quotient ($a / b$). |
-| **Configuration** | `divisor` | `number` | Fallback divisor if port `b` is disconnected (default: `1`). |
-
-> [!CAUTION]
-> **Division by Zero Protection**: If $b = 0$, the node safely rejects execution with code `DIVISION_BY_ZERO`, failing the task gracefully instead of yielding `Infinity` or crashing the engine.
-
----
-
-#### `math.modulo` — Modulo / Remainder
-Calculates the integer remainder of division: $\text{output} = a \pmod b$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | Dividend. |
-| **Input Port** | `b` | `number` | Divisor. |
-| **Output Port** | `output` | `number` | Remainder of $a / b$. |
-| **Configuration** | `divisor` | `number` | Fallback divisor if port `b` is disconnected (default: `1`). |
-
----
-
-#### `math.power` — Exponentiation
-Calculates base raised to exponent: $\text{output} = \text{base}^{\text{exponent}}$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `base` | `number` | Base number. |
-| **Input Port** | `exponent` | `number` | Exponent power. |
-| **Output Port** | `output` | `number` | Computed power ($\text{base}^{\text{exponent}}$). |
-| **Configuration** | `exponent` | `number` | Fallback exponent if port `exponent` is disconnected (default: `2`). |
-
----
-
-#### `math.round` — Rounding
-Rounds numbers using configurable algorithms and precision.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `number` | Number to round. |
-| **Output Port** | `output` | `number` | Rounded result. |
-| **Configuration** | `precision` | `number` | Number of decimal places to keep (default: `0`). |
-| **Configuration** | `mode` | `select` | Rounding algorithm: `"round"` (standard), `"floor"` (down), or `"ceil"` (up). |
+#### `text.template`
+- **Category**: `text`
+- **Label**: `Text Template`
+- **Description**: Renders text templates using safe mustache-style `{{variable}}` interpolation.
+- **Inputs**:
+  - `input` (`any`, optional): Object containing template variables.
+- **Outputs**:
+  - `output` (`string`): Rendered string result.
+- **Configuration**:
+  - `template` (`string`): Template text (e.g. `"Hello {{customer.name}}, order #{{id}} is confirmed"`).
+  - `missingVariablePolicy` (`string`, default: `"empty"`): `"empty"` (replace with blank), `"preserve"` (keep tag), or `"error"` (throw structured error).
+  - `escapeHtml` (`boolean`, default: `false`): Escapes HTML entities to prevent injection.
 
 ---
 
-#### `math.abs` — Absolute Value
-Computes the magnitude of a number: $\text{output} = |x|$.
+### HTTP & Webhook Nodes
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `number` | Number to evaluate. |
-| **Output Port** | `output` | `number` | Absolute value ($|x|$). |
-| **Configuration** | *None* | — | Pure mathematical function; no config required. |
+#### `http.request`
+- **Category**: `http`
+- **Label**: `HTTP Request`
+- **Description**: Dispatches outbound HTTP requests with strict SSRF protection, timeout enforcement, and response size limits.
+- **Inputs**:
+  - `body` (`any`, optional): Request payload (JSON object, string, etc.).
+  - `url` (`string`, optional): Target URL destination (overrides config if wired).
+  - `headers` (`object`, optional): Dynamic request headers map.
+- **Outputs**:
+  - `output` (`any`): Parsed response body (JSON object or string).
+  - `status` (`number`): HTTP status code.
+  - `headers` (`object`): Response headers map.
+- **Configuration**:
+  - `url` (`string`): Target URL.
+  - `method` (`string`, default: `"GET"`): `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`.
+  - `headers` (`object`): Custom headers (supports secret tokens `{{secrets.API_KEY}}`).
+  - `timeoutMs` (`number`, default: `10000`): Request timeout (max 30,000ms).
+  - `allowPrivateNetwork` (`boolean`, default: `false`): Explicitly permit private CIDRs.
+- **Security**: SSRF protection blocks private subnets (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `::1`) and performs DNS resolution checks to prevent DNS rebinding attacks. Response payload size capped at 2MB.
 
----
-
-#### `math.min` — Minimum
-Evaluates the smaller of two numbers: $\text{output} = \min(a, b)$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | First number. |
-| **Input Port** | `b` | `number` | Second number to compare. |
-| **Output Port** | `output` | `number` | Smaller value of $a$ and $b$. |
-| **Configuration** | `compareValue`| `number` | Fallback value for $b$ if port `b` is disconnected (default: `0`). |
-
----
-
-#### `math.max` — Maximum
-Evaluates the larger of two numbers: $\text{output} = \max(a, b)$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | First number. |
-| **Input Port** | `b` | `number` | Second number to compare. |
-| **Output Port** | `output` | `number` | Larger value of $a$ and $b$. |
-| **Configuration** | `compareValue`| `number` | Fallback value for $b$ if port `b` is disconnected (default: `0`). |
-
----
-
-#### `math.average` — Average / Mean
-Calculates the arithmetic mean: $\text{output} = \frac{a + b}{2}$.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `number` | First value. |
-| **Input Port** | `b` | `number` | Second value. |
-| **Output Port** | `output` | `number` | Calculated average. |
-| **Configuration** | *None* | — | Calculates dynamic average based on provided ports. |
+#### `http.respond`
+- **Category**: `http`
+- **Label**: `HTTP Respond`
+- **Description**: Delivers HTTP responses for inbound webhook and API-triggered executions. Gracefully reports simulated delivery when executed in manual or CLI contexts.
+- **Inputs**:
+  - `body` (`any`, optional): Payload to return in response body.
+  - `status` (`number`, optional): HTTP status code (e.g. 200, 201, 400).
+  - `headers` (`object`, optional): Custom HTTP response headers.
+- **Outputs**:
+  - `output` (`object`): Record of response delivery (`delivered`, `simulated`, `statusCode`, `body`).
+- **Configuration**:
+  - `statusCode` (`number`, default: `200`): Default status code.
+  - `contentType` (`string`, default: `"application/json"`): Content-Type header.
 
 ---
 
-### 4.3 JSON & Data Processing Nodes
+### AI & Machine Learning Nodes
 
-#### `json.parse` — Parse JSON String
-Converts a raw JSON string into a structured JavaScript object or array.
+#### `ai.classify`
+- **Category**: `ai`
+- **Label**: `AI Classify`
+- **Description**: Classifies text into configured categories using Google Gemini, OpenAI, or deterministic labelled `[DEMO MOCK]` fallback.
+- **Inputs**:
+  - `text` (`any`, optional): Text content or structured object (automatically unwraps `issue`, `message`, `content`).
+  - `input` (`any`, optional): Alternative input alias.
+- **Outputs**:
+  - `output` (`string`): Assigned classification category.
+  - `category` (`string`): Assigned category alias.
+  - `confidence` (`number`): Confidence score between 0.0 and 1.0.
+  - `reasoning` (`string`): Rationale for the classification.
+- **Configuration**:
+  - `categories` (`array`): List of target categories (e.g. `["urgent", "bug", "billing", "general"]`).
+  - `instructions` (`string`): System prompt guidance.
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `string` | Raw JSON string to parse. |
-| **Output Port** | `output` | `any` | Parsed object/array data. |
-| **Configuration** | `defaultText` | `string` | Default fallback JSON string if input port is disconnected (default: `"{}"`). |
+#### `ai.extract`
+- **Category**: `ai`
+- **Label**: `AI Extract`
+- **Description**: Extracts structured JSON entities from unstructured text conforming to a configured schema.
+- **Inputs**:
+  - `text` (`any`, optional): Source text or object to extract information from.
+  - `input` (`any`, optional): Alternative input alias.
+- **Outputs**:
+  - `output` (`object`): Extracted JSON entity object.
+- **Configuration**:
+  - `schema` (`object`): Schema mapping field names to expected data types.
+  - `instructions` (`string`): Additional extraction constraints.
 
-> [!NOTE]
-> If invalid JSON syntax is supplied, the node throws a structured `INVALID_JSON` error explaining the syntax fault without crashing the engine.
-
----
-
-#### `json.get` — Extract Nested JSON Field
-Extracts a specific property from an object using dot notation or bracket notation (e.g. `user.profile.emails[0]`).
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `any` | Target object or array. |
-| **Input Port** | `path` | `string` | Dynamic extraction path (e.g. `"items[2].id"`). |
-| **Output Port** | `output` | `any` | Extracted value. |
-| **Configuration** | `path` | `string` | Static dot notation path to extract (e.g. `"user.score"`). |
-| **Configuration** | `defaultValue`| `any` | Fallback value returned if the path does not exist (default: `null`). |
-
----
-
-### 4.4 Text & String Nodes
-
-#### `text.concat` — Concatenate Strings
-Combines two text strings together with an optional separator and suffix.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `a` | `string` | First string. |
-| **Input Port** | `b` | `string` | Second string. |
-| **Output Port** | `output` | `string` | Combined string result. |
-| **Configuration** | `separator` | `string` | Delimiter inserted between values (e.g. `" "`, `", "`, or `""`). |
-| **Configuration** | `suffix` | `string` | Optional text appended to the very end of the result. |
-
----
-
-### 4.5 Utility Nodes
-
-#### `utility.uuid` — Generate v4 UUID
-Generates a random, universally unique identifier compliant with RFC 4122 v4.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Ports** | *None* | — | Entry point node; has 0 incoming ports. |
-| **Output Port** | `output` | `string` | Formatted UUID (e.g. `c73bcdcc-2669-4bf6-81d3-e4ae73fb11fd`). |
-| **Configuration** | *None* | — | Generates fresh UUID on each task run. |
+#### `ai.summarize`
+- **Category**: `ai`
+- **Label**: `AI Summarize`
+- **Description**: Produces concise summaries and key bullet points from text using AI models.
+- **Inputs**:
+  - `text` (`any`, optional): Text or structured object to summarize.
+  - `input` (`any`, optional): Alternative input alias.
+- **Outputs**:
+  - `output` (`string`): Generated summary text.
+  - `keyPoints` (`array`): Bullet points and takeaways.
+- **Configuration**:
+  - `format` (`string`, default: `"paragraph"`): `"paragraph"`, `"bullet_points"`, `"one_sentence"`.
+  - `maxLength` (`number`, default: `300`): Target maximum length in characters.
 
 ---
 
-#### `utility.datetime` — Timestamp & ISO Datetime
-Outputs the current timestamp formatted according to the configured standard.
+### Triggers & Mathematical Nodes
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Ports** | *None* | — | Entry point node; has 0 incoming ports. |
-| **Output Port** | `output` | `string` | Formatted date string (ISO or UTC). |
-| **Output Port** | `timestamp`| `number` | Current UNIX epoch timestamp in milliseconds. |
-| **Configuration** | `format` | `select` | Output format: `"iso"` (default), `"utc"`, `"epoch_ms"`, or `"epoch_s"`. |
-
----
-
-### 4.6 Output & Logging Nodes
-
-#### `output.log` — Diagnostic Logger
-Logs data to the execution audit record at the specified severity level while passing data through seamlessly to downstream nodes.
-
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `any` | Data or message to log. |
-| **Output Port** | `output` | `any` | Forwards the identical incoming input value downstream. |
-| **Configuration** | `level` | `select` | Severity level: `"info"` (default), `"warn"`, `"error"`, or `"debug"`. |
+| Node Type | Inputs | Outputs | Description |
+|-----------|--------|---------|-------------|
+| `trigger.manual` | - | `output` | Ingests manual execution payloads or defaults; supports multi-trigger keys. |
+| `data.input` | - | `output`, `value` | Ingests a named key from trigger data with fallback default. |
+| `math.add` | `a`, `b` | `output` | Sums inputs or applies configured addend ($a + b$). |
+| `math.subtract` | `a`, `b` | `output` | Computes difference ($a - b$ or input - subtrahend). |
+| `math.multiply` | `a`, `b` | `output` | Multiplies numbers or applies configured factor ($a \times b$). |
+| `math.divide` | `a`, `b` | `output` | Performs division ($a / b$) with division-by-zero protection. |
+| `math.modulo` | `a`, `b` | `output` | Computes modulo remainder with zero divisor validation. |
+| `math.power` | `base`, `exponent` | `output` | Computes $base^{exponent}$. |
+| `math.round` | `value` | `output` | Rounds numbers using `round`, `floor`, or `ceil` modes with precision. |
+| `math.abs` | `value` | `output` | Computes absolute value ($\|x\|$). |
+| `math.min` | `a`, `b` | `output` | Evaluates minimum of inputs or compareValue. |
+| `math.max` | `a`, `b` | `output` | Evaluates maximum of inputs or compareValue. |
+| `math.average` | `a`, `b` | `output` | Computes arithmetic mean of inputs. |
 
 ---
 
-#### `output.return` — Workflow Final Output
-Designates the definitive output value of the entire workflow.
+### JSON, Text & Utility Nodes
 
-| Port / Config | Name | Type | Description |
-|:---|:---|:---|:---|
-| **Input Port** | `input` | `any` | Value to declare as the workflow's return result. |
-| **Output Port** | `output` | `any` | Forwards final value. |
-| **Configuration** | *None* | — | Captures whatever is supplied to its input port. |
-
----
-
-## 5. Best Practices & Validation Rules
-
-To ensure your workflows run reliably without validation errors:
-
-1. **Avoid Cycles (Circular Dependencies)**
-   - Wires must strictly flow forward.
-   - Example of an invalid cycle: Node $A \to$ Node $B \to$ Node $A$.
-   - The engine will flag any cycle in red and highlight the cycle path in the validation flyout.
-
-2. **Understand Single-Input vs. Multi-Input Ports**
-   - Most ports (`input`, `a`, `b`) are single-input ports. Connecting a new wire to a single-input port replaces the old wire automatically.
-   - Do not attempt to force multiple connections into a non-array port.
-
-3. **Provide Config Fallbacks**
-   - If an input port (like `b` on `math.multiply`) is left unwired, ensure the node's configuration has a valid default (e.g. `factor: 2`).
-
-4. **Use Auto-Layout (`Tidy`) for Clarity**
-   - Press `T` or click the `Tidy` wand tool to automatically arrange nodes into hierarchical columns from left to right.
-
-5. **Test With Preset Payloads**
-   - Click `Run` in the top header. Test with both numeric inputs (`25`) and structured JSON (`{"user": "Alice", "score": 100}`) to confirm your pipeline handles different payloads properly.
+| Node Type | Inputs | Outputs | Description |
+|-----------|--------|---------|-------------|
+| `json.parse` | `input` | `output` | Parses JSON string into structured object with structured error reporting. |
+| `json.get` | `input`, `path` | `output` | Extracts nested properties using dot (`user.name`) or bracket (`items[0]`) notation. |
+| `text.concat` | `a`, `b` | `output` | Concatenates text strings with configurable separator and suffix. |
+| `utility.uuid` | - | `output` | Generates RFC 4122 v4 UUID. |
+| `utility.datetime` | - | `output`, `timestamp` | Returns current ISO/UTC date string and numeric epoch timestamp. |
+| `output.log` | `input`, `message`| `output` | Diagnostic logger that writes to scoped execution trace and passes value through. |
+| `output.return` | `input` | `output` | Captures final workflow return value delivered to API caller or UI modal. |
 
 ---
 
-## 6. Real-World Pipeline Blueprints
+## 3. SSRF & Security Model
 
-### Blueprint A: E-Commerce Tax & Total Calculation
-*Ingests a subtotal, applies 18% GST/VAT, and outputs the rounded grand total.*
+The engine implements defense-in-depth security controls for all outbound network and data transformation operations:
+
+1. **Strict SSRF Blocking**:
+   - Outbound requests are validated using `backend/src/engine/utils/ssrf.validator.js`.
+   - All private IPv4 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `0.0.0.0/8`), IPv6 loopback (`::1`), link-local metadata (`169.254.0.0/16`, AWS/GCP/Azure instance metadata endpoints), and `.localhost` hostnames are blocked by default.
+   - Hostnames are resolved via DNS prior to request dispatch, mitigating DNS rebinding attacks.
+   - Protocols are strictly limited to `http:` and `https:`.
+2. **Credential Masking & Secret References**:
+   - Request headers support dynamic secret tokens formatted as `{{secrets.API_KEY}}` or `{{env.API_KEY}}`.
+   - Tokens are resolved at runtime from server-side environment variables without persisting credentials into workflow definitions, execution traces, or client logs.
+3. **Response Limits & Timeouts**:
+   - Outbound requests enforce a maximum timeout of 30,000ms.
+   - Response payloads are capped at 2MB (`2,097,152` bytes) to prevent memory exhaustion attacks.
+4. **Prototype Pollution Protection**:
+   - `data.object` and all nested path setters validate every path segment, explicitly rejecting `__proto__`, `constructor`, and `prototype`.
+5. **No Arbitrary `eval`**:
+   - `data.array.map` and `text.template` use declarative pattern tokenizers and deterministic transformers. Arbitrary JavaScript string execution is forbidden.
+
+---
+
+## 4. Step-by-Step Workflow Tutorial: AI Support-Ticket Triage
+
+The AI Support-Ticket Triage workflow demonstrates production-grade composability across triggers, normalization, AI classification, conditional branching, inactive branch skipping, merging, and structured responses.
+
+### Architectural Diagram
 
 ```mermaid
 graph LR
-    Trigger["Manual Trigger\n(Input: 250)"] -->|"output ➔ input"| Multiply["Multiply\n(factor: 1.18)"]
-    Multiply -->|"output ➔ input"| Round["Round\n(precision: 2)"]
-    Round -->|"output ➔ input"| Log["Log Diagnostic\n(level: info)"]
-    Log -->|"output ➔ input"| Return["Return Output\n(Result: 295)"]
+    trig["1. Inbound Support Ticket<br/>(trigger.manual)"] --> extract["2. Normalize Ticket Data<br/>(data.object)"]
+    extract --> ai["3. AI Priority Classifier<br/>(ai.classify)"]
+    ai --> gate["4. Is Priority Urgent?<br/>(logic.condition)"]
+    extract -. "data payload" .-> gate
+    gate -- "true [ACTIVE]" --> urgent["5. Urgent Pager Escalation<br/>(text.template)"]
+    gate -- "false [SKIPPED]" --> standard["6. Standard Queue Router<br/>(text.template)"]
+    urgent --> merge["7. Merge Triage Outcome<br/>(flow.merge)"]
+    standard -. "cascaded skip" .-> merge
+    merge --> ret["8. Final Triage Result<br/>(output.return)"]
+
+    classDef active fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef skipped fill:#6b7280,stroke:#374151,stroke-width:1px,color:#d1d5db;
+    classDef branch fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff;
+    class trig,extract,ai,ret active;
+    class gate,merge branch;
+    class urgent active;
+    class standard skipped;
 ```
 
-1. **`trigger.manual`** (`trigger_01`): Starts with payload `250`.
-2. **`math.multiply`** (`math_01`): Configured with `factor: 1.18`. Calculates $250 \times 1.18 = 295.00$.
-3. **`math.round`** (`round_01`): Keeps 2 decimal places.
-4. **`output.log`** (`log_01`): Writes `"295"` to audit log.
-5. **`output.return`** (`return_01`): Returns `295` to the caller.
+### Execution Walkthrough
+
+1. **Step 1: Ingest Ticket**:
+   - `trig_ticket` receives the sample ticket payload:
+     ```json
+     {
+       "ticketId": "TCK-8092",
+       "customerName": "Sarah Chen",
+       "email": "sarah.chen@enterprise.io",
+       "issue": "Database connection pools exhausting rapidly on US-East prod cluster causing 504 timeouts",
+       "tier": "enterprise"
+     }
+     ```
+2. **Step 2: Normalize Data**:
+   - `extract_ticket` (`data.object`) extracts and normalizes the required customer fields.
+3. **Step 3: AI Classification**:
+   - `ai_classify` analyzes the issue description (`"Database connection pools exhausting rapidly..."`) and classifies it into target categories `["urgent", "bug", "billing", "general"]`.
+   - Outcome: `category: "urgent"`, `confidence: 0.94`.
+4. **Step 4: Priority Gate**:
+   - `priority_gate` (`logic.condition`) checks `a === "urgent"`.
+   - Condition evaluates to `true`.
+   - Port `true` emits the ticket data payload.
+   - Port `false` is not emitted.
+5. **Step 5: Conditional Branching & Skipping**:
+   - Wire `priority_gate.true -> urgent_escalation` is marked `ACTIVE`.
+   - Wire `priority_gate.false -> standard_routing` is marked `SKIPPED`.
+   - `urgent_escalation` executes and formats the escalation message:
+     ```text
+     🚨 CRITICAL ESCALATION: Ticket TCK-8092 from Sarah Chen (Tier: enterprise) flagged as URGENT. Immediate on-call pager dispatched for: Database connection pools exhausting rapidly on US-East prod cluster causing 504 timeouts
+     ```
+   - `standard_routing` is cleanly marked `SKIPPED`.
+6. **Step 6: Flow Merge**:
+   - `merge_response` (`flow.merge`) sees that all incoming branches are resolved (one `ACTIVE`, one `SKIPPED`).
+   - In `first_available` mode, it immediately selects the active escalation text.
+7. **Step 7: Final Result**:
+   - `triage_return` delivers the escalation result to the caller with workflow run status `SUCCEEDED`.
 
 ---
 
-### Blueprint B: User Authentication Token Generator
-*Generates an ISO timestamp and UUID, merges them into a session token, and returns it.*
+## 5. Automated Verification & Test Report
 
-```mermaid
-graph LR
-    UUID["Generate UUID"] -->|"output ➔ a"| Concat["Concatenate Text\n(separator: ' @ ')"]
-    Time["Date / Time\n(format: iso)"] -->|"output ➔ b"| Concat
-    Concat -->|"output ➔ input"| Return["Return Output\n(Token String)"]
+All unit, integration, and end-to-end tests pass cleanly.
+
+### Test Execution Commands
+
+```bash
+# 1. Run all unit and DAG scheduler execution tests (53 tests)
+cd backend && node test_workflow_engine.js
+
+# 2. Run PostgreSQL persistence, node catalogue seeding, and versioning tests (10 tests)
+cd backend && node test_api_and_integration.js
+
+# 3. Verify frontend production build
+cd frontend && npm run build
 ```
 
-1. **`utility.uuid`** (`uuid_01`): Emits `9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d`.
-2. **`utility.datetime`** (`dt_01`): Emits `2026-10-25T18:00:00.000Z`.
-3. **`text.concat`** (`concat_01`): Configured with `separator: " @ "`. Produces `9b1deb4d... @ 2026-10-25...`.
-4. **`output.return`** (`return_01`): Emits the final formatted authentication token.
+### Verified Test Results
+
+```
+=======================================================
+ Webster Engine Unit & Integration Test Suite
+=======================================================
+
+--- 1. Node Handler Unit Tests (All 20 Nodes) ---
+  ✓ trigger.manual: extracts triggerData payload
+  ✓ trigger.manual: falls back to defaultPayload when no triggerData
+  ✓ trigger.manual: extracts targeted payload when multiple triggers exist
+  ✓ data.input: extracts key from triggerData
+  ✓ data.input: returns defaultValue if key is missing in triggerData
+  ✓ math.add: calculates sum of a and b or input + addend
+  ✓ math.subtract: calculates difference a - b or input - subtrahend
+  ✓ math.multiply: multiplies values or applies factor
+  ✓ math.divide: performs division and rejects division by zero
+  ✓ math.modulo: computes remainder and rejects modulo by zero
+  ✓ math.power: computes base ^ exponent
+  ✓ math.round: handles precision and rounding modes (round, floor, ceil)
+  ✓ math.abs: returns absolute value of positive and negative numbers
+  ✓ math.min & math.max: correctly evaluate bounds
+  ✓ math.average: computes mean of provided values
+  ✓ json.parse: parses valid JSON and throws structured INVALID_JSON error for invalid JSON
+  ✓ json.get: extracts nested properties with dot and bracket notation
+  ✓ text.concat: combines strings with separator and suffix
+  ✓ utility.uuid: generates valid RFC 4122 v4 UUID
+  ✓ utility.datetime: returns timestamp and formatted string
+  ✓ output.log: logs message safely and passes output through
+  ✓ output.return: extracts final workflow return value
+  ✓ logic.condition: evaluates equality, inequality, numbers, and emits active branch port
+  ✓ logic.condition: handles falsy/truthy/empty/contains and rejects invalid operator
+  ✓ logic.switch: routes to matching case branch and default branch
+  ✓ flow.merge: merges multiple branches in first_available, all, and coalesce modes
+  ✓ flow.delay: pauses execution for durationMs and respects AbortSignal cancellation
+  ✓ data.object: constructs nested objects, preserves falsy values, blocks prototype pollution
+  ✓ data.array.map: maps array items with safe operations and validates array type
+  ✓ text.template: renders {{variable}} templates, handles missing variables, escapes HTML
+  ✓ http.request: enforces SSRF protection against private CIDRs and localhost
+  ✓ http.respond: produces simulated response in manual execution context
+  ✓ ai.classify: classifies text with categories, confidence, and reasoning
+  ✓ ai.extract & ai.summarize: extracts structured entities and produces summaries
+
+--- 2. Validation & Graph Integrity Tests ---
+  ✓ Validator: accepts valid linear workflow
+  ✓ Validator: detects self-loop and rejects with CYCLE_DETECTED
+  ✓ Validator: detects multi-node cycle (A -> B -> C -> A)
+  ✓ Validator: detects nonexistent source and target nodes
+  ✓ Validator: detects invalid configuration values
+  ✓ Validator: detects unknown node types
+
+--- 3. Sequential DAG Execution Engine Tests ---
+  ✓ Scheduler: executes linear DAG and returns final value
+  ✓ Scheduler: executes branching and joining DAG with multiple predecessors
+  ✓ Scheduler: produces identical deterministic results regardless of node/edge array order
+  ✓ Scheduler: fail-fast marks downstream nodes as BLOCKED on node failure
+  ✓ Scheduler: respects cancellation signal and marks unstarted tasks CANCELLED
+  ✓ Scheduler: executes workflow with multiple manual triggers
+
+--- 4. Control-Flow & Branching DAG Scheduler Tests ---
+  ✓ Scheduler: conditional branch routes execution down TRUE branch and cascades SKIPPED down FALSE branch
+  ✓ Scheduler: conditional branch routes execution down FALSE branch and cascades SKIPPED down TRUE branch
+  ✓ Scheduler: switch routes execution to matching case and cascades SKIPPED on unselected cases
+  ✓ Scheduler: flow.merge joins active branch when alternative branch was skipped
+  ✓ Scheduler: non-blocking delay pauses workflow and resumes downstream execution
+  ✓ Scheduler: end-to-end execution of AI Support-Ticket Triage workflow with branching and merging
+  ✓ Scheduler: end-to-end execution of AI Support-Ticket Triage workflow down STANDARD (non-urgent) branch
+
+-------------------------------------------------------
+ Results: 53 passed, 0 failed
+-------------------------------------------------------
+```
 
 ---
 
-### Blueprint C: Branching & Joining Math DAG
-*Takes a base number, branches into parallel add and multiply operations, and converges into a subtraction.*
+## 6. Known Limitations & Roadmap
 
-```mermaid
-graph LR
-    Trigger["Manual Trigger\n(Payload: 20)"] -->|"output ➔ input"| Add["Add 10\n(Result: 30)"]
-    Trigger -->|"output ➔ input"| Multiply["Multiply by 2\n(Result: 40)"]
-    Multiply -->|"output ➔ a"| Subtract["Subtract\n(40 - 30 = 10)"]
-    Add -->|"output ➔ b"| Subtract
-    Subtract -->|"output ➔ input"| Return["Return Result\n(Final: 10)"]
-```
-
-1. **`trigger.manual`**: Broadcasts `20` to both `Add` and `Multiply`.
-2. **`math.add`**: Computes $20 + 10 = 30$.
-3. **`math.multiply`**: Computes $20 \times 2 = 40$.
-4. **`math.subtract`**: Receives `40` on port `a` and `30` on port `b`. Computes $40 - 30 = 10$.
-5. **`output.return`**: Emits `10`.
+1. **Persistent Durable Delay**: The current `flow.delay` uses non-blocking in-process event loop timers with `AbortSignal` cancellation. If the backend process crashes mid-delay, state is persisted in PostgreSQL as `RUNNING`, but durable resumption upon worker restart requires a distributed external queue (e.g. Redis BullMQ or Temporal).
+2. **Streaming AI Responses**: AI nodes return complete structured JSON. Future iterations can add token streaming via SSE to visual cards.
+3. **Dynamic Port Addition in Canvas**: Ports are rendered from node metadata and dynamic config schemas (`cases`, `fields`). Direct visual inline addition of ports on the canvas is supported via the Inspector.

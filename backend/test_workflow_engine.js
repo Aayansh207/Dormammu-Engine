@@ -249,6 +249,260 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(res.output, 12345);
   });
 
+  // --- New Production Node Handler Tests ---
+  await test("logic.condition: evaluates equality, inequality, numbers, and emits active branch port", async () => {
+    const nodeDef = defaultRegistry.get("logic.condition");
+
+    // Test true condition: 10 > 5 -> emits 'true' and 'output: true'
+    const resTrue = await nodeDef.handler({ a: 10, b: 5 }, { config: { operator: ">" } });
+    assert.strictEqual(resTrue.output, true);
+    assert.strictEqual(resTrue.true, 10);
+    assert.strictEqual(resTrue.false, undefined);
+
+    // Test false condition: 2 > 5 -> emits 'false' and 'output: false'
+    const resFalse = await nodeDef.handler({ a: 2, b: 5 }, { config: { operator: ">" } });
+    assert.strictEqual(resFalse.output, false);
+    assert.strictEqual(resFalse.false, 2);
+    assert.strictEqual(resFalse.true, undefined);
+
+    // Test equality and passThrough: false
+    const resEq = await nodeDef.handler({ a: "apple", b: "apple" }, { config: { operator: "===", passThrough: false } });
+    assert.strictEqual(resEq.output, true);
+    assert.strictEqual(resEq.true, true);
+  });
+
+  await test("logic.condition: handles falsy/truthy/empty/contains and rejects invalid operator", async () => {
+    const nodeDef = defaultRegistry.get("logic.condition");
+
+    // Test empty
+    const resEmpty = await nodeDef.handler({ a: [] }, { config: { operator: "empty" } });
+    assert.strictEqual(resEmpty.output, true);
+
+    // Test contains
+    const resContains = await nodeDef.handler({ a: "workflow automation", b: "automation" }, { config: { operator: "contains" } });
+    assert.strictEqual(resContains.output, true);
+
+    // Test invalid operator
+    await assert.rejects(
+      async () => nodeDef.handler({ a: 1, b: 2 }, { config: { operator: "invalid_op" } }),
+      (err) => err.code === ErrorCodes.INVALID_CONDITION_OPERATOR
+    );
+  });
+
+  await test("logic.switch: routes to matching case branch and default branch", async () => {
+    const nodeDef = defaultRegistry.get("logic.switch");
+    const cases = [
+      { case: "urgent", port: "urgent" },
+      { case: "billing", port: "billing" },
+    ];
+
+    // Matched case 'billing'
+    const resMatch = await nodeDef.handler({ input: "billing" }, { config: { cases } });
+    assert.strictEqual(resMatch.billing, "billing");
+    assert.strictEqual(resMatch.output, "billing");
+    assert.strictEqual(resMatch.urgent, undefined);
+    assert.strictEqual(resMatch.default, undefined);
+
+    // Unmatched case -> routes to 'default'
+    const resDefault = await nodeDef.handler({ input: "unknown_topic" }, { config: { cases } });
+    assert.strictEqual(resDefault.default, "unknown_topic");
+    assert.strictEqual(resDefault.output, "default");
+    assert.strictEqual(resDefault.urgent, undefined);
+    assert.strictEqual(resDefault.billing, undefined);
+  });
+
+  await test("flow.merge: merges multiple branches in first_available, all, and coalesce modes", async () => {
+    const nodeDef = defaultRegistry.get("flow.merge");
+
+    // first_available mode
+    const resFirst = await nodeDef.handler({ input: [undefined, "firstVal", "secondVal"] }, { config: { mode: "first_available" } });
+    assert.strictEqual(resFirst.output, "firstVal");
+
+    // coalesce mode (skips null/undefined)
+    const resCoalesce = await nodeDef.handler({ input: [null, undefined, 42] }, { config: { mode: "coalesce" } });
+    assert.strictEqual(resCoalesce.output, 42);
+
+    // all mode
+    const resAll = await nodeDef.handler({ a: "alpha", b: "beta" }, { config: { mode: "all" } });
+    assert.deepStrictEqual(resAll.output, ["alpha", "beta"]);
+
+    // object mode
+    const resObj = await nodeDef.handler({ input: [{ id: 1 }, { name: "Alice" }] }, { config: { mode: "object" } });
+    assert.deepStrictEqual(resObj.output, { id: 1, name: "Alice" });
+  });
+
+  await test("flow.delay: pauses execution for durationMs and respects AbortSignal cancellation", async () => {
+    const nodeDef = defaultRegistry.get("flow.delay");
+
+    // Fast delay
+    const start = Date.now();
+    const res = await nodeDef.handler({ input: "delayedData" }, { config: { durationMs: 20 } });
+    assert.strictEqual(res.output, "delayedData");
+    assert.ok(Date.now() - start >= 15);
+
+    // Invalid durationMs
+    await assert.rejects(
+      async () => nodeDef.handler({}, { config: { durationMs: -100 } }),
+      (err) => err.code === ErrorCodes.DELAY_DURATION_INVALID
+    );
+
+    // Cancelled delay
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10);
+    const ctx = createExecutionContext({ runId: "r1", taskId: "t1", nodeId: "d1", abortSignal: controller.signal });
+    await assert.rejects(
+      async () => nodeDef.handler({}, { config: { durationMs: 5000 } }, ctx),
+      (err) => err.code === ErrorCodes.EXECUTION_CANCELLED
+    );
+  });
+
+  await test("data.object: constructs nested objects, preserves falsy values, blocks prototype pollution", async () => {
+    const nodeDef = defaultRegistry.get("data.object");
+
+    // Construct nested object preserving falsy values (0, false, "")
+    const fields = [
+      { key: "user.id", value: 101 },
+      { key: "user.flags.active", value: false },
+      { key: "user.score", value: 0 },
+      { key: "user.notes", value: "" },
+    ];
+    const res = await nodeDef.handler({}, { config: { fields } });
+    assert.deepStrictEqual(res.output, {
+      user: {
+        id: 101,
+        flags: { active: false },
+        score: 0,
+        notes: "",
+      },
+    });
+
+    // Block prototype pollution
+    await assert.rejects(
+      async () => nodeDef.handler({}, { config: { fields: [{ key: "__proto__.polluted", value: true }] } }),
+      (err) => err.code === ErrorCodes.DATA_OBJECT_INVALID_KEY
+    );
+  });
+
+  await test("data.array.map: maps array items with safe operations and validates array type", async () => {
+    const nodeDef = defaultRegistry.get("data.array.map");
+
+    // extract_field
+    const items = [{ name: "Alice", age: 30 }, { name: "Bob", age: 25 }];
+    const resExtract = await nodeDef.handler({ input: items }, { config: { operation: "extract_field", field: "name" } });
+    assert.deepStrictEqual(resExtract.output, ["Alice", "Bob"]);
+
+    // to_uppercase
+    const resUpper = await nodeDef.handler({ input: ["apple", "banana"] }, { config: { operation: "to_uppercase" } });
+    assert.deepStrictEqual(resUpper.output, ["APPLE", "BANANA"]);
+
+    // math_multiply
+    const resMath = await nodeDef.handler({ input: [1, 2, 3] }, { config: { operation: "math_multiply", operand: 10 } });
+    assert.deepStrictEqual(resMath.output, [10, 20, 30]);
+
+    // Reject non-array input
+    await assert.rejects(
+      async () => nodeDef.handler({ input: "not an array" }, { config: { operation: "extract_field", field: "x" } }),
+      (err) => err.code === ErrorCodes.ARRAY_MAP_INVALID_INPUT
+    );
+  });
+
+  await test("text.template: renders {{variable}} templates, handles missing variables, escapes HTML", async () => {
+    const nodeDef = defaultRegistry.get("text.template");
+
+    // Valid interpolation with dot notation
+    const data = { user: { name: "Antigravity", role: "AI Assistant" } };
+    const res = await nodeDef.handler(
+      { input: data },
+      { config: { template: "Welcome {{user.name}}! Role: {{user.role}}" } }
+    );
+    assert.strictEqual(res.output, "Welcome Antigravity! Role: AI Assistant");
+
+    // Missing variable with 'empty' policy
+    const resEmpty = await nodeDef.handler(
+      { input: {} },
+      { config: { template: "Missing: [{{missingVal}}]", missingVariablePolicy: "empty" } }
+    );
+    assert.strictEqual(resEmpty.output, "Missing: []");
+
+    // Missing variable with 'error' policy
+    await assert.rejects(
+      async () => nodeDef.handler({ input: {} }, { config: { template: "{{missing}}", missingVariablePolicy: "error" } }),
+      (err) => err.code === ErrorCodes.TEMPLATE_SYNTAX_ERROR
+    );
+
+    // Syntax error: unclosed tag
+    await assert.rejects(
+      async () => nodeDef.handler({ input: {} }, { config: { template: "Hello {{unclosed" } }),
+      (err) => err.code === ErrorCodes.TEMPLATE_SYNTAX_ERROR
+    );
+  });
+
+  await test("http.request: enforces SSRF protection against private CIDRs and localhost", async () => {
+    const nodeDef = defaultRegistry.get("http.request");
+
+    // SSRF: localhost blocked
+    await assert.rejects(
+      async () => nodeDef.handler({ url: "http://localhost:8080/admin" }, { config: {} }),
+      (err) => err.code === ErrorCodes.SSRF_BLOCKED
+    );
+
+    // SSRF: 127.0.0.1 blocked
+    await assert.rejects(
+      async () => nodeDef.handler({ url: "http://127.0.0.1:3000/api" }, { config: {} }),
+      (err) => err.code === ErrorCodes.SSRF_BLOCKED
+    );
+
+    // SSRF: Cloud metadata link-local IP 169.254.169.254 blocked
+    await assert.rejects(
+      async () => nodeDef.handler({ url: "http://169.254.169.254/latest/meta-data/" }, { config: {} }),
+      (err) => err.code === ErrorCodes.SSRF_BLOCKED
+    );
+  });
+
+  await test("http.respond: produces simulated response in manual execution context", async () => {
+    const nodeDef = defaultRegistry.get("http.respond");
+
+    const res = await nodeDef.handler({ body: { success: true }, status: 201 }, { config: {} });
+    assert.strictEqual(res.output.delivered, false);
+    assert.strictEqual(res.output.simulated, true);
+    assert.strictEqual(res.output.statusCode, 201);
+    assert.deepStrictEqual(res.output.body, { success: true });
+  });
+
+  await test("ai.classify: classifies text with categories, confidence, and reasoning", async () => {
+    const nodeDef = defaultRegistry.get("ai.classify");
+
+    const res = await nodeDef.handler(
+      { text: "Production server is down with severe database connection errors!" },
+      { config: { categories: ["urgent", "general", "billing"] } }
+    );
+    assert.strictEqual(res.output, "urgent");
+    assert.strictEqual(res.category, "urgent");
+    assert.ok(typeof res.confidence === "number");
+    assert.ok(typeof res.reasoning === "string");
+  });
+
+  await test("ai.extract & ai.summarize: extracts structured entities and produces summaries", async () => {
+    const extractDef = defaultRegistry.get("ai.extract");
+    const summarizeDef = defaultRegistry.get("ai.summarize");
+
+    // Extract
+    const resExtract = await extractDef.handler(
+      { text: "Ticket from Alice Smith regarding urgent billing question" },
+      { config: { schema: { customerName: "string", priority: "string" } } }
+    );
+    assert.ok(typeof resExtract.output === "object");
+    assert.strictEqual(resExtract.output.priority, "high");
+
+    // Summarize
+    const resSummary = await summarizeDef.handler(
+      { text: "User reported payment issue. System verified account status. Invoice was regenerated and sent." },
+      { config: { format: "paragraph", maxLength: 200 } }
+    );
+    assert.ok(typeof resSummary.output === "string");
+    assert.ok(Array.isArray(resSummary.keyPoints));
+  });
+
   console.log("\n--- 2. Validation & Graph Integrity Tests ---");
 
   await test("Validator: accepts valid linear workflow", async () => {
@@ -531,6 +785,206 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.finalOutput, 40);
     assert.strictEqual(summary.tasks.trig_a.outputs.output, 15);
     assert.strictEqual(summary.tasks.trig_b.outputs.output, 25);
+  });
+
+  console.log("\n--- 4. Control-Flow & Branching DAG Scheduler Tests ---");
+
+  await test("Scheduler: conditional branch routes execution down TRUE branch and cascades SKIPPED down FALSE branch", async () => {
+    const workflow = {
+      schemaVersion: 1,
+      name: "Condition True Branch Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "cond", type: "logic.condition", version: 1, config: { operator: ">", value: 50 } },
+        { id: "step_true", type: "math.multiply", version: 1, config: { factor: 2 } },
+        { id: "ret_true", type: "output.return", version: 1, config: {} },
+        { id: "step_false", type: "math.multiply", version: 1, config: { factor: 3 } },
+        { id: "ret_false", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "cond", targetPort: "a" },
+        { id: "e2", source: "cond", sourcePort: "true", target: "step_true", targetPort: "input" },
+        { id: "e3", source: "step_true", sourcePort: "output", target: "ret_true", targetPort: "input" },
+        { id: "e4", source: "cond", sourcePort: "false", target: "step_false", targetPort: "input" },
+        { id: "e5", source: "step_false", sourcePort: "output", target: "ret_false", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: 100 });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.cond.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.step_true.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ret_true.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.step_false.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.ret_false.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.finalOutput, 200);
+  });
+
+  await test("Scheduler: conditional branch routes execution down FALSE branch and cascades SKIPPED down TRUE branch", async () => {
+    const workflow = {
+      schemaVersion: 1,
+      name: "Condition False Branch Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "cond", type: "logic.condition", version: 1, config: { operator: ">", value: 50 } },
+        { id: "step_true", type: "math.multiply", version: 1, config: { factor: 2 } },
+        { id: "ret_true", type: "output.return", version: 1, config: {} },
+        { id: "step_false", type: "math.multiply", version: 1, config: { factor: 3 } },
+        { id: "ret_false", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "cond", targetPort: "a" },
+        { id: "e2", source: "cond", sourcePort: "true", target: "step_true", targetPort: "input" },
+        { id: "e3", source: "step_true", sourcePort: "output", target: "ret_true", targetPort: "input" },
+        { id: "e4", source: "cond", sourcePort: "false", target: "step_false", targetPort: "input" },
+        { id: "e5", source: "step_false", sourcePort: "output", target: "ret_false", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: 20 });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.cond.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.step_true.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.ret_true.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.step_false.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ret_false.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.finalOutput, 60);
+  });
+
+  await test("Scheduler: switch routes execution to matching case and cascades SKIPPED on unselected cases", async () => {
+    const cases = [
+      { case: "urgent", port: "urgent" },
+      { case: "billing", port: "billing" },
+    ];
+    const workflow = {
+      schemaVersion: 1,
+      name: "Switch Routing Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "sw", type: "logic.switch", version: 1, config: { cases } },
+        { id: "task_urgent", type: "text.concat", version: 1, config: { suffix: "_priority" } },
+        { id: "task_billing", type: "text.concat", version: 1, config: { suffix: "_processed" } },
+        { id: "task_default", type: "text.concat", version: 1, config: { suffix: "_unhandled" } },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "sw", targetPort: "input" },
+        { id: "e2", source: "sw", sourcePort: "urgent", target: "task_urgent", targetPort: "a" },
+        { id: "e3", source: "sw", sourcePort: "billing", target: "task_billing", targetPort: "a" },
+        { id: "e4", source: "sw", sourcePort: "default", target: "task_default", targetPort: "a" },
+        { id: "e5", source: "task_billing", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: "billing" });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.sw.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.task_billing.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ret.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.task_urgent.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.task_default.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.finalOutput, "billing_processed");
+  });
+
+  await test("Scheduler: flow.merge joins active branch when alternative branch was skipped", async () => {
+    const workflow = {
+      schemaVersion: 1,
+      name: "Merge Converging Branches Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "cond", type: "logic.condition", version: 1, config: { operator: ">", value: 50 } },
+        { id: "task_true", type: "math.add", version: 1, config: { addend: 10 } },
+        { id: "task_false", type: "math.add", version: 1, config: { addend: 20 } },
+        { id: "merge", type: "flow.merge", version: 1, config: { mode: "first_available" } },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "cond", targetPort: "a" },
+        { id: "e2", source: "cond", sourcePort: "true", target: "task_true", targetPort: "a" },
+        { id: "e3", source: "cond", sourcePort: "false", target: "task_false", targetPort: "a" },
+        { id: "e4", source: "task_true", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e5", source: "task_false", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e6", source: "merge", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: 100 });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.task_true.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.task_false.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.merge.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ret.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.finalOutput, 110);
+  });
+
+  await test("Scheduler: non-blocking delay pauses workflow and resumes downstream execution", async () => {
+    const workflow = {
+      schemaVersion: 1,
+      name: "Delay Execution Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "delay", type: "flow.delay", version: 1, config: { durationMs: 30 } },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "delay", targetPort: "input" },
+        { id: "e2", source: "delay", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: "hello_dormammu" });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.finalOutput, "hello_dormammu");
+    assert.ok(summary.durationMs >= 25);
+  });
+
+  await test("Scheduler: end-to-end execution of AI Support-Ticket Triage workflow with branching and merging", async () => {
+    const triageWorkflow = require("./workflows/ai_support_triage_workflow.json");
+    const samplePayload = triageWorkflow.samplePayload;
+
+    const summary = await executeWorkflow(triageWorkflow, { triggerData: samplePayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.trig_ticket.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.extract_ticket.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ai_classify.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.priority_gate.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.urgent_escalation.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.standard_routing.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.merge_response.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.triage_return.status, TaskRunStatus.SUCCEEDED);
+
+    assert.ok(typeof summary.finalOutput === "string");
+    assert.ok(summary.finalOutput.includes("CRITICAL ESCALATION"));
+    assert.ok(summary.finalOutput.includes("TCK-8092"));
+    assert.ok(summary.finalOutput.includes("Sarah Chen"));
+    assert.ok(summary.finalOutput.includes("enterprise"));
+  });
+
+  await test("Scheduler: end-to-end execution of AI Support-Ticket Triage workflow down STANDARD (non-urgent) branch", async () => {
+    const triageWorkflow = require("./workflows/ai_support_triage_workflow.json");
+    const nonUrgentPayload = {
+      ticketId: "TCK-4011",
+      customerName: "Bob Miller",
+      email: "bob@acme.org",
+      issue: "Billing question regarding our monthly subscription invoice",
+      tier: "standard",
+    };
+
+    const summary = await executeWorkflow(triageWorkflow, { triggerData: nonUrgentPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.trig_ticket.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.extract_ticket.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ai_classify.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.priority_gate.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.urgent_escalation.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.standard_routing.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.merge_response.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.triage_return.status, TaskRunStatus.SUCCEEDED);
+
+    assert.ok(typeof summary.finalOutput === "string");
+    assert.ok(summary.finalOutput.includes("STANDARD QUEUE"));
+    assert.ok(summary.finalOutput.includes("TCK-4011"));
+    assert.ok(summary.finalOutput.includes("Bob Miller"));
   });
 
   console.log("\n-------------------------------------------------------");

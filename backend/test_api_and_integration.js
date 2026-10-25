@@ -6,6 +6,7 @@ const assert = require("assert");
 const prisma = require("./src/config/db");
 const nodeService = require("./src/services/node.service");
 const workflowService = require("./src/services/workflow.service");
+const { defaultRegistry } = require("./src/engine/registry/node.registry");
 
 let passed = 0;
 let failed = 0;
@@ -52,27 +53,29 @@ async function runApiAndIntegrationTests() {
 
     console.log("--- 1. Node Metadata PostgreSQL Persistence ---");
 
-    await test("PostgreSQL: seedNodeDefinitions upserts all 20 nodes into database", async () => {
+    await test(`PostgreSQL: seedNodeDefinitions upserts all ${defaultRegistry.list().length} nodes into database`, async () => {
       const seedResult = await nodeService.seedNodeDefinitions();
-      assert.strictEqual(seedResult.total, 20);
-      assert.strictEqual(seedResult.upserted, 20);
+      const totalRegistered = defaultRegistry.list().length;
+      assert.strictEqual(seedResult.total, totalRegistered);
+      assert.strictEqual(seedResult.upserted, totalRegistered);
 
       const dbNodes = await prisma.nodeDefinition.findMany();
-      assert.ok(dbNodes.length >= 20);
+      assert.ok(dbNodes.length >= totalRegistered);
     });
 
     await test("PostgreSQL: repeated seeding is idempotent and does not create duplicates", async () => {
+      const totalRegistered = defaultRegistry.list().length;
       const beforeCount = await prisma.nodeDefinition.count();
       const seedResult = await nodeService.seedNodeDefinitions();
       const afterCount = await prisma.nodeDefinition.count();
 
       assert.strictEqual(beforeCount, afterCount);
-      assert.strictEqual(seedResult.upserted, 20);
+      assert.strictEqual(seedResult.upserted, totalRegistered);
     });
 
     await test("PostgreSQL: listNodes and getNodeMetadata return accurate metadata with handler status", async () => {
       const nodes = await nodeService.listNodes();
-      assert.ok(nodes.length >= 20);
+      assert.ok(nodes.length >= defaultRegistry.list().length);
       assert.ok(nodes.every((n) => n.hasExecutableHandler === true));
 
       const multiplyMeta = await nodeService.getNodeMetadata("math.multiply");

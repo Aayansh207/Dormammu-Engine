@@ -18,7 +18,21 @@ class NodeRegistry {
     if (!definition || typeof definition !== "object") {
       throw new Error("Node definition must be an object");
     }
-    const { type, version = "1.0.0", category = "general", label, description = "", inputs = {}, outputs = {}, configSchema, validateConfig, capabilities = {}, handler } = definition;
+    const {
+      type,
+      version = "1.0.0",
+      category = "general",
+      label,
+      description = "",
+      inputs = {},
+      outputs = {},
+      configSchema,
+      validateConfig,
+      capabilities = {},
+      handler,
+      getDynamicOutputs,
+      getDynamicInputs,
+    } = definition;
 
     if (!type || typeof type !== "string") {
       throw new Error("Node definition must have a non-empty string 'type'");
@@ -59,6 +73,8 @@ class NodeRegistry {
       description,
       inputs: normalizedInputs,
       outputs: normalizedOutputs,
+      getDynamicOutputs: typeof getDynamicOutputs === "function" ? getDynamicOutputs : null,
+      getDynamicInputs: typeof getDynamicInputs === "function" ? getDynamicInputs : null,
       configSchema: configSchema || null,
       validateConfig: typeof validateConfig === "function" ? validateConfig : () => ({ valid: true }),
       capabilities: {

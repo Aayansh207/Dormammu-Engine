@@ -228,24 +228,31 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
     const sourceDef = registry.get(sourceNode.type);
     const targetDef = registry.get(targetNode.type);
 
+    const sourceOutputs = typeof sourceDef.getDynamicOutputs === "function"
+      ? sourceDef.getDynamicOutputs(sourceNode.config)
+      : sourceDef.outputs;
+    const targetInputs = typeof targetDef.getDynamicInputs === "function"
+      ? targetDef.getDynamicInputs(targetNode.config)
+      : targetDef.inputs;
+
     // Normalize legacy port aliases for seamless backward compatibility
-    if (edge.sourcePort && !sourceDef.outputs[edge.sourcePort]) {
-      if (edge.sourcePort === "result" && sourceDef.outputs["output"]) {
+    if (edge.sourcePort && !sourceOutputs[edge.sourcePort]) {
+      if (edge.sourcePort === "result" && sourceOutputs["output"]) {
         edge.sourcePort = "output";
-      } else if (edge.sourcePort === "output" && sourceDef.outputs["result"]) {
+      } else if (edge.sourcePort === "output" && sourceOutputs["result"]) {
         edge.sourcePort = "result";
       }
     }
-    if (edge.targetPort && !targetDef.inputs[edge.targetPort]) {
-      if (edge.targetPort === "input" && targetDef.inputs["a"]) {
+    if (edge.targetPort && !targetInputs[edge.targetPort]) {
+      if (edge.targetPort === "input" && targetInputs["a"]) {
         edge.targetPort = "a";
-      } else if (edge.targetPort === "input" && targetDef.inputs["base"]) {
+      } else if (edge.targetPort === "input" && targetInputs["base"]) {
         edge.targetPort = "base";
       }
     }
 
     // Source port check
-    if (!edge.sourcePort || !sourceDef.outputs[edge.sourcePort]) {
+    if (!edge.sourcePort || !sourceOutputs[edge.sourcePort]) {
       rawErrors.push({
         code: ErrorCodes.UNKNOWN_SOURCE_PORT,
         message: `Edge '${edgeId}' references unknown source port '${edge.sourcePort}' on node '${edge.source}' (${sourceNode.type})`,
@@ -256,7 +263,7 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
     }
 
     // Target port check
-    if (!edge.targetPort || !targetDef.inputs[edge.targetPort]) {
+    if (!edge.targetPort || !targetInputs[edge.targetPort]) {
       rawErrors.push({
         code: ErrorCodes.UNKNOWN_TARGET_PORT,
         message: `Edge '${edgeId}' references unknown target port '${edge.targetPort}' on node '${edge.target}' (${targetNode.type})`,
@@ -267,7 +274,7 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
     } else {
       const targetPortKey = `${edge.target}:${edge.targetPort}`;
       const existingCount = inputPortIncomingEdges.get(targetPortKey) || 0;
-      const targetPortDef = targetDef.inputs[edge.targetPort];
+      const targetPortDef = targetInputs[edge.targetPort];
 
       if (existingCount >= 1 && !targetPortDef.allowMultiple) {
         rawErrors.push({
@@ -281,8 +288,8 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
       inputPortIncomingEdges.set(targetPortKey, existingCount + 1);
 
       // Port Type Compatibility Check
-      if (sourceDef.outputs[edge.sourcePort]) {
-        const srcType = sourceDef.outputs[edge.sourcePort].type;
+      if (sourceOutputs[edge.sourcePort]) {
+        const srcType = sourceOutputs[edge.sourcePort].type;
         const tgtType = targetPortDef.type;
         if (srcType !== "any" && tgtType !== "any" && srcType !== tgtType) {
           rawWarnings.push({

@@ -200,9 +200,9 @@ export default function NodeInspector({
                         outline: "none",
                       }}
                     />
-                  ) : schema.type === "select" ? (
+                  ) : schema.type === "select" || Array.isArray(schema.enum) ? (
                     <select
-                      value={val}
+                      value={val !== undefined ? val : (schema.default || "")}
                       onChange={(e) => handleConfigChange(key, e.target.value)}
                       style={{
                         padding: "8px 10px",
@@ -214,7 +214,7 @@ export default function NodeInspector({
                         outline: "none",
                       }}
                     >
-                      {(schema.options || []).map((opt) => {
+                      {(schema.options || schema.enum || []).map((opt) => {
                         const optVal = typeof opt === "object" ? opt.value : opt;
                         const optLabel = typeof opt === "object" ? opt.label : opt;
                         return (
@@ -224,10 +224,10 @@ export default function NodeInspector({
                         );
                       })}
                     </select>
-                  ) : schema.type === "json" ? (
+                  ) : schema.type === "json" || schema.type === "array" || schema.type === "object" ? (
                     <textarea
-                      rows={3}
-                      value={typeof val === "object" ? JSON.stringify(val, null, 2) : String(val)}
+                      rows={4}
+                      value={typeof val === "object" ? JSON.stringify(val, null, 2) : String(val !== undefined ? val : "")}
                       onChange={(e) => {
                         try {
                           const parsed = JSON.parse(e.target.value);

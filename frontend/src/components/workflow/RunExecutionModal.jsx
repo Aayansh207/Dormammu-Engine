@@ -679,18 +679,31 @@ export default function RunExecutionModal({
 
                                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                   <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{task.durationMs || 0}ms</span>
-                                  <span
-                                    style={{
-                                      fontSize: "0.68rem",
-                                      fontWeight: "700",
-                                      color: isSuccess ? "#10b981" : "#f43f5e",
-                                      background: isSuccess ? "rgba(16, 185, 129, 0.15)" : "rgba(244, 63, 94, 0.15)",
-                                      padding: "1px 6px",
-                                      borderRadius: "4px",
-                                    }}
-                                  >
-                                    {task.status}
-                                  </span>
+                                  {(() => {
+                                    const badgeStyles = {
+                                      SUCCEEDED: { color: "#10b981", bg: "rgba(16, 185, 129, 0.15)" },
+                                      FAILED: { color: "#f43f5e", bg: "rgba(244, 63, 94, 0.15)" },
+                                      SKIPPED: { color: "#9ca3af", bg: "rgba(156, 163, 175, 0.15)" },
+                                      BLOCKED: { color: "#f59e0b", bg: "rgba(245, 158, 11, 0.15)" },
+                                      CANCELLED: { color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
+                                      RUNNING: { color: "#38bdf8", bg: "rgba(56, 189, 248, 0.15)" },
+                                    };
+                                    const s = badgeStyles[task.status] || { color: "#94a3b8", bg: "rgba(148, 163, 184, 0.15)" };
+                                    return (
+                                      <span
+                                        style={{
+                                          fontSize: "0.68rem",
+                                          fontWeight: "700",
+                                          color: s.color,
+                                          background: s.bg,
+                                          padding: "1px 6px",
+                                          borderRadius: "4px",
+                                        }}
+                                      >
+                                        {task.status}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </div>
 

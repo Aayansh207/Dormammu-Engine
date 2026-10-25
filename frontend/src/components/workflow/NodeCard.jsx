@@ -6,6 +6,8 @@ import {
   XCircle, 
   Loader2, 
   Ban,
+  FastForward,
+  Slash,
   Sparkles,
   Plus
 } from "lucide-react";
@@ -55,9 +57,25 @@ export default function NodeCard({
   );
   const hasErrors = nodeErrors.length > 0;
 
-  // Ports declaration from node metadata
+  // Ports declaration from node metadata with dynamic switch port support
   const inputs = metadata ? metadata.inputs || {} : {};
-  const outputs = metadata ? metadata.outputs || {} : {};
+  let outputs = metadata ? metadata.outputs || {} : {};
+
+  if (node.type === "logic.switch" && Array.isArray(node.config?.cases)) {
+    const dynamicOutputs = {
+      default: { type: "any", description: "Default fallback branch" },
+      output: { type: "any", description: "Matched case identifier" },
+    };
+    for (const c of node.config.cases) {
+      const portName = typeof c === "object"
+        ? (c.port || String(c.case || "").replace(/[^a-zA-Z0-9_]/g, "_"))
+        : String(c).replace(/[^a-zA-Z0-9_]/g, "_");
+      if (portName) {
+        dynamicOutputs[portName] = { type: "any", description: `Case branch: ${portName}` };
+      }
+    }
+    outputs = dynamicOutputs;
+  }
 
   const inputEntries = Object.entries(inputs);
   const outputEntries = Object.entries(outputs);
@@ -86,6 +104,8 @@ export default function NodeCard({
         width: `${CARD_WIDTH}px`,
         zIndex: isSelected ? 15 : 10,
         transform: "translate3d(0, 0, 0)",
+        opacity: execStatus === "SKIPPED" ? 0.65 : 1,
+        transition: "opacity 0.2s ease, box-shadow 0.2s ease",
       }}
       className={`workflow-node ${isSelected ? "selected" : ""} ${hasErrors ? "has-error" : ""}`}
     >
@@ -154,7 +174,6 @@ export default function NodeCard({
             </code>
           </div>
         </div>
-
         {/* Action icons / status badge */}
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           {execStatus === "RUNNING" && (
@@ -168,6 +187,12 @@ export default function NodeCard({
           )}
           {execStatus === "BLOCKED" && (
             <Ban size={14} color="#f59e0b" title="Blocked by upstream failure" />
+          )}
+          {execStatus === "SKIPPED" && (
+            <FastForward size={14} color="#9ca3af" title="Skipped (inactive conditional branch)" />
+          )}
+          {execStatus === "CANCELLED" && (
+            <Slash size={14} color="#c084fc" title="Execution Cancelled" />
           )}
 
           {hasErrors && (
@@ -273,7 +298,16 @@ export default function NodeCard({
 
             const outPortName = outEntry ? outEntry[0] : null;
             const outPortDef = outEntry ? outEntry[1] : null;
-            const outTypeColor = outPortDef ? PORT_TYPE_COLORS[outPortDef.type] || PORT_TYPE_COLORS.any : null;
+            let outTypeColor = outPortDef ? PORT_TYPE_COLORS[outPortDef.type] || PORT_TYPE_COLORS.any : null;
+
+            // Distinctive colors for control-flow branching ports
+            if (outPortName === "true") {
+              outTypeColor = "#10b981"; // Emerald green for true branch
+            } else if (outPortName === "false") {
+              outTypeColor = "#f43f5e"; // Rose red for false branch
+            } else if (outPortName === "default") {
+              outTypeColor = "#a78bfa"; // Soft violet for default branch
+            }
 
             return (
               <div
