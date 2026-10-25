@@ -127,6 +127,65 @@ async function callOpenAI(apiKey, prompt, systemInstruction = "", abortSignal = 
 }
 
 /**
+ * Dispatches a prompt to xAI Grok via REST API
+ */
+async function callGrok(apiKey, prompt, systemInstruction = "", abortSignal = null, model = "grok-beta") {
+  const url = "https://api.x.ai/v1/chat/completions";
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  if (abortSignal) {
+    abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model || "grok-beta",
+        messages,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new EngineError(
+        ErrorCodes.AI_PROVIDER_ERROR,
+        `Grok API error (${res.status}): ${errText.slice(0, 300)}`,
+        { status: res.status, provider: "grok" }
+      );
+    }
+
+    const data = await res.json();
+    const rawText = data.choices?.[0]?.message?.content;
+    if (!rawText) {
+      throw new EngineError(ErrorCodes.AI_INVALID_OUTPUT, "Grok returned empty message content", { provider: "grok" });
+    }
+    return { text: rawText, provider: "grok", mode: "live" };
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new EngineError(ErrorCodes.AI_TIMEOUT, `Grok request timed out after ${AI_TIMEOUT_MS}ms`, { provider: "grok" });
+    }
+    if (err instanceof EngineError) throw err;
+    throw new EngineError(ErrorCodes.AI_PROVIDER_ERROR, `Grok network error: ${err.message}`, { provider: "grok" });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Deterministic, visibly labelled mock execution when no external AI keys are configured.
  */
 function callMockAi(taskType, payload) {
@@ -226,16 +285,52 @@ function callMockAi(taskType, payload) {
 
 /**
  * Unified AI execution dispatcher
+ * Supports Grok (xAI), Gemini, and OpenAI with explicit provider selection and transparent offline mock.
  */
 async function executeAiTask(taskType, payload, options = {}) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const preferredProvider = (options.provider || payload.provider || "auto").toLowerCase();
+  const requestedModel = options.model || payload.model;
   const abortSignal = options.abortSignal || null;
 
-  // Strict live execution when Gemini credentials are configured
-  if (geminiKey) {
+  const grokKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
+
+  // 1. Grok Execution (if explicitly requested, or auto when grokKey is present)
+  if ((preferredProvider === "grok" || preferredProvider === "xai") || (preferredProvider === "auto" && grokKey)) {
+    if (!grokKey) {
+      throw new EngineError(
+        ErrorCodes.AI_PROVIDER_ERROR,
+        "xAI Grok provider was selected but GROK_API_KEY (or XAI_API_KEY) is not configured in environment"
+      );
+    }
     try {
-      const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
+      const res = await callGrok(grokKey, prompt, "", abortSignal, requestedModel || "grok-beta");
+      const parsed = JSON.parse(res.text);
+      return {
+        ...parsed,
+        provider: "grok",
+        mode: "live",
+        isDemo: false,
+        badge: "⚡ LIVE AI (Grok)",
+      };
+    } catch (err) {
+      // Re-throw: never disguise a provider failure as a fake mock response
+      throw err;
+    }
+  }
+
+  // 2. Gemini Execution (if explicitly requested, or auto when geminiKey is present)
+  if (preferredProvider === "gemini" || (preferredProvider === "auto" && geminiKey)) {
+    if (!geminiKey) {
+      throw new EngineError(
+        ErrorCodes.AI_PROVIDER_ERROR,
+        "Google Gemini provider was selected but GEMINI_API_KEY is not configured in environment"
+      );
+    }
+    try {
       const res = await callGemini(geminiKey, prompt, "", abortSignal);
       const parsed = JSON.parse(res.text);
       return {
@@ -246,15 +341,19 @@ async function executeAiTask(taskType, payload, options = {}) {
         badge: "⚡ LIVE AI (Gemini)",
       };
     } catch (err) {
-      // Re-throw: never disguise a provider failure as a fake mock response
       throw err;
     }
   }
 
-  // Strict live execution when OpenAI credentials are configured
-  if (openaiKey) {
+  // 3. OpenAI Execution (if explicitly requested, or auto when openaiKey is present)
+  if (preferredProvider === "openai" || (preferredProvider === "auto" && openaiKey)) {
+    if (!openaiKey) {
+      throw new EngineError(
+        ErrorCodes.AI_PROVIDER_ERROR,
+        "OpenAI provider was selected but OPENAI_API_KEY is not configured in environment"
+      );
+    }
     try {
-      const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
       const res = await callOpenAI(openaiKey, prompt, "", abortSignal);
       const parsed = JSON.parse(res.text);
       return {
@@ -265,17 +364,17 @@ async function executeAiTask(taskType, payload, options = {}) {
         badge: "⚡ LIVE AI (OpenAI)",
       };
     } catch (err) {
-      // Re-throw: never disguise a provider failure as a fake mock response
       throw err;
     }
   }
 
-  // Explicit, transparent fallback to deterministic offline mock only when no credentials exist
+  // 4. Explicit, transparent fallback to deterministic offline mock only when no credentials exist
   return callMockAi(taskType, payload);
 }
 
 module.exports = {
   executeAiTask,
+  callGrok,
   callGemini,
   callOpenAI,
   callMockAi,

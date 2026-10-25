@@ -777,7 +777,7 @@ export default function RunExecutionModal({
                                       >
                                         ⚠️ AI Failed
                                       </span>
-                                    ) : (task.outputs?.mode === "live" || task.outputs?.provider === "gemini" || task.outputs?.provider === "openai") ? (
+                                    ) : (task.outputs?.mode === "live" || ["gemini", "openai", "grok", "xai"].includes(task.outputs?.provider)) ? (
                                       <span
                                         style={{
                                           fontSize: "0.68rem",

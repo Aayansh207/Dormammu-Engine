@@ -20,10 +20,22 @@ module.exports = {
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "Generated summary text" }),
     keyPoints: defineOutputPort({ name: "keyPoints", type: PortTypes.ARRAY, description: "Extracted bullet points and takeaways" }),
-    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('gemini', 'openai', or 'mock')" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('grok', 'gemini', 'openai', or 'mock')" }),
     mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
+    provider: {
+      type: "string",
+      required: false,
+      default: "auto",
+      enum: ["auto", "grok", "gemini", "openai"],
+      description: "AI Provider service: 'auto', 'grok' (xAI), 'gemini', or 'openai'",
+    },
+    model: {
+      type: "string",
+      required: false,
+      description: "Specific model identifier (e.g. 'grok-beta', 'grok-2-latest', 'gemini-1.5-flash', 'gpt-4o-mini')",
+    },
     format: {
       type: "string",
       required: false,
@@ -80,7 +92,11 @@ module.exports = {
         maxLength: Number(config.maxLength || 300),
         instructions: config.instructions,
       },
-      { abortSignal: context.abortSignal }
+      {
+        abortSignal: context.abortSignal,
+        provider: config.provider,
+        model: config.model,
+      }
     );
 
     const summaryText = result.summary || (typeof result.text === "string" ? result.text : String(result));

@@ -25,10 +25,22 @@ module.exports = {
   },
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.OBJECT, description: "Extracted structured JSON entity object" }),
-    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('gemini', 'openai', or 'mock')" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('grok', 'gemini', 'openai', or 'mock')" }),
     mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
+    provider: {
+      type: "string",
+      required: false,
+      default: "auto",
+      enum: ["auto", "grok", "gemini", "openai"],
+      description: "AI Provider service: 'auto', 'grok' (xAI), 'gemini', or 'openai'",
+    },
+    model: {
+      type: "string",
+      required: false,
+      description: "Specific model identifier (e.g. 'grok-beta', 'grok-2-latest', 'gemini-1.5-flash', 'gpt-4o-mini')",
+    },
     schema: {
       type: "object",
       required: false,
@@ -76,7 +88,11 @@ module.exports = {
         schema,
         instructions: config.instructions,
       },
-      { abortSignal: context.abortSignal }
+      {
+        abortSignal: context.abortSignal,
+        provider: config.provider,
+        model: config.model,
+      }
     );
 
     const extracted = result.extracted || result.data || result;

@@ -503,6 +503,27 @@ async function runWorkflowEngineTests() {
     assert.ok(res._aiExecution && typeof res._aiExecution === "object");
   });
 
+  await test("ai.provider: supports xAI Grok provider abstraction and validates credentials", async () => {
+    const { callGrok, executeAiTask } = require("./src/engine/providers/ai.provider");
+    assert.strictEqual(typeof callGrok, "function");
+
+    // When Grok is explicitly requested without GROK_API_KEY or XAI_API_KEY, strictly rejects
+    const prevGrok = process.env.GROK_API_KEY;
+    const prevXai = process.env.XAI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+
+    try {
+      await assert.rejects(
+        async () => executeAiTask("classify", { text: "server down", categories: ["urgent", "general"] }, { provider: "grok" }),
+        (err) => err.code === ErrorCodes.AI_PROVIDER_ERROR
+      );
+    } finally {
+      if (prevGrok) process.env.GROK_API_KEY = prevGrok;
+      if (prevXai) process.env.XAI_API_KEY = prevXai;
+    }
+  });
+
   await test("ai.extract & ai.summarize: extracts structured entities and produces summaries", async () => {
     const extractDef = defaultRegistry.get("ai.extract");
     const summarizeDef = defaultRegistry.get("ai.summarize");
