@@ -426,9 +426,9 @@ export default function RunExecutionModal({
             disabled={isRunning}
             style={{
               padding: "8px 20px",
-              background: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
-              border: "none",
-              borderRadius: "8px",
+              background: "var(--brand)",
+              border: "1px solid var(--brand-border)",
+              borderRadius: "var(--radius-sm)",
               color: "#ffffff",
               fontSize: "0.88rem",
               fontWeight: "700",
@@ -436,7 +436,7 @@ export default function RunExecutionModal({
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              boxShadow: "0 0 20px rgba(124, 58, 237, 0.4)",
+              boxShadow: "0 0 14px var(--brand-glow)",
               opacity: isRunning ? 0.7 : 1,
             }}
           >

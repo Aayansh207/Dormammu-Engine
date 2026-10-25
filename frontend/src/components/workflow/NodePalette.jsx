@@ -126,10 +126,29 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
             onChange={(e) => setSearchTerm(e.target.value)}
             className="input-control"
             style={{
-              padding: "7px 10px 7px 32px",
+              padding: "7px 28px 7px 32px",
               fontSize: "0.82rem",
             }}
           />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              style={{
+                position: "absolute",
+                right: "8px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "transparent",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: "2px",
+                fontSize: "0.75rem",
+              }}
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Category Pills */}
@@ -176,13 +195,18 @@ export default function NodePalette({ catalogue = [], onAddNode, isOpen, onToggl
             return (
               <div
                 key={node.type}
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/dormammu-node", JSON.stringify(node));
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
                 onClick={() => onAddNode(node)}
                 style={{
                   background: "var(--bg-secondary)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: "10px",
                   padding: "10px 12px",
-                  cursor: "pointer",
+                  cursor: "grab",
                   display: "flex",
                   flexDirection: "column",
                   gap: "6px",

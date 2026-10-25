@@ -65,42 +65,63 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
   const canvasRef = useRef(null);
 
-  // Construct current standard workflow JSON object
-  const getWorkflowJson = useCallback(() => {
+  // Keep live reference for handlers to prevent recreating callbacks on every state change
+  const stateRef = useRef({ workflowName, nodes, edges, workflowId, isDirty, selectedElement });
+  stateRef.current = { workflowName, nodes, edges, workflowId, isDirty, selectedElement };
+
+  // Stable construct current standard workflow JSON object
+  const getWorkflowJson = useCallback((customNodes = null, customEdges = null) => {
     return {
       schemaVersion: 1,
-      name: workflowName,
-      nodes,
-      edges,
+      name: stateRef.current.workflowName,
+      nodes: customNodes || stateRef.current.nodes,
+      edges: customEdges || stateRef.current.edges,
     };
-  }, [workflowName, nodes, edges]);
+  }, []);
 
-  // Validate current definition
-  const validateDefinition = useCallback(async (customDef = null) => {
-    setIsValidating(true);
-    try {
-      const def = customDef || getWorkflowJson();
-      const res = await api.validateRawWorkflow(def);
-      if (res && res.data) {
-        setValidationResult(res.data);
+  // Validation debounce timer ref
+  const validationTimerRef = useRef(null);
+
+  // Validate definition with debouncing to prevent flooding backend API
+  const validateDefinition = useCallback((customDef = null, delay = 200) => {
+    if (validationTimerRef.current) {
+      clearTimeout(validationTimerRef.current);
+    }
+
+    const runValidation = async () => {
+      setIsValidating(true);
+      try {
+        const def = customDef || getWorkflowJson();
+        const res = await api.validateRawWorkflow(def);
+        if (res && res.data) {
+          setValidationResult(res.data);
+        }
+      } catch (err) {
+        console.error("Validation error:", err);
+      } finally {
+        setIsValidating(false);
       }
-    } catch (err) {
-      console.error("Validation error:", err);
-    } finally {
-      setIsValidating(false);
+    };
+
+    if (delay === 0) {
+      runValidation();
+    } else {
+      validationTimerRef.current = setTimeout(runValidation, delay);
     }
   }, [getWorkflowJson]);
 
   // Save workflow definition to backend
   const handleSave = useCallback(async () => {
-    if (!workflowId) return;
+    const currentId = stateRef.current.workflowId;
+    if (!currentId) return;
+
     setIsSaving(true);
     setSaveSuccessMsg("");
 
     try {
       const definition = getWorkflowJson();
-      const res = await api.updateWorkflow(workflowId, {
-        name: workflowName,
+      const res = await api.updateWorkflow(currentId, {
+        name: stateRef.current.workflowName,
         definition,
       });
 
@@ -121,7 +142,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     } finally {
       setIsSaving(false);
     }
-  }, [workflowId, workflowName, getWorkflowJson]);
+  }, [getWorkflowJson]);
 
   // Delete node and attached edges
   const handleDeleteNode = useCallback((nodeId) => {
@@ -129,7 +150,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       const nextNodes = prevNodes.filter((n) => n.id !== nodeId);
       setEdges((prevEdges) => {
         const nextEdges = prevEdges.filter((e) => e.source !== nodeId && e.target !== nodeId);
-        validateDefinition({ ...getWorkflowJson(), nodes: nextNodes, edges: nextEdges });
+        validateDefinition(getWorkflowJson(nextNodes, nextEdges));
         return nextEdges;
       });
       return nextNodes;
@@ -142,21 +163,20 @@ export default function WorkflowEditor({ workflowId, onBack }) {
   const handleDeleteEdge = useCallback((edgeId) => {
     setEdges((prevEdges) => {
       const nextEdges = prevEdges.filter((e) => e.id !== edgeId);
-      validateDefinition({ ...getWorkflowJson(), edges: nextEdges });
+      validateDefinition(getWorkflowJson(null, nextEdges));
       return nextEdges;
     });
     setSelectedElement((prev) => (prev?.id === edgeId ? null : prev));
     setIsDirty(true);
   }, [getWorkflowJson, validateDefinition]);
 
-  // 1. Load Catalogue and Workflow Definition
+  // 1. Load Catalogue ONCE on mount
   useEffect(() => {
     let mounted = true;
 
-    async function init() {
-      try {
-        const catRes = await api.getNodeCatalogue();
-        if (mounted && catRes && catRes.data) {
+    api.getNodeCatalogue()
+      .then((catRes) => {
+        if (mounted && catRes?.data) {
           setCatalogue(catRes.data);
           const map = {};
           for (const item of catRes.data) {
@@ -164,36 +184,51 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           }
           setCatalogueMap(map);
         }
+      })
+      .catch((err) => console.error("Failed to load node catalogue:", err));
 
-        if (workflowId) {
-          const wfRes = await api.getWorkflow(workflowId);
-          if (mounted && wfRes && wfRes.data) {
-            const wf = wfRes.data;
-            setWorkflow(wf);
-            setWorkflowName(wf.name || "Untitled Workflow");
-            setWorkflowVersion(wf.version || 1);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-            const def = wf.definition || { nodes: [], edges: [] };
-            setNodes(def.nodes || []);
-            setEdges(def.edges || []);
-            setIsDirty(false);
+  // 2. Load Workflow Definition ONLY when workflowId changes
+  useEffect(() => {
+    if (!workflowId) return;
+    let mounted = true;
 
-            // Initial validation check
-            validateDefinition(def);
-          }
+    async function loadWorkflow() {
+      try {
+        const wfRes = await api.getWorkflow(workflowId);
+        if (mounted && wfRes?.data) {
+          const wf = wfRes.data;
+          setWorkflow(wf);
+          setWorkflowName(wf.name || "Untitled Workflow");
+          setWorkflowVersion(wf.version || 1);
+
+          const def = wf.definition || { nodes: [], edges: [] };
+          setNodes(def.nodes || []);
+          setEdges(def.edges || []);
+          setIsDirty(false);
+
+          // Initial validation check once with 0ms delay
+          validateDefinition(def, 0);
         }
       } catch (err) {
         console.error("Failed to load workflow editor:", err);
       }
     }
 
-    init();
+    loadWorkflow();
     return () => {
       mounted = false;
+      if (validationTimerRef.current) {
+        clearTimeout(validationTimerRef.current);
+      }
     };
   }, [workflowId, validateDefinition]);
 
-  // Keyboard Shortcuts (Delete, Save)
+  // Keyboard Shortcuts (Delete, Save, Esc)
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Ctrl+S / Cmd+S
@@ -202,12 +237,13 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         handleSave();
       }
       // Delete or Backspace to delete selected element
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedElement) {
+      if ((e.key === "Delete" || e.key === "Backspace") && stateRef.current.selectedElement) {
         if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-        if (selectedElement.type === "node") {
-          handleDeleteNode(selectedElement.id);
-        } else if (selectedElement.type === "edge") {
-          handleDeleteEdge(selectedElement.id);
+        const sel = stateRef.current.selectedElement;
+        if (sel.type === "node") {
+          handleDeleteNode(sel.id);
+        } else if (sel.type === "edge") {
+          handleDeleteEdge(sel.id);
         }
       }
       // Escape to clear selection
@@ -220,11 +256,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedElement, handleSave, handleDeleteNode, handleDeleteEdge]);
+  }, [handleSave, handleDeleteNode, handleDeleteEdge]);
 
 
   // Add a node to the canvas
-  const handleAddNode = (catalogueNode) => {
+  const handleAddNode = (catalogueNode, customPos = null) => {
     // Generate unique node ID e.g. "node_01", "node_02"
     let index = nodes.length + 1;
     let newId = `node_${String(index).padStart(2, "0")}`;
@@ -233,13 +269,19 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       newId = `node_${String(index).padStart(2, "0")}`;
     }
 
-    // Place in center of current pan viewport
-    const container = canvasRef.current;
-    const viewWidth = container ? container.clientWidth : 800;
-    const viewHeight = container ? container.clientHeight : 600;
+    let posX, posY;
+    if (customPos) {
+      posX = customPos.x;
+      posY = customPos.y;
+    } else {
+      // Place in center of current pan viewport
+      const container = canvasRef.current;
+      const viewWidth = container ? container.clientWidth : 800;
+      const viewHeight = container ? container.clientHeight : 600;
 
-    const posX = Math.round((-pan.x + viewWidth / 2 - 120) / scale);
-    const posY = Math.round((-pan.y + viewHeight / 2 - 60) / scale);
+      posX = Math.round((-pan.x + viewWidth / 2 - 120) / scale);
+      posY = Math.round((-pan.y + viewHeight / 2 - 60) / scale);
+    }
 
     // Initial config defaults from schema
     const initialConfig = {};
@@ -254,7 +296,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     const newNode = {
       id: newId,
       type: catalogueNode.type,
-      version: 1,
+      version: catalogueNode.version || 1,
       name: catalogueNode.label || newId,
       position: { x: posX, y: posY },
       config: initialConfig,
@@ -265,8 +307,34 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     setSelectedElement({ id: newId, type: "node" });
     setIsDirty(true);
 
-    // Re-validate
+    // Re-validate definition with newly added node
     validateDefinition({ ...getWorkflowJson(), nodes: nextNodes });
+  };
+
+  // Drag and drop onto canvas from NodePalette
+  const handleCanvasDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleCanvasDrop = (e) => {
+    e.preventDefault();
+    const rawData = e.dataTransfer.getData("application/dormammu-node");
+    if (!rawData) return;
+
+    try {
+      const nodeMeta = JSON.parse(rawData);
+      const container = canvasRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const dropX = Math.round((e.clientX - rect.left - pan.x) / scale - 120);
+      const dropY = Math.round((e.clientY - rect.top - pan.y) / scale - 30);
+
+      handleAddNode(nodeMeta, { x: dropX, y: dropY });
+    } catch (err) {
+      console.error("Failed to parse dropped node metadata:", err);
+    }
   };
 
   // Update existing node
@@ -331,9 +399,22 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     );
 
     if (!exists) {
-      let edgeIndex = edges.length + 1;
+      const targetNode = nodes.find((n) => n.id === targetNodeId);
+      const targetMeta = targetNode ? catalogueMap[targetNode.type] : null;
+      const targetPortDef = targetMeta?.inputs?.[targetPortName];
+      const allowsMultiple = Boolean(targetPortDef?.allowMultiple);
+
+      // If target port is single-input, replace existing incoming edge to avoid invalid graph state
+      let cleanEdges = edges;
+      if (!allowsMultiple) {
+        cleanEdges = edges.filter(
+          (e) => !(e.target === targetNodeId && e.targetPort === targetPortName)
+        );
+      }
+
+      let edgeIndex = cleanEdges.length + 1;
       let newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
-      while (edges.some((e) => e.id === newEdgeId)) {
+      while (cleanEdges.some((e) => e.id === newEdgeId)) {
         edgeIndex++;
         newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
       }
@@ -346,7 +427,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         targetPort: targetPortName,
       };
 
-      const nextEdges = [...edges, newEdge];
+      const nextEdges = [...cleanEdges, newEdge];
       setEdges(nextEdges);
       setIsDirty(true);
       validateDefinition({ ...getWorkflowJson(), edges: nextEdges });
@@ -640,6 +721,8 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
+          onDragOver={handleCanvasDragOver}
+          onDrop={handleCanvasDrop}
           className="workflow-canvas-grid"
           style={{
             flex: 1,
@@ -729,7 +812,20 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                 const srcNode = nodes.find((n) => n.id === edge.source);
                 const tgtNode = nodes.find((n) => n.id === edge.target);
                 const isEdgeSelected = selectedElement?.type === "edge" && selectedElement.id === edge.id;
-                const edgeHasError = validationResult.errors.some((e) => e.edgeId === edge.id);
+
+                const isEdgeInCycle = (edgeItem, cycle) => {
+                  if (!cycle || !Array.isArray(cycle) || cycle.length < 2) return false;
+                  for (let i = 0; i < cycle.length - 1; i++) {
+                    if (cycle[i] === edgeItem.source && cycle[i + 1] === edgeItem.target) {
+                      return true;
+                    }
+                  }
+                  return false;
+                };
+
+                const edgeHasError = validationResult.errors.some(
+                  (e) => e.edgeId === edge.id || (e.code === "CYCLE_DETECTED" && isEdgeInCycle(edge, e.cycle))
+                );
 
                 return (
                   <EdgePath
@@ -790,6 +886,8 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                     onCompleteConnection={handleCompleteConnection}
                     errors={validationResult.errors}
                     executionTask={task}
+                    isConnecting={Boolean(connectingSource)}
+                    connectingSourceNodeId={connectingSource?.nodeId}
                   />
                 );
               })}

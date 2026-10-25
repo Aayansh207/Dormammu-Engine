@@ -5,10 +5,17 @@ import {
   CheckCircle2, 
   XCircle, 
   Loader2, 
-  Clock,
+  Ban,
   Sparkles
 } from "lucide-react";
 import { CATEGORY_META } from "./NodePalette";
+import { 
+  CARD_WIDTH, 
+  HEADER_HEIGHT, 
+  PORTS_PADDING_TOP, 
+  PORT_ROW_HEIGHT, 
+  PORT_ROW_GAP 
+} from "./EdgePath";
 
 const PORT_TYPE_COLORS = {
   number: "#39AEA9",
@@ -30,6 +37,8 @@ export default function NodeCard({
   onCompleteConnection,
   errors = [],
   executionTask = null,
+  isConnecting = false,
+  connectingSourceNodeId = null,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const cardRef = useRef(null);
@@ -38,15 +47,25 @@ export default function NodeCard({
   const catMeta = CATEGORY_META[categoryKey] || CATEGORY_META.general;
   const CatIcon = catMeta.icon || Sparkles;
 
-  const nodeErrors = errors.filter((e) => e.nodeId === node.id);
+  // Support node errors + cycle detection errors where node is part of the cycle
+  const nodeErrors = errors.filter(
+    (e) => e.nodeId === node.id || (e.code === "CYCLE_DETECTED" && e.cycle && Array.isArray(e.cycle) && e.cycle.includes(node.id))
+  );
   const hasErrors = nodeErrors.length > 0;
 
   // Ports declaration from node metadata
   const inputs = metadata ? metadata.inputs || {} : {};
   const outputs = metadata ? metadata.outputs || {} : {};
 
+  const inputEntries = Object.entries(inputs);
+  const outputEntries = Object.entries(outputs);
+  const rowCount = Math.max(inputEntries.length, outputEntries.length);
+
   // Execution status
   const execStatus = executionTask ? executionTask.status : null;
+
+  // Can this node receive connections right now?
+  const isEligibleTarget = isConnecting && connectingSourceNodeId !== node.id;
 
   return (
     <div
@@ -62,13 +81,13 @@ export default function NodeCard({
         position: "absolute",
         left: `${node.position.x}px`,
         top: `${node.position.y}px`,
-        width: "240px",
+        width: `${CARD_WIDTH}px`,
         zIndex: isSelected ? 15 : 10,
         transform: "translate3d(0, 0, 0)",
       }}
       className={`workflow-node ${isSelected ? "selected" : ""} ${hasErrors ? "has-error" : ""}`}
     >
-      {/* Category accent bar */}
+      {/* Category accent bar (4px) */}
       <div 
         style={{
           height: "4px",
@@ -79,14 +98,16 @@ export default function NodeCard({
         }}
       />
 
-      {/* Node Header (draggable) */}
+      {/* Node Header (draggable, total height 47px + 4px accent = 51px) */}
       <div
         onMouseDown={(e) => {
           if (e.target.closest("button") || e.target.closest(".port-handle")) return;
           onStartDrag(node.id, e);
         }}
         style={{
-          padding: "10px 12px 8px 12px",
+          height: "47px",
+          boxSizing: "border-box",
+          padding: "9px 12px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -135,13 +156,16 @@ export default function NodeCard({
         {/* Action icons / status badge */}
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           {execStatus === "RUNNING" && (
-            <Loader2 size={15} color="var(--primary-light)" className="animate-spin" />
+            <Loader2 size={15} color="var(--brand)" className="animate-spin" />
           )}
           {execStatus === "SUCCEEDED" && (
             <CheckCircle2 size={15} color="#10b981" title={`Succeeded in ${executionTask.durationMs || 0}ms`} />
           )}
           {execStatus === "FAILED" && (
             <XCircle size={15} color="#f43f5e" title={executionTask.error?.message || "Execution Failed"} />
+          )}
+          {execStatus === "BLOCKED" && (
+            <Ban size={14} color="#f59e0b" title="Blocked by upstream failure" />
           )}
 
           {hasErrors && (
@@ -188,95 +212,161 @@ export default function NodeCard({
         </div>
       </div>
 
-      {/* Ports Area */}
-      <div style={{ padding: "10px 0", display: "flex", flexDirection: "column", gap: "6px" }}>
-        {/* Input and Output ports list */}
-        {Object.entries(inputs).map(([portName, portDef]) => {
-          const typeColor = PORT_TYPE_COLORS[portDef.type] || PORT_TYPE_COLORS.any;
-          return (
-            <div 
-              key={`in-${portName}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-start",
-                position: "relative",
-                paddingLeft: "14px",
-                height: "22px",
-              }}
-            >
-              {/* Input Port Handle (Left edge) */}
-              <div
-                id={`port-${node.id}-${portName}-input`}
-                className="port-handle"
-                style={{
-                  position: "absolute",
-                  left: "-6px",
-                  top: "5px",
-                  backgroundColor: typeColor,
-                  color: typeColor,
-                }}
-                title={`Input Port: ${portName} (${portDef.type})`}
-                onMouseUp={(e) => {
-                  e.stopPropagation();
-                  onCompleteConnection(node.id, portName);
-                }}
-              />
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
-                  {portName}
-                </span>
-                <span style={{ fontSize: "0.62rem", color: typeColor, background: "var(--bg-chip)", padding: "1px 5px", borderRadius: "4px" }}>
-                  {portDef.type}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+      {/* Synchronized Side-by-Side Ports Area (padding top: 8px) */}
+      <div 
+        style={{ 
+          padding: `${PORTS_PADDING_TOP}px 0 10px 0`, 
+          display: "flex", 
+          flexDirection: "column", 
+          gap: `${PORT_ROW_GAP}px` 
+        }}
+      >
+        {rowCount === 0 ? (
+          <div style={{ padding: "4px 14px", fontSize: "0.72rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+            No ports declared
+          </div>
+        ) : (
+          Array.from({ length: rowCount }).map((_, rowIndex) => {
+            const inEntry = inputEntries[rowIndex];
+            const outEntry = outputEntries[rowIndex];
 
-        {Object.entries(outputs).map(([portName, portDef]) => {
-          const typeColor = PORT_TYPE_COLORS[portDef.type] || PORT_TYPE_COLORS.any;
-          return (
-            <div 
-              key={`out-${portName}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-end",
-                position: "relative",
-                paddingRight: "14px",
-                height: "22px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontSize: "0.62rem", color: typeColor, background: "var(--bg-chip)", padding: "1px 5px", borderRadius: "4px" }}>
-                  {portDef.type}
-                </span>
-                <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
-                  {portName}
-                </span>
-              </div>
+            const inPortName = inEntry ? inEntry[0] : null;
+            const inPortDef = inEntry ? inEntry[1] : null;
+            const inTypeColor = inPortDef ? PORT_TYPE_COLORS[inPortDef.type] || PORT_TYPE_COLORS.any : null;
 
-              {/* Output Port Handle (Right edge) */}
+            const outPortName = outEntry ? outEntry[0] : null;
+            const outPortDef = outEntry ? outEntry[1] : null;
+            const outTypeColor = outPortDef ? PORT_TYPE_COLORS[outPortDef.type] || PORT_TYPE_COLORS.any : null;
+
+            return (
               <div
-                id={`port-${node.id}-${portName}-output`}
-                className="port-handle"
+                key={`port-row-${rowIndex}`}
                 style={{
-                  position: "absolute",
-                  right: "-6px",
-                  top: "5px",
-                  backgroundColor: typeColor,
-                  color: typeColor,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  position: "relative",
+                  height: `${PORT_ROW_HEIGHT}px`,
+                  padding: "0 12px",
                 }}
-                title={`Output Port: ${portName} (${portDef.type}) - Drag to connect`}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  onStartConnection(node.id, portName, e);
-                }}
-              />
-            </div>
-          );
-        })}
+              >
+                {/* Left: Input Port */}
+                {inPortName ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      position: "relative",
+                      cursor: isConnecting ? "pointer" : "default",
+                      padding: "2px 4px",
+                      borderRadius: "4px",
+                      background: isEligibleTarget ? "rgba(57, 174, 169, 0.08)" : "transparent",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={`Input Port: ${inPortName} (${inPortDef.type})`}
+                    onMouseUp={(e) => {
+                      e.stopPropagation();
+                      onCompleteConnection(node.id, inPortName);
+                    }}
+                  >
+                    {/* Input Port Handle (centered in 26px height: top 7px) */}
+                    <div
+                      id={`port-${node.id}-${inPortName}-input`}
+                      className={`port-handle ${isEligibleTarget ? "pulse-target" : ""}`}
+                      style={{
+                        position: "absolute",
+                        left: "-18px", // centered on card left border with -6px relative to card
+                        top: "7px",
+                        backgroundColor: inTypeColor,
+                        color: inTypeColor,
+                        boxShadow: isEligibleTarget ? `0 0 10px ${inTypeColor}` : "none",
+                      }}
+                      title={`Input: ${inPortName} (${inPortDef.type})`}
+                      onMouseUp={(e) => {
+                        e.stopPropagation();
+                        onCompleteConnection(node.id, inPortName);
+                      }}
+                    />
+                    <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
+                      {inPortName}
+                    </span>
+                    <span 
+                      style={{ 
+                        fontSize: "0.62rem", 
+                        color: inTypeColor, 
+                        background: "var(--bg-chip)", 
+                        padding: "1px 5px", 
+                        borderRadius: "4px",
+                        border: "1px solid var(--border-subtle)",
+                      }}
+                    >
+                      {inPortDef.type}
+                    </span>
+                  </div>
+                ) : (
+                  <div />
+                )}
+
+                {/* Right: Output Port */}
+                {outPortName ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      position: "relative",
+                      cursor: "crosshair",
+                      padding: "2px 4px",
+                      borderRadius: "4px",
+                    }}
+                    title={`Output Port: ${outPortName} (${outPortDef.type}) - Drag to connect`}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      onStartConnection(node.id, outPortName, e);
+                    }}
+                  >
+                    <span 
+                      style={{ 
+                        fontSize: "0.62rem", 
+                        color: outTypeColor, 
+                        background: "var(--bg-chip)", 
+                        padding: "1px 5px", 
+                        borderRadius: "4px",
+                        border: "1px solid var(--border-subtle)",
+                      }}
+                    >
+                      {outPortDef.type}
+                    </span>
+                    <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: "500" }}>
+                      {outPortName}
+                    </span>
+
+                    {/* Output Port Handle (centered in 26px height: top 7px) */}
+                    <div
+                      id={`port-${node.id}-${outPortName}-output`}
+                      className="port-handle"
+                      style={{
+                        position: "absolute",
+                        right: "-18px", // centered on card right border with -6px relative to card
+                        top: "7px",
+                        backgroundColor: outTypeColor,
+                        color: outTypeColor,
+                      }}
+                      title={`Output: ${outPortName} (${outPortDef.type}) - Drag to connect`}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        onStartConnection(node.id, outPortName, e);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div />
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Config preview bar if configured */}
@@ -292,6 +382,8 @@ export default function NodeCard({
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          borderBottomLeftRadius: "11px",
+          borderBottomRightRadius: "11px",
         }}>
           {Object.entries(node.config).map(([k, v]) => (
             <span key={k}>
@@ -303,3 +395,4 @@ export default function NodeCard({
     </div>
   );
 }
+

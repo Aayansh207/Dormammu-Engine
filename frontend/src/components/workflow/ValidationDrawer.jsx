@@ -91,13 +91,14 @@ export default function ValidationDrawer({
             onClick={() => {
               if (err.nodeId) onSelectElement(err.nodeId, "node");
               else if (err.edgeId) onSelectElement(err.edgeId, "edge");
+              else if (err.cycle && err.cycle.length > 0) onSelectElement(err.cycle[0], "node");
             }}
             style={{
               padding: "10px 12px",
               background: "rgba(244, 63, 94, 0.08)",
               border: "1px solid rgba(244, 63, 94, 0.2)",
               borderRadius: "8px",
-              cursor: (err.nodeId || err.edgeId) ? "pointer" : "default",
+              cursor: (err.nodeId || err.edgeId || (err.cycle && err.cycle.length > 0)) ? "pointer" : "default",
               display: "flex",
               alignItems: "flex-start",
               justifyContent: "space-between",
@@ -105,7 +106,7 @@ export default function ValidationDrawer({
               transition: "transform 0.15s ease",
             }}
             onMouseEnter={(e) => {
-              if (err.nodeId || err.edgeId) e.currentTarget.style.transform = "translateX(4px)";
+              if (err.nodeId || err.edgeId || err.cycle) e.currentTarget.style.transform = "translateX(4px)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = "translateX(0px)";
@@ -117,16 +118,21 @@ export default function ValidationDrawer({
                 <div style={{ fontSize: "0.84rem", color: "#fecdd3", fontWeight: "600" }}>
                   {err.message}
                 </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px", display: "flex", gap: "8px" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                   <code>{err.code}</code>
                   {err.field && <span>Field: {err.field}</span>}
+                  {err.cycle && Array.isArray(err.cycle) && (
+                    <span style={{ color: "#fca5a5" }}>
+                      Cycle: {err.cycle.join(" → ")}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {(err.nodeId || err.edgeId) && (
+            {(err.nodeId || err.edgeId || (err.cycle && err.cycle.length > 0)) && (
               <span style={{ fontSize: "0.7rem", color: "#f43f5e", background: "rgba(244,63,94,0.15)", padding: "2px 8px", borderRadius: "4px", whiteSpace: "nowrap" }}>
-                Target: {err.nodeId || err.edgeId}
+                Target: {err.nodeId || err.edgeId || err.cycle[0]}
               </span>
             )}
           </div>

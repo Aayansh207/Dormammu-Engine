@@ -139,6 +139,172 @@ const STARTER_TEMPLATES = [
     },
   },
   {
+    id: "branching_math",
+    name: "Branching Math Pipeline",
+    description: "Multi-branch DAG: Manual Trigger branches into Add and Multiply, converging in Subtract",
+    icon: GitBranch,
+    color: "#557B83",
+    definition: {
+      schemaVersion: 1,
+      name: "Branching Math Pipeline",
+      nodes: [
+        {
+          id: "trigger_01",
+          type: "trigger.manual",
+          version: 1,
+          name: "Manual Trigger (Start: 20)",
+          position: { x: 100, y: 180 },
+          config: { defaultPayload: 20 },
+        },
+        {
+          id: "add_01",
+          type: "math.add",
+          version: 1,
+          name: "Add 10",
+          position: { x: 380, y: 100 },
+          config: { addend: 10 },
+        },
+        {
+          id: "multiply_01",
+          type: "math.multiply",
+          version: 1,
+          name: "Multiply by 2",
+          position: { x: 380, y: 260 },
+          config: { factor: 2 },
+        },
+        {
+          id: "sub_01",
+          type: "math.subtract",
+          version: 1,
+          name: "Subtract (Mult - Add)",
+          position: { x: 680, y: 180 },
+          config: {},
+        },
+        {
+          id: "output_01",
+          type: "output.return",
+          version: 1,
+          name: "Final Result",
+          position: { x: 960, y: 180 },
+          config: {},
+        },
+      ],
+      edges: [
+        {
+          id: "edge_01",
+          source: "trigger_01",
+          sourcePort: "output",
+          target: "add_01",
+          targetPort: "input",
+        },
+        {
+          id: "edge_02",
+          source: "trigger_01",
+          sourcePort: "output",
+          target: "multiply_01",
+          targetPort: "input",
+        },
+        {
+          id: "edge_03",
+          source: "multiply_01",
+          sourcePort: "output",
+          target: "sub_01",
+          targetPort: "a",
+        },
+        {
+          id: "edge_04",
+          source: "add_01",
+          sourcePort: "output",
+          target: "sub_01",
+          targetPort: "b",
+        },
+        {
+          id: "edge_05",
+          source: "sub_01",
+          sourcePort: "output",
+          target: "output_01",
+          targetPort: "input",
+        },
+      ],
+    },
+  },
+  {
+    id: "uuid_generator",
+    name: "UUID & Timestamp Generator",
+    description: "Generate unique identifiers and format timestamps via utility nodes",
+    icon: Sparkles,
+    color: "#39AEA9",
+    definition: {
+      schemaVersion: 1,
+      name: "UUID & Timestamp Generator",
+      nodes: [
+        {
+          id: "trigger_01",
+          type: "trigger.manual",
+          version: 1,
+          name: "Trigger Event",
+          position: { x: 100, y: 180 },
+          config: {},
+        },
+        {
+          id: "uuid_01",
+          type: "utility.uuid",
+          version: 1,
+          name: "Generate UUID",
+          position: { x: 380, y: 100 },
+          config: {},
+        },
+        {
+          id: "dt_01",
+          type: "utility.datetime",
+          version: 1,
+          name: "Current Datetime",
+          position: { x: 380, y: 260 },
+          config: { format: "iso" },
+        },
+        {
+          id: "concat_01",
+          type: "text.concat",
+          version: 1,
+          name: "Combine Tokens",
+          position: { x: 680, y: 180 },
+          config: { separator: " @ " },
+        },
+        {
+          id: "output_01",
+          type: "output.return",
+          version: 1,
+          name: "Return Token",
+          position: { x: 960, y: 180 },
+          config: {},
+        },
+      ],
+      edges: [
+        {
+          id: "edge_01",
+          source: "uuid_01",
+          sourcePort: "output",
+          target: "concat_01",
+          targetPort: "a",
+        },
+        {
+          id: "edge_02",
+          source: "dt_01",
+          sourcePort: "output",
+          target: "concat_01",
+          targetPort: "b",
+        },
+        {
+          id: "edge_03",
+          source: "concat_01",
+          sourcePort: "output",
+          target: "output_01",
+          targetPort: "input",
+        },
+      ],
+    },
+  },
+  {
     id: "blank",
     name: "Blank Canvas",
     description: "Start from a clean canvas with an initial Manual Trigger node ready to wire",
@@ -171,7 +337,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   useEffect(() => {
     loadWorkflows();
-  }, [user]);
+  }, [user?.id]);
 
   const loadWorkflows = async () => {
     if (!user) {
