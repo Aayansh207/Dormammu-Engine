@@ -130,6 +130,13 @@ async function callOpenAI(apiKey, prompt, systemInstruction = "", abortSignal = 
  * Deterministic, visibly labelled mock execution when no external AI keys are configured.
  */
 function callMockAi(taskType, payload) {
+  const commonMeta = {
+    provider: "mock",
+    mode: "demo",
+    isDemo: true,
+    badge: "🎭 DEMO MODE (Deterministic Simulation)",
+  };
+
   switch (taskType) {
     case "classify": {
       const { text = "", categories = [] } = payload;
@@ -152,8 +159,7 @@ function callMockAi(taskType, payload) {
       }
 
       return {
-        provider: "[DEMO MOCK]",
-        mode: "[DEMO MOCK]",
+        ...commonMeta,
         category: matched,
         confidence: 0.94,
         reasoning: `[DEMO MOCK - Offline Deterministic Fallback] Matched based on semantic keyword presence in text '${text.slice(0, 50)}...'`,
@@ -185,8 +191,7 @@ function callMockAi(taskType, payload) {
       }
 
       return {
-        provider: "[DEMO MOCK]",
-        mode: "[DEMO MOCK]",
+        ...commonMeta,
         extracted,
       };
     }
@@ -205,8 +210,7 @@ function callMockAi(taskType, payload) {
       if (!summaryText.endsWith(".")) summaryText += ".";
 
       return {
-        provider: "[DEMO MOCK]",
-        mode: "[DEMO MOCK]",
+        ...commonMeta,
         summary: `[DEMO MOCK] ${summaryText}`,
         keyPoints: sentences.slice(0, 3).map((s) => `• ${s}`),
       };
@@ -214,8 +218,7 @@ function callMockAi(taskType, payload) {
 
     default:
       return {
-        provider: "[DEMO MOCK]",
-        mode: "[DEMO MOCK]",
+        ...commonMeta,
         result: `[DEMO MOCK] Response for ${taskType}`,
       };
   }
@@ -229,34 +232,45 @@ async function executeAiTask(taskType, payload, options = {}) {
   const openaiKey = process.env.OPENAI_API_KEY;
   const abortSignal = options.abortSignal || null;
 
+  // Strict live execution when Gemini credentials are configured
   if (geminiKey) {
     try {
       const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
       const res = await callGemini(geminiKey, prompt, "", abortSignal);
       const parsed = JSON.parse(res.text);
-      return { ...parsed, provider: "gemini", mode: "live" };
+      return {
+        ...parsed,
+        provider: "gemini",
+        mode: "live",
+        isDemo: false,
+        badge: "⚡ LIVE AI (Gemini)",
+      };
     } catch (err) {
-      if (err.code === ErrorCodes.AI_TIMEOUT || err.code === ErrorCodes.EXECUTION_CANCELLED) {
-        throw err;
-      }
-      // If live provider fails and demo mock allowed, log warning
+      // Re-throw: never disguise a provider failure as a fake mock response
+      throw err;
     }
   }
 
+  // Strict live execution when OpenAI credentials are configured
   if (openaiKey) {
     try {
       const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
       const res = await callOpenAI(openaiKey, prompt, "", abortSignal);
       const parsed = JSON.parse(res.text);
-      return { ...parsed, provider: "openai", mode: "live" };
+      return {
+        ...parsed,
+        provider: "openai",
+        mode: "live",
+        isDemo: false,
+        badge: "⚡ LIVE AI (OpenAI)",
+      };
     } catch (err) {
-      if (err.code === ErrorCodes.AI_TIMEOUT || err.code === ErrorCodes.EXECUTION_CANCELLED) {
-        throw err;
-      }
+      // Re-throw: never disguise a provider failure as a fake mock response
+      throw err;
     }
   }
 
-  // Fallback to explicit, labelled mock
+  // Explicit, transparent fallback to deterministic offline mock only when no credentials exist
   return callMockAi(taskType, payload);
 }
 

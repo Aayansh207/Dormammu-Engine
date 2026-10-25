@@ -34,8 +34,13 @@ Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary 
 3. **Cascading Skip**: Downstream nodes that depend on a `SKIPPED` incoming wire are marked `SKIPPED` without invoking their execution handlers. All outgoing edges from a skipped node automatically transition to `SKIPPED`, propagating down the inactive branch.
 4. **Clean Workflow Completion**: When all unfinished nodes on an inactive branch have transitioned to `SKIPPED`, the workflow status reconciles cleanly to `SUCCEEDED` (not `DEADLOCK_DETECTED`).
 5. **Flow Merge Resolution**: A `flow.merge` node connects converging branches:
-   - `first_available` mode: Evaluates when all incoming edges are resolved (`ACTIVE` or `SKIPPED`). If at least one active branch delivers data, it executes immediately using the active input.
-   - `all` mode: Requires all incoming branches to be `ACTIVE`; if any branch was skipped, the merge node is skipped.
+   - In all modes, `flow.merge` waits until every incoming branch is resolved (`ACTIVE` or `SKIPPED`).
+   - If at least one incoming branch is active, the node executes according to its configured mode:
+     - `first_available`: Wait until incoming branches are resolved; forward the first available active value.
+     - `coalesce`: Forward the first non-null, non-undefined active value.
+     - `all`: Collect values from all active branches into an array `[val1, val2, ...]` after every incoming edge is resolved.
+     - `object`: Merge objects from active branches after every incoming edge is resolved into `{ ...obj1, ...obj2 }`.
+   - If and only if ALL incoming branches were skipped, the merge node transitions to `SKIPPED`. Inactive branches never cause a valid merge to deadlock or prematurely skip.
 6. **Failure & Cancellation Propagation**: If any node fails, fail-fast propagation marks all reachable downstream descendant nodes as `BLOCKED`. If cancelled via `AbortSignal`, all unstarted tasks transition to `CANCELLED`.
 
 ---
@@ -89,10 +94,10 @@ Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary 
   - `output` (`any`): The merged output value.
 - **Configuration**:
   - `mode` (`string`, default: `"first_available"`):
-    - `"first_available"`: Forwards the first non-undefined value from active branches.
-    - `"coalesce"`: Forwards the first non-null, non-undefined value.
-    - `"all"`: Collects all incoming branch values into an array `[val1, val2, ...]`.
-    - `"object"`: Merges active branch objects into a single object `{ ...obj1, ...obj2 }`.
+    - `"first_available"`: Wait until incoming branches are resolved; forward the first available active value.
+    - `"coalesce"`: Forward the first non-null, non-undefined active value.
+    - `"all"`: Collect values from all active branches into an array `[val1, val2, ...]` after every incoming edge is resolved.
+    - `"object"`: Merge objects from active branches after every incoming edge is resolved into `{ ...obj1, ...obj2 }`.
 
 #### `flow.delay`
 - **Category**: `flow`
@@ -180,8 +185,12 @@ Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary 
   - `method` (`string`, default: `"GET"`): `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`.
   - `headers` (`object`): Custom headers (supports secret tokens `{{secrets.API_KEY}}`).
   - `timeoutMs` (`number`, default: `10000`): Request timeout (max 30,000ms).
-  - `allowPrivateNetwork` (`boolean`, default: `false`): Explicitly permit private CIDRs.
-- **Security**: SSRF protection blocks private subnets (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `::1`) and performs DNS resolution checks to prevent DNS rebinding attacks. Response payload size capped at 2MB.
+  - `allowPrivateNetwork` (`boolean`, default: `false`): Requires `ALLOW_PRIVATE_NETWORK_REQUESTS=true` in server environment; unauthorized attempts are rejected with 401.
+- **Security & SSRF Safeguards**:
+  - Protocol whitelist: Only `http:` and `https:` are permitted (`file:`, `ftp:`, `gopher:` rejected).
+  - Private CIDR enforcement: Checks all resolved IPs against loopback (`127.0.0.0/8`), private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata (`169.254.0.0/16`), CGNAT, and IPv6 subnets (`fc00::/7`, `fe80::/10`, `::1`).
+  - Redirect protection: Uses manual redirect validation, re-verifying SSRF on every hop (max 5 redirects).
+  - Streaming size enforcement: 2MB cap enforced incrementally during download via `ReadableStream`, terminating streams before buffering into memory.
 
 #### `http.respond`
 - **Category**: `http`
@@ -213,6 +222,12 @@ Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary 
   - `category` (`string`): Assigned category alias.
   - `confidence` (`number`): Confidence score between 0.0 and 1.0.
   - `reasoning` (`string`): Rationale for the classification.
+  - `provider` (`string`): Provider identifier (`"gemini"`, `"openai"`, or `"mock"`).
+  - `mode` (`string`): Execution mode (`"live"` or `"demo"`).
+- **Transparency**:
+  - Displays `⚡ Live AI (Gemini/OpenAI)` badge in UI for genuine model execution.
+  - Displays `🎭 Demo Simulation` badge in UI for deterministic offline fallback.
+  - Strictly raises provider errors when API keys are configured, never disguising failures as simulated successes.
 - **Configuration**:
   - `categories` (`array`): List of target categories (e.g. `["urgent", "bug", "billing", "general"]`).
   - `instructions` (`string`): System prompt guidance.

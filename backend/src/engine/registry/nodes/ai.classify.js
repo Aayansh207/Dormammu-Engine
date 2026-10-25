@@ -24,6 +24,8 @@ module.exports = {
     category: defineOutputPort({ name: "category", type: PortTypes.STRING, description: "Assigned category alias" }),
     confidence: defineOutputPort({ name: "confidence", type: PortTypes.NUMBER, description: "Confidence score between 0 and 1" }),
     reasoning: defineOutputPort({ name: "reasoning", type: PortTypes.STRING, description: "Explanation for the classification" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('gemini', 'openai', or 'mock')" }),
+    mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
     categories: {
@@ -89,6 +91,14 @@ module.exports = {
       category: assignedCategory,
       confidence,
       reasoning,
+      provider: result.provider,
+      mode: result.mode,
+      _aiExecution: {
+        provider: result.provider,
+        mode: result.mode,
+        isDemo: Boolean(result.isDemo),
+        badge: result.badge,
+      },
     };
   },
 };

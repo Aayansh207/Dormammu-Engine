@@ -162,27 +162,17 @@ async function executeWorkflow(workflow, options = {}) {
     const skippedInEdges = inEdges.filter((e) => edgeStates.get(e.id) === "SKIPPED");
 
     if (targetNode.type === "flow.merge") {
-      const mergeMode = (targetNode.config && targetNode.config.mode) || "first_available";
-      if (mergeMode === "all") {
-        if (skippedInEdges.length > 0) {
-          await skipNode(targetId, "missing_required_branch");
-        } else {
-          tasks[targetId].status = TaskRunStatus.READY;
-          readyQueue.push(targetId);
-          recordTrace(targetId, TaskRunStatus.READY);
-          await onTaskStateChange(runId, tasks[targetId]);
-        }
+      // In all modes ('first_available', 'coalesce', 'all', 'object'),
+      // flow.merge waits until all incoming branches are resolved (remainingDependencies === 0).
+      // It executes if at least one incoming branch is active; it skips only if ALL incoming branches were skipped.
+      if (activeInEdges.length > 0) {
+        tasks[targetId].status = TaskRunStatus.READY;
+        readyQueue.push(targetId);
+        recordTrace(targetId, TaskRunStatus.READY);
+        await onTaskStateChange(runId, tasks[targetId]);
       } else {
-        // "first_available" or "coalesce"
-        if (activeInEdges.length > 0) {
-          tasks[targetId].status = TaskRunStatus.READY;
-          readyQueue.push(targetId);
-          recordTrace(targetId, TaskRunStatus.READY);
-          await onTaskStateChange(runId, tasks[targetId]);
-        } else {
-          // All incoming branches were skipped
-          await skipNode(targetId, "all_branches_skipped");
-        }
+        // All incoming branches were skipped
+        await skipNode(targetId, "all_branches_skipped");
       }
     } else {
       // Ordinary node: if any incoming edge is skipped, skip this node

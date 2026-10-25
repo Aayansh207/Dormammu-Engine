@@ -20,6 +20,8 @@ module.exports = {
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "Generated summary text" }),
     keyPoints: defineOutputPort({ name: "keyPoints", type: PortTypes.ARRAY, description: "Extracted bullet points and takeaways" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('gemini', 'openai', or 'mock')" }),
+    mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
     format: {
@@ -87,6 +89,14 @@ module.exports = {
     return {
       output: summaryText,
       keyPoints,
+      provider: result.provider,
+      mode: result.mode,
+      _aiExecution: {
+        provider: result.provider,
+        mode: result.mode,
+        isDemo: Boolean(result.isDemo),
+        badge: result.badge,
+      },
     };
   },
 };

@@ -23,8 +23,10 @@ export default function RunExecutionModal({
   isRunning,
   runResult,
 }) {
-  const manualTriggers = (workflow?.nodes || []).filter((n) => n.type === "trigger.manual");
+  const allNodes = workflow?.definition?.nodes || workflow?.nodes || [];
+  const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual");
   const isMultiTrigger = manualTriggers.length >= 2;
+  const hasAiNode = allNodes.some((n) => n.type?.startsWith("ai."));
 
   const [triggerInput, setTriggerInput] = useState("10");
   const [multiTriggerMode, setMultiTriggerMode] = useState("per_trigger"); // "per_trigger" | "broadcast"
@@ -33,6 +35,22 @@ export default function RunExecutionModal({
   const [activeTab, setActiveTab] = useState("trigger"); // "trigger" | "results"
   const [copied, setCopied] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState({});
+
+  // Auto-load sample payload or AI scenario when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    if (workflow?.definition?.samplePayload) {
+      setTriggerInput(JSON.stringify(workflow.definition.samplePayload, null, 2));
+    } else if (hasAiNode && triggerInput === "10") {
+      setTriggerInput(JSON.stringify({
+        ticketId: "TCK-4102",
+        customerName: "Marcus Vance",
+        email: "m.vance@retailhub.com",
+        issue: "Billing question regarding our monthly subscription invoice",
+        tier: "standard"
+      }, null, 2));
+    }
+  }, [isOpen, hasAiNode]);
 
   // Synchronize multi-trigger default values whenever modal opens or workflow changes
   useEffect(() => {
@@ -456,11 +474,75 @@ export default function RunExecutionModal({
               {/* Broadcast or Single-Trigger Input View */}
               {(!isMultiTrigger || multiTriggerMode === "broadcast") && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                     <label style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--text-secondary)" }}>
                       {isMultiTrigger ? "Broadcast Payload (Passed to all triggers)" : "Trigger Input Data (JSON or number)"}
                     </label>
-                    <div style={{ display: "flex", gap: "6px" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {hasAiNode && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTriggerInput(
+                                JSON.stringify(
+                                  {
+                                    ticketId: "TCK-4102",
+                                    customerName: "Marcus Vance",
+                                    email: "m.vance@retailhub.com",
+                                    issue: "Billing question regarding our monthly subscription invoice",
+                                    tier: "standard",
+                                  },
+                                  null,
+                                  2
+                                )
+                              )
+                            }
+                            style={{
+                              fontSize: "0.7rem",
+                              padding: "2px 8px",
+                              background: "rgba(56, 189, 248, 0.12)",
+                              border: "1px solid rgba(56, 189, 248, 0.3)",
+                              borderRadius: "4px",
+                              color: "#38bdf8",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            📋 Scenario 1: Normal Billing
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTriggerInput(
+                                JSON.stringify(
+                                  {
+                                    ticketId: "TCK-8092",
+                                    customerName: "Sarah Chen",
+                                    email: "sarah.chen@enterprise.io",
+                                    issue: "Database connection pools exhausting rapidly on US-East prod cluster causing 504 timeouts",
+                                    tier: "enterprise",
+                                  },
+                                  null,
+                                  2
+                                )
+                              )
+                            }
+                            style={{
+                              fontSize: "0.7rem",
+                              padding: "2px 8px",
+                              background: "rgba(244, 63, 94, 0.12)",
+                              border: "1px solid rgba(244, 63, 94, 0.3)",
+                              borderRadius: "4px",
+                              color: "#fb7185",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            🚨 Scenario 2: Critical Outage
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={() => setTriggerInput("10")}
@@ -679,6 +761,52 @@ export default function RunExecutionModal({
 
                                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                   <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{task.durationMs || 0}ms</span>
+                                  {/* AI Execution Transparency Badge */}
+                                  {task.nodeType?.startsWith("ai.") && (
+                                    task.status === "FAILED" ? (
+                                      <span
+                                        style={{
+                                          fontSize: "0.68rem",
+                                          fontWeight: "700",
+                                          color: "#f43f5e",
+                                          background: "rgba(244, 63, 94, 0.15)",
+                                          border: "1px solid rgba(244, 63, 94, 0.3)",
+                                          padding: "1px 6px",
+                                          borderRadius: "4px",
+                                        }}
+                                      >
+                                        ⚠️ AI Failed
+                                      </span>
+                                    ) : (task.outputs?.mode === "live" || task.outputs?.provider === "gemini" || task.outputs?.provider === "openai") ? (
+                                      <span
+                                        style={{
+                                          fontSize: "0.68rem",
+                                          fontWeight: "700",
+                                          color: "#10b981",
+                                          background: "rgba(16, 185, 129, 0.15)",
+                                          border: "1px solid rgba(16, 185, 129, 0.3)",
+                                          padding: "1px 6px",
+                                          borderRadius: "4px",
+                                        }}
+                                      >
+                                        ⚡ Live AI ({task.outputs?.provider})
+                                      </span>
+                                    ) : (
+                                      <span
+                                        style={{
+                                          fontSize: "0.68rem",
+                                          fontWeight: "700",
+                                          color: "#f59e0b",
+                                          background: "rgba(245, 158, 11, 0.15)",
+                                          border: "1px solid rgba(245, 158, 11, 0.3)",
+                                          padding: "1px 6px",
+                                          borderRadius: "4px",
+                                        }}
+                                      >
+                                        🎭 Demo Simulation
+                                      </span>
+                                    )
+                                  )}
                                   {(() => {
                                     const badgeStyles = {
                                       SUCCEEDED: { color: "#10b981", bg: "rgba(16, 185, 129, 0.15)" },
@@ -709,6 +837,27 @@ export default function RunExecutionModal({
 
                               {isExpanded && (
                                 <div style={{ padding: "8px 12px 12px 12px", borderTop: "1px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.2)", fontSize: "0.72rem", fontFamily: "var(--font-mono)" }}>
+                                  {task.nodeType?.startsWith("ai.") && (
+                                    <div
+                                      style={{
+                                        marginBottom: "8px",
+                                        padding: "8px 10px",
+                                        borderRadius: "6px",
+                                        background: task.outputs?.mode === "live" ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)",
+                                        border: `1px solid ${task.outputs?.mode === "live" ? "rgba(16, 185, 129, 0.3)" : "rgba(245, 158, 11, 0.3)"}`,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "600", color: task.outputs?.mode === "live" ? "#34d399" : "#fbbf24" }}>
+                                        <span>{task.outputs?.mode === "live" ? "⚡ Live AI Execution" : "🎭 Offline Demo Simulation (Deterministic)"}</span>
+                                      </div>
+                                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                        Provider: {task.outputs?.provider || "mock"}
+                                      </span>
+                                    </div>
+                                  )}
                                   <div style={{ color: "var(--text-muted)" }}>Outputs:</div>
                                   <pre style={{ color: "#38bdf8", marginTop: "2px" }}>
                                     {JSON.stringify(task.outputs, null, 2)}

@@ -457,6 +457,24 @@ async function runWorkflowEngineTests() {
       async () => nodeDef.handler({ url: "http://169.254.169.254/latest/meta-data/" }, { config: {} }),
       (err) => err.code === ErrorCodes.SSRF_BLOCKED
     );
+
+    // SSRF: Unsupported protocol (e.g. ftp, file, gopher)
+    await assert.rejects(
+      async () => nodeDef.handler({ url: "ftp://files.example.com/dump.sql" }, { config: {} }),
+      (err) => err.code === ErrorCodes.SSRF_BLOCKED
+    );
+
+    // Private network access requires server policy authorization
+    const prevEnv = process.env.ALLOW_PRIVATE_NETWORK_REQUESTS;
+    delete process.env.ALLOW_PRIVATE_NETWORK_REQUESTS;
+    try {
+      await assert.rejects(
+        async () => nodeDef.handler({ url: "http://127.0.0.1:3000/api" }, { config: { allowPrivateNetwork: true } }),
+        (err) => err.code === ErrorCodes.UNAUTHORIZED
+      );
+    } finally {
+      if (prevEnv) process.env.ALLOW_PRIVATE_NETWORK_REQUESTS = prevEnv;
+    }
   });
 
   await test("http.respond: produces simulated response in manual execution context", async () => {
@@ -469,7 +487,7 @@ async function runWorkflowEngineTests() {
     assert.deepStrictEqual(res.output.body, { success: true });
   });
 
-  await test("ai.classify: classifies text with categories, confidence, and reasoning", async () => {
+  await test("ai.classify: classifies text with categories, confidence, reasoning, and transparent mode", async () => {
     const nodeDef = defaultRegistry.get("ai.classify");
 
     const res = await nodeDef.handler(
@@ -480,6 +498,9 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(res.category, "urgent");
     assert.ok(typeof res.confidence === "number");
     assert.ok(typeof res.reasoning === "string");
+    assert.ok(["live", "demo"].includes(res.mode));
+    assert.ok(res.provider);
+    assert.ok(res._aiExecution && typeof res._aiExecution === "object");
   });
 
   await test("ai.extract & ai.summarize: extracts structured entities and produces summaries", async () => {
@@ -915,6 +936,66 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.tasks.merge.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.ret.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.finalOutput, 110);
+  });
+
+  await test("Scheduler: flow.merge in 'all' and 'object' modes cleanly joins active branch when alternative is skipped", async () => {
+    // 1. 'all' mode: collects values from all active branches after resolution
+    const workflowAll = {
+      schemaVersion: 1,
+      name: "Merge All Mode Branch Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "cond", type: "logic.condition", version: 1, config: { operator: ">", value: 50 } },
+        { id: "task_true", type: "math.add", version: 1, config: { addend: 10 } },
+        { id: "task_false", type: "math.add", version: 1, config: { addend: 20 } },
+        { id: "merge", type: "flow.merge", version: 1, config: { mode: "all" } },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "cond", targetPort: "a" },
+        { id: "e2", source: "cond", sourcePort: "true", target: "task_true", targetPort: "a" },
+        { id: "e3", source: "cond", sourcePort: "false", target: "task_false", targetPort: "a" },
+        { id: "e4", source: "task_true", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e5", source: "task_false", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e6", source: "merge", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const summaryAll = await executeWorkflow(workflowAll, { triggerData: 100 });
+    assert.strictEqual(summaryAll.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summaryAll.tasks.task_true.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summaryAll.tasks.task_false.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summaryAll.tasks.merge.status, TaskRunStatus.SUCCEEDED);
+    assert.deepStrictEqual(summaryAll.finalOutput, [110]);
+
+    // 2. 'object' mode: merges active branch objects after resolution
+    const workflowObj = {
+      schemaVersion: 1,
+      name: "Merge Object Mode Branch Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "cond", type: "logic.condition", version: 1, config: { operator: ">", value: 50 } },
+        { id: "task_true", type: "data.object", version: 1, config: { fields: [{ key: "status", value: "active" }, { key: "score", value: 100 }] } },
+        { id: "task_false", type: "data.object", version: 1, config: { fields: [{ key: "status", value: "inactive" }] } },
+        { id: "merge", type: "flow.merge", version: 1, config: { mode: "object" } },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "cond", targetPort: "a" },
+        { id: "e2", source: "cond", sourcePort: "true", target: "task_true", targetPort: "input" },
+        { id: "e3", source: "cond", sourcePort: "false", target: "task_false", targetPort: "input" },
+        { id: "e4", source: "task_true", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e5", source: "task_false", sourcePort: "output", target: "merge", targetPort: "input" },
+        { id: "e6", source: "merge", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const summaryObj = await executeWorkflow(workflowObj, { triggerData: 100 });
+    assert.strictEqual(summaryObj.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summaryObj.tasks.task_true.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summaryObj.tasks.task_false.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summaryObj.tasks.merge.status, TaskRunStatus.SUCCEEDED);
+    assert.deepStrictEqual(summaryObj.finalOutput, { status: "active", score: 100 });
   });
 
   await test("Scheduler: non-blocking delay pauses workflow and resumes downstream execution", async () => {

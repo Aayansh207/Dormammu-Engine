@@ -34,7 +34,7 @@ module.exports = {
       required: false,
       default: "first_available",
       enum: SUPPORTED_MODES,
-      description: "Merge strategy: 'first_available', 'all', 'coalesce', or 'object'",
+      description: "Merge strategy: 'first_available' (forward first active branch value), 'coalesce' (forward first non-null active value), 'all' (collect all active branch values into array), or 'object' (merge active branch objects)",
     },
   },
   validateConfig: (config = {}) => {

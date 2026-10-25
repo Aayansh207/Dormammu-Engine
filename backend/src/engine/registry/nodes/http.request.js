@@ -117,10 +117,16 @@ module.exports = {
       );
     }
 
-    const allowPrivate = Boolean(config.allowPrivateNetwork);
-
-    // 1. SSRF Validation
-    await validateOutboundUrl(targetUrl, { allowPrivateNetwork: allowPrivate });
+    // Enforce private network authorization policy
+    const isServerAuthorized = process.env.ALLOW_PRIVATE_NETWORK_REQUESTS === "true";
+    if (config.allowPrivateNetwork && !isServerAuthorized) {
+      throw new EngineError(
+        ErrorCodes.UNAUTHORIZED,
+        "Private network access is not permitted by server security policy. Contact system administrator.",
+        { field: "allowPrivateNetwork" }
+      );
+    }
+    const canAllowPrivate = Boolean(config.allowPrivateNetwork && isServerAuthorized);
 
     const method = (config.method || "GET").toUpperCase();
     const timeoutMs = Math.min(
@@ -159,35 +165,86 @@ module.exports = {
     }
 
     let response;
+    let currentUrl = targetUrl;
+    let redirectCount = 0;
+    const MAX_REDIRECTS = 5;
+
     try {
-      response = await fetch(targetUrl, {
-        method,
-        headers: resolvedReqHeaders,
-        body: requestBody,
-        signal: controller.signal,
-        redirect: "follow",
-      });
-    } catch (err) {
-      if (controller.signal.aborted) {
-        if (context.abortSignal && context.abortSignal.aborted) {
-          throw new EngineError(ErrorCodes.EXECUTION_CANCELLED, "HTTP request was cancelled");
+      // Redirect loop with SSRF validation on every redirect destination
+      while (true) {
+        // Validate URL and resolve DNS before every network hop
+        await validateOutboundUrl(currentUrl, { allowPrivateNetwork: canAllowPrivate });
+
+        const isRedirectHop = redirectCount > 0;
+        const hopMethod = isRedirectHop ? "GET" : method;
+        const hopBody = isRedirectHop ? undefined : requestBody;
+
+        try {
+          response = await fetch(currentUrl, {
+            method: hopMethod,
+            headers: resolvedReqHeaders,
+            body: hopBody,
+            signal: controller.signal,
+            redirect: "manual",
+          });
+        } catch (err) {
+          if (controller.signal.aborted) {
+            if (context.abortSignal && context.abortSignal.aborted) {
+              throw new EngineError(ErrorCodes.EXECUTION_CANCELLED, "HTTP request was cancelled");
+            }
+            throw new EngineError(
+              ErrorCodes.HTTP_TIMEOUT,
+              `HTTP request to '${currentUrl}' timed out after ${timeoutMs}ms`,
+              { url: currentUrl, timeoutMs }
+            );
+          }
+          throw new EngineError(
+            ErrorCodes.HTTP_REQUEST_FAILED,
+            `HTTP network request failed: ${err.message}`,
+            { url: currentUrl, originalMessage: err.message }
+          );
         }
-        throw new EngineError(
-          ErrorCodes.HTTP_TIMEOUT,
-          `HTTP request to '${targetUrl}' timed out after ${timeoutMs}ms`,
-          { url: targetUrl, timeoutMs }
-        );
+
+        // Handle redirect status codes (301, 302, 303, 307, 308)
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          redirectCount++;
+          if (redirectCount > MAX_REDIRECTS) {
+            throw new EngineError(
+              ErrorCodes.HTTP_REQUEST_FAILED,
+              `Too many redirects (exceeded limit of ${MAX_REDIRECTS})`,
+              { url: targetUrl, redirectCount }
+            );
+          }
+
+          const locationHeader = response.headers.get("location");
+          if (!locationHeader) {
+            break; // No location header provided, treat as response
+          }
+
+          // Resolve relative or absolute redirect URL against current URL
+          let nextUrl;
+          try {
+            nextUrl = new URL(locationHeader, currentUrl).toString();
+          } catch {
+            throw new EngineError(
+              ErrorCodes.HTTP_REQUEST_FAILED,
+              `Invalid redirect location header '${locationHeader}'`,
+              { location: locationHeader }
+            );
+          }
+
+          currentUrl = nextUrl;
+          continue;
+        }
+
+        // Non-redirect response received
+        break;
       }
-      throw new EngineError(
-        ErrorCodes.HTTP_REQUEST_FAILED,
-        `HTTP network request failed: ${err.message}`,
-        { url: targetUrl, originalMessage: err.message }
-      );
     } finally {
       clearTimeout(timeoutId);
     }
 
-    // Check response size before loading full body
+    // Check Content-Length header upfront if provided
     const contentLength = response.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE_BYTES) {
       throw new EngineError(
@@ -197,13 +254,45 @@ module.exports = {
       );
     }
 
-    const rawText = await response.text();
-    if (Buffer.byteLength(rawText, "utf8") > MAX_RESPONSE_SIZE_BYTES) {
-      throw new EngineError(
-        ErrorCodes.HTTP_RESPONSE_TOO_LARGE,
-        `Response payload exceeds limit of ${MAX_RESPONSE_SIZE_BYTES} bytes`,
-        { maxAllowed: MAX_RESPONSE_SIZE_BYTES }
-      );
+    // Stream chunks and enforce byte limit incrementally while downloading
+    let rawText = "";
+    if (response.body && typeof response.body.getReader === "function") {
+      const reader = response.body.getReader();
+      const chunks = [];
+      let totalBytes = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.length;
+          if (totalBytes > MAX_RESPONSE_SIZE_BYTES) {
+            await reader.cancel().catch(() => {});
+            throw new EngineError(
+              ErrorCodes.HTTP_RESPONSE_TOO_LARGE,
+              `Response payload exceeded limit of ${MAX_RESPONSE_SIZE_BYTES} bytes while streaming`,
+              { maxAllowed: MAX_RESPONSE_SIZE_BYTES, bytesReceived: totalBytes }
+            );
+          }
+          chunks.push(value);
+        }
+        rawText = Buffer.concat(chunks).toString("utf8");
+      } catch (err) {
+        if (err instanceof EngineError) throw err;
+        throw new EngineError(
+          ErrorCodes.HTTP_REQUEST_FAILED,
+          `Failed reading HTTP response stream: ${err.message}`
+        );
+      }
+    } else {
+      rawText = await response.text();
+      if (Buffer.byteLength(rawText, "utf8") > MAX_RESPONSE_SIZE_BYTES) {
+        throw new EngineError(
+          ErrorCodes.HTTP_RESPONSE_TOO_LARGE,
+          `Response payload exceeds limit of ${MAX_RESPONSE_SIZE_BYTES} bytes`,
+          { maxAllowed: MAX_RESPONSE_SIZE_BYTES }
+        );
+      }
     }
 
     // Parse JSON if applicable

@@ -25,6 +25,8 @@ module.exports = {
   },
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.OBJECT, description: "Extracted structured JSON entity object" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('gemini', 'openai', or 'mock')" }),
+    mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
     schema: {
@@ -80,6 +82,14 @@ module.exports = {
     const extracted = result.extracted || result.data || result;
     return {
       output: typeof extracted === "object" && extracted !== null ? extracted : { result: extracted },
+      provider: result.provider,
+      mode: result.mode,
+      _aiExecution: {
+        provider: result.provider,
+        mode: result.mode,
+        isDemo: Boolean(result.isDemo),
+        badge: result.badge,
+      },
     };
   },
 };

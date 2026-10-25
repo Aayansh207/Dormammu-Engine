@@ -22,14 +22,17 @@ function isInSubnet(ipInt, subnetIp, prefixLength) {
 
 // List of restricted IPv4 CIDR blocks
 const RESTRICTED_IPV4_SUBNETS = [
-  { subnet: "0.0.0.0", prefix: 8, name: "Current Network" },
+  { subnet: "0.0.0.0", prefix: 8, name: "Current Network (0.0.0.0/8)" },
   { subnet: "10.0.0.0", prefix: 8, name: "Private 10.0.0.0/8" },
   { subnet: "127.0.0.0", prefix: 8, name: "Loopback 127.0.0.0/8" },
   { subnet: "169.254.0.0", prefix: 16, name: "Link-Local / Cloud Metadata (169.254.0.0/16)" },
   { subnet: "172.16.0.0", prefix: 12, name: "Private 172.16.0.0/12" },
   { subnet: "192.168.0.0", prefix: 16, name: "Private 192.168.0.0/16" },
-  { subnet: "100.64.0.0", prefix: 10, name: "Carrier-Grade NAT" },
-  { subnet: "198.18.0.0", prefix: 15, name: "Benchmark" },
+  { subnet: "100.64.0.0", prefix: 10, name: "Carrier-Grade NAT (100.64.0.0/10)" },
+  { subnet: "198.18.0.0", prefix: 15, name: "Benchmark (198.18.0.0/15)" },
+  { subnet: "224.0.0.0", prefix: 4, name: "Multicast (224.0.0.0/4)" },
+  { subnet: "240.0.0.0", prefix: 4, name: "Reserved / Future Use (240.0.0.0/4)" },
+  { subnet: "255.255.255.255", prefix: 32, name: "Broadcast (255.255.255.255/32)" },
 ];
 
 function isPrivateIPv4(ip) {
@@ -51,11 +54,28 @@ function isPrivateIPv6(ip) {
   if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") {
     return { blocked: true, reason: "IPv6 Loopback (::1)" };
   }
+  if (normalized === "::" || normalized === "0:0:0:0:0:0:0:0") {
+    return { blocked: true, reason: "IPv6 Unspecified (::)" };
+  }
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
     return { blocked: true, reason: "IPv6 Unique Local (fc00::/7)" };
   }
-  if (normalized.startsWith("fe80")) {
+  if (
+    normalized.startsWith("fe80") ||
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb")
+  ) {
     return { blocked: true, reason: "IPv6 Link-Local (fe80::/10)" };
+  }
+  // Check IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1 or ::ffff:169.254.169.254)
+  const v4MappedMatch = normalized.match(/^(?:::ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4MappedMatch) {
+    return isPrivateIPv4(v4MappedMatch[1]);
+  }
+  if (normalized.includes("::ffff:")) {
+    return { blocked: true, reason: "IPv4-mapped IPv6 address" };
   }
   return { blocked: false };
 }
