@@ -248,6 +248,10 @@ class ApiService {
     return this.request(`/sessions/${id}`, { method: "DELETE" });
   }
 
+  async getLoginHistory(page = 1, limit = 10) {
+    return this.request(`/sessions/history?page=${page}&limit=${limit}`, { method: "GET" });
+  }
+
   // --- Workflows, Nodes & Runs ---
 
   async listWorkflows() {

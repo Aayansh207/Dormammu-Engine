@@ -38,6 +38,11 @@ export default function App() {
     const refreshToken = params.get("refreshToken");
     const errorParam = params.get("error");
     const verifiedParam = params.get("verified");
+    const viewParam = params.get("view");
+
+    if (viewParam) {
+      setActiveView(viewParam);
+    }
 
     if (errorParam) {
       setAuthModalTab("login");
@@ -166,6 +171,7 @@ export default function App() {
             user={user}
             onUserUpdated={(updated) => setUser(updated)}
             onLogout={handleLogout}
+            onNavigateView={setActiveView}
           />
         ) : activeView === "workflows" ? (
           <WorkflowList
