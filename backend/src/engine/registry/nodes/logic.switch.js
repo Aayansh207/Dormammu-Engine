@@ -45,6 +45,7 @@ module.exports = {
   inputs: {
     input: defineInputPort({ name: "input", type: PortTypes.ANY, required: false, description: "Value to match against configured cases" }),
     value: defineInputPort({ name: "value", type: PortTypes.ANY, required: false, description: "Alternative alias for input" }),
+    data: defineInputPort({ name: "data", type: PortTypes.ANY, required: false, description: "Optional data payload to route along active case branch" }),
   },
   outputs: {
     default: defineOutputPort({ name: "default", type: PortTypes.ANY, description: "Emitted when no cases match" }),
@@ -126,16 +127,18 @@ module.exports = {
 
     for (const c of cases) {
       if (matchesCase(inputVal, c.case, matchType)) {
+        const payloadToEmit = inputs.data !== undefined ? inputs.data : (inputVal !== undefined ? inputVal : c.case);
         return {
-          [c.port]: inputVal !== undefined ? inputVal : c.case,
+          [c.port]: payloadToEmit,
           output: c.case,
         };
       }
     }
 
     // Default branch when no cases match
+    const defaultPayload = inputs.data !== undefined ? inputs.data : (inputVal !== undefined ? inputVal : "default");
     return {
-      default: inputVal !== undefined ? inputVal : "default",
+      default: defaultPayload,
       output: "default",
     };
   },

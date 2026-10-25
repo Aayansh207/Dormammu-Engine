@@ -1,0 +1,389 @@
+{
+  "schemaVersion": 1,
+  "name": "Dormammu AI Operations Center",
+  "description": "Autonomous multi-stage incident triage and operations center engine: validates inbound payloads, performs parallel AI classification and business impact scoring, enriches with service health, routes across severity tiers, and produces structured operational reports.",
+  "samplePayload": {
+    "ticketId": "TCK-8092",
+    "title": "Payment gateway returning HTTP 504 errors",
+    "description": "Multiple users cannot complete checkout.",
+    "service": "payment-gateway",
+    "customerTier": "enterprise",
+    "affectedUsers": 1200,
+    "errorRate": 0.42,
+    "region": "ap-south-1",
+    "source": "support-webhook"
+  },
+  "nodes": [
+    {
+      "id": "trig_ops",
+      "type": "trigger.manual",
+      "version": 1,
+      "name": "Inbound Incident Ingestion",
+      "position": { "x": 60, "y": 280 },
+      "config": {
+        "defaultPayload": {
+          "ticketId": "TCK-8092",
+          "title": "Payment gateway returning HTTP 504 errors",
+          "description": "Multiple users cannot complete checkout.",
+          "service": "payment-gateway",
+          "customerTier": "enterprise",
+          "affectedUsers": 1200,
+          "errorRate": 0.42,
+          "region": "ap-south-1",
+          "source": "support-webhook"
+        }
+      }
+    },
+    {
+      "id": "validate_incident",
+      "type": "data.validate",
+      "version": 1,
+      "name": "Validate Incident Schema",
+      "position": { "x": 300, "y": 280 },
+      "config": {
+        "requiredFields": [
+          "ticketId",
+          "title",
+          "service",
+          "customerTier",
+          "affectedUsers",
+          "errorRate"
+        ],
+        "rules": {
+          "errorRate": { "type": "number", "min": 0, "max": 1 },
+          "affectedUsers": { "type": "number", "min": 0 }
+        }
+      }
+    },
+    {
+      "id": "normalize_incident",
+      "type": "data.object",
+      "version": 1,
+      "name": "Normalize Incident",
+      "position": { "x": 540, "y": 280 },
+      "config": {
+        "fields": [
+          { "key": "ticketId", "fromInput": true },
+          { "key": "title", "fromInput": true },
+          { "key": "description", "fromInput": true },
+          { "key": "service", "fromInput": true },
+          { "key": "customerTier", "fromInput": true },
+          { "key": "affectedUsers", "fromInput": true },
+          { "key": "errorRate", "fromInput": true },
+          { "key": "region", "fromInput": true },
+          { "key": "source", "fromInput": true }
+        ]
+      }
+    },
+    {
+      "id": "ai_classifier",
+      "type": "ai.classify",
+      "version": 1,
+      "name": "AI Incident Classifier",
+      "position": { "x": 840, "y": 140 },
+      "config": {
+        "categories": [
+          "service_outage",
+          "performance_degradation",
+          "support_inquiry"
+        ],
+        "instructions": "Classify critical payment timeouts and gateway failures as service_outage, latency as performance_degradation, and invoices as support_inquiry"
+      }
+    },
+    {
+      "id": "get_affected_users",
+      "type": "json.get",
+      "version": 1,
+      "name": "Extract Affected Users",
+      "position": { "x": 840, "y": 360 },
+      "config": {
+        "path": "affectedUsers"
+      }
+    },
+    {
+      "id": "get_error_rate",
+      "type": "json.get",
+      "version": 1,
+      "name": "Extract Error Rate",
+      "position": { "x": 840, "y": 480 },
+      "config": {
+        "path": "errorRate"
+      }
+    },
+    {
+      "id": "calc_raw_impact",
+      "type": "math.multiply",
+      "version": 1,
+      "name": "Users * Error Rate",
+      "position": { "x": 1080, "y": 420 },
+      "config": {}
+    },
+    {
+      "id": "calc_scale_impact",
+      "type": "math.multiply",
+      "version": 1,
+      "name": "Scale Impact Score",
+      "position": { "x": 1300, "y": 420 },
+      "config": {
+        "factor": 0.190476
+      }
+    },
+    {
+      "id": "calc_impact_score",
+      "type": "math.round",
+      "version": 1,
+      "name": "Round Impact Score",
+      "position": { "x": 1520, "y": 420 },
+      "config": {
+        "precision": 0,
+        "mode": "round"
+      }
+    },
+    {
+      "id": "build_impact_summary",
+      "type": "data.object",
+      "version": 1,
+      "name": "Build Impact Summary",
+      "position": { "x": 1740, "y": 420 },
+      "config": {
+        "targetKey": "impactScore",
+        "fields": [
+          { "key": "affectedUsers", "fromInput": true },
+          { "key": "errorRate", "fromInput": true },
+          { "key": "customerTier", "fromInput": true }
+        ]
+      }
+    },
+    {
+      "id": "route_switch",
+      "type": "logic.switch",
+      "version": 1,
+      "name": "Severity Router",
+      "position": { "x": 1100, "y": 140 },
+      "config": {
+        "cases": ["critical", "warning", "normal"]
+      }
+    },
+    {
+      "id": "action_critical",
+      "type": "text.template",
+      "version": 1,
+      "name": "Dispatch Critical Escalation",
+      "position": { "x": 1400, "y": 20 },
+      "config": {
+        "template": "🚨 CRITICAL OUTAGE ESCALATION: Ticket {{ticketId}} on [{{service}}]. Dispatched emergency DevOps on-call pager."
+      }
+    },
+    {
+      "id": "action_warning",
+      "type": "text.template",
+      "version": 1,
+      "name": "Queue Investigation Notice",
+      "position": { "x": 1400, "y": 120 },
+      "config": {
+        "template": "⚠️ WARNING INVESTIGATION: Ticket {{ticketId}} on [{{service}}]. Flagged for prompt engineering investigation."
+      }
+    },
+    {
+      "id": "action_normal",
+      "type": "text.template",
+      "version": 1,
+      "name": "Standard Support Response",
+      "position": { "x": 1400, "y": 220 },
+      "config": {
+        "template": "📋 STANDARD SUPPORT: Ticket {{ticketId}} on [{{service}}]. Created standard business-hours response."
+      }
+    },
+    {
+      "id": "merge_actions",
+      "type": "flow.merge",
+      "version": 1,
+      "name": "Merge Action Output",
+      "position": { "x": 1700, "y": 120 },
+      "config": {
+        "mode": "first_available"
+      }
+    },
+    {
+      "id": "assemble_final_report",
+      "type": "data.object",
+      "version": 1,
+      "name": "Assemble Operations Report",
+      "position": { "x": 1960, "y": 260 },
+      "config": {
+        "targetKey": "actionSummary",
+        "fields": [
+          { "key": "ticketId", "fromInput": true },
+          { "key": "service", "fromInput": true },
+          { "key": "customerTier", "fromInput": true },
+          { "key": "affectedUsers", "fromInput": true },
+          { "key": "errorRate", "fromInput": true }
+        ]
+      }
+    },
+    {
+      "id": "ops_return",
+      "type": "output.return",
+      "version": 1,
+      "name": "Final Operations Report",
+      "position": { "x": 2200, "y": 260 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "source": "trig_ops",
+      "sourcePort": "output",
+      "target": "validate_incident",
+      "targetPort": "input"
+    },
+    {
+      "id": "e02",
+      "source": "validate_incident",
+      "sourcePort": "output",
+      "target": "normalize_incident",
+      "targetPort": "input"
+    },
+    {
+      "id": "e03",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "ai_classifier",
+      "targetPort": "text"
+    },
+    {
+      "id": "e04",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "get_affected_users",
+      "targetPort": "input"
+    },
+    {
+      "id": "e05",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "get_error_rate",
+      "targetPort": "input"
+    },
+    {
+      "id": "e06",
+      "source": "get_affected_users",
+      "sourcePort": "output",
+      "target": "calc_raw_impact",
+      "targetPort": "a"
+    },
+    {
+      "id": "e07",
+      "source": "get_error_rate",
+      "sourcePort": "output",
+      "target": "calc_raw_impact",
+      "targetPort": "b"
+    },
+    {
+      "id": "e08",
+      "source": "calc_raw_impact",
+      "sourcePort": "output",
+      "target": "calc_scale_impact",
+      "targetPort": "input"
+    },
+    {
+      "id": "e09",
+      "source": "calc_scale_impact",
+      "sourcePort": "output",
+      "target": "calc_impact_score",
+      "targetPort": "input"
+    },
+    {
+      "id": "e10",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "build_impact_summary",
+      "targetPort": "input"
+    },
+    {
+      "id": "e11",
+      "source": "calc_impact_score",
+      "sourcePort": "output",
+      "target": "build_impact_summary",
+      "targetPort": "value"
+    },
+    {
+      "id": "e12",
+      "source": "ai_classifier",
+      "sourcePort": "severity",
+      "target": "route_switch",
+      "targetPort": "value"
+    },
+    {
+      "id": "e13",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "route_switch",
+      "targetPort": "data"
+    },
+    {
+      "id": "e14",
+      "source": "route_switch",
+      "sourcePort": "critical",
+      "target": "action_critical",
+      "targetPort": "input"
+    },
+    {
+      "id": "e15",
+      "source": "route_switch",
+      "sourcePort": "warning",
+      "target": "action_warning",
+      "targetPort": "input"
+    },
+    {
+      "id": "e16",
+      "source": "route_switch",
+      "sourcePort": "normal",
+      "target": "action_normal",
+      "targetPort": "input"
+    },
+    {
+      "id": "e17",
+      "source": "action_critical",
+      "sourcePort": "output",
+      "target": "merge_actions",
+      "targetPort": "input"
+    },
+    {
+      "id": "e18",
+      "source": "action_warning",
+      "sourcePort": "output",
+      "target": "merge_actions",
+      "targetPort": "input"
+    },
+    {
+      "id": "e19",
+      "source": "action_normal",
+      "sourcePort": "output",
+      "target": "merge_actions",
+      "targetPort": "input"
+    },
+    {
+      "id": "e20",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "assemble_final_report",
+      "targetPort": "input"
+    },
+    {
+      "id": "e21",
+      "source": "merge_actions",
+      "sourcePort": "output",
+      "target": "assemble_final_report",
+      "targetPort": "value"
+    },
+    {
+      "id": "e22",
+      "source": "assemble_final_report",
+      "sourcePort": "output",
+      "target": "ops_return",
+      "targetPort": "input"
+    }
+  ]
+}

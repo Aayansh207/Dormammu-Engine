@@ -17,6 +17,7 @@ module.exports = {
   inputs: {},
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "Generated UUID v4" }),
+    uuid: defineOutputPort({ name: "uuid", type: PortTypes.STRING, description: "Generated UUID v4 alias" }),
   },
   configSchema: {},
   validateConfig: () => ({ valid: true }),

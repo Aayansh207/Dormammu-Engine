@@ -210,11 +210,16 @@ function callMockAi(taskType, payload) {
         }
       }
 
-      // Keyword heuristics for support triage
-      if (lower.includes("urgent") || lower.includes("crash") || lower.includes("down") || lower.includes("emergency") || lower.includes("payment")) {
-        if (categories.some((c) => /urgent|high|critical|billing/i.test(c))) {
-          matched = categories.find((c) => /urgent|high|critical|billing/i.test(c)) || matched;
-        }
+      // Keyword heuristics for support triage & operations center
+      if (lower.includes("outage") || lower.includes("504") || lower.includes("crash") || lower.includes("down") || lower.includes("emergency") || lower.includes("payment")) {
+        const critMatch = categories.find((c) => /outage|critical|urgent|high/i.test(String(c)));
+        if (critMatch) matched = critMatch;
+      } else if (lower.includes("latency") || lower.includes("slow") || lower.includes("degradation") || lower.includes("warning") || lower.includes("spike")) {
+        const warnMatch = categories.find((c) => /degradation|warning|performance|medium/i.test(String(c)));
+        if (warnMatch) matched = warnMatch;
+      } else if (lower.includes("billing") || lower.includes("invoice") || lower.includes("question") || lower.includes("clarification") || lower.includes("standard")) {
+        const normMatch = categories.find((c) => /billing|inquiry|support|standard|general|normal/i.test(String(c)));
+        if (normMatch) matched = normMatch;
       }
 
       return {

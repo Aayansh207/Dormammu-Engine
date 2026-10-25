@@ -6,11 +6,14 @@ const { defaultRegistry } = require("../node.registry");
 
 // Trigger nodes
 const triggerManual = require("./trigger.manual");
+const triggerWebhook = require("./trigger.webhook");
+const triggerCron = require("./trigger.cron");
 
 // Data nodes
 const dataInput = require("./data.input");
 const dataObject = require("./data.object");
 const dataArrayMap = require("./data.array.map");
+const dataValidate = require("./data.validate");
 
 // Math nodes
 const mathAdd = require("./math.add");
@@ -55,11 +58,14 @@ const outputReturn = require("./output.return");
 const coreNodes = [
   // Triggers
   triggerManual,
+  triggerWebhook,
+  triggerCron,
 
   // Data
   dataInput,
   dataObject,
   dataArrayMap,
+  dataValidate,
 
   // Math
   mathAdd,

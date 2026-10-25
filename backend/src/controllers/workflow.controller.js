@@ -3,6 +3,7 @@
  */
 
 const workflowService = require("../services/workflow.service");
+const { defaultSseService } = require("../services/sse.service");
 
 class WorkflowController {
   async createWorkflow(req, res, next) {
@@ -155,6 +156,34 @@ class WorkflowController {
         success: true,
         data: run.taskRuns,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async streamRunEvents(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { runId } = req.params;
+      const run = await workflowService.getRunById(userId, runId);
+
+      defaultSseService.subscribe(runId, res);
+
+      // If already in a terminal state, stream existing tasks and completion immediately
+      if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(run.status)) {
+        for (const task of run.taskRuns || []) {
+          defaultSseService.sendRaw(res, `task:${task.status.toLowerCase()}`, task);
+        }
+        defaultSseService.sendRaw(res, "workflow:completed", {
+          runId: run.id,
+          workflowId: run.workflowId,
+          status: run.status,
+          finalOutput: run.output,
+          error: run.error,
+          startedAt: run.startedAt,
+          finishedAt: run.finishedAt,
+        });
+      }
     } catch (err) {
       next(err);
     }

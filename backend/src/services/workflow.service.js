@@ -7,6 +7,7 @@ const { validateWorkflow } = require("../engine/validator/workflow.validator");
 const { executeWorkflow } = require("../engine/scheduler/dag.scheduler");
 const { defaultRegistry } = require("../engine/registry/node.registry");
 const { ErrorCodes } = require("../engine/contracts/errors");
+const { defaultSseService } = require("./sse.service");
 
 class WorkflowService {
   /**
@@ -363,6 +364,20 @@ class WorkflowService {
       } catch (err) {
         console.error(`Failed to persist TaskRun for node ${taskRecord.nodeId}:`, err.message);
       }
+
+      // Stream live task state event via SSE
+      defaultSseService.emitRunEvent(runRecord.id, `task:${taskRecord.status.toLowerCase()}`, {
+        runId: runRecord.id,
+        nodeId: taskRecord.nodeId,
+        nodeName: taskRecord.nodeName,
+        status: taskRecord.status,
+        startedAt: taskRecord.startedAt,
+        completedAt: taskRecord.completedAt,
+        durationMs: taskRecord.durationMs,
+        inputs: taskRecord.inputs,
+        outputs: taskRecord.outputs,
+        error: taskRecord.error,
+      });
     };
 
     // 4. Execute through the in-process DAG scheduler
@@ -383,6 +398,18 @@ class WorkflowService {
         error: execSummary.error || null,
         finishedAt,
       },
+    });
+
+    // Emit workflow terminal state via SSE
+    defaultSseService.emitRunEvent(runRecord.id, "workflow:completed", {
+      runId: runRecord.id,
+      workflowId: workflow.id,
+      status: execSummary.status,
+      finalOutput: execSummary.finalOutput,
+      durationMs: execSummary.durationMs,
+      startedAt: execSummary.startedAt,
+      completedAt: execSummary.completedAt,
+      error: execSummary.error,
     });
 
     return {

@@ -1089,12 +1089,358 @@ async function runWorkflowEngineTests() {
     assert.ok(summary.finalOutput.includes("Bob Miller"));
   });
 
+  console.log("\n--- 5. New Trigger & Data Validation Unit Tests ---");
+
+  await test("trigger.webhook: extracts live webhook payload, query, and headers", async () => {
+    const nodeDef = defaultRegistry.get("trigger.webhook");
+    const ctx = createExecutionContext({
+      runId: "r1",
+      taskId: "t1",
+      nodeId: "n_wb",
+      triggerData: {
+        $webhook: true,
+        body: { event: "payment_failed", amount: 4500 },
+        headers: { "x-source": "stripe" },
+        query: { env: "prod" },
+        method: "POST",
+      },
+    });
+    const res = await nodeDef.handler({}, { id: "n_wb", config: {} }, ctx);
+    assert.deepStrictEqual(res.output, { event: "payment_failed", amount: 4500 });
+    assert.strictEqual(res.method, "POST");
+    assert.strictEqual(res.headers["x-source"], "stripe");
+  });
+
+  await test("trigger.webhook: falls back to config.defaultPayload when no triggerData", async () => {
+    const nodeDef = defaultRegistry.get("trigger.webhook");
+    const ctx = createExecutionContext({ runId: "r1", taskId: "t1", nodeId: "n_wb", triggerData: {} });
+    const res = await nodeDef.handler({}, { id: "n_wb", config: { defaultPayload: { ping: "pong" } } }, ctx);
+    assert.deepStrictEqual(res.output, { ping: "pong" });
+  });
+
+  await test("trigger.cron: validates cron expressions correctly", async () => {
+    const { isValidCronExpression } = require("./src/engine/registry/nodes/trigger.cron");
+    assert.strictEqual(isValidCronExpression("*/15 * * * *"), true);
+    assert.strictEqual(isValidCronExpression("0 0 * * *"), true);
+    assert.strictEqual(isValidCronExpression("@daily"), true);
+    assert.strictEqual(isValidCronExpression("invalid_cron_string"), false);
+  });
+
+  await test("trigger.cron: extracts scheduled execution metadata", async () => {
+    const nodeDef = defaultRegistry.get("trigger.cron");
+    const ctx = createExecutionContext({
+      runId: "r1",
+      taskId: "t1",
+      nodeId: "n_cron",
+      triggerData: { $cron: true, scheduledAt: "2026-10-25T12:00:00Z", cronExpression: "0 12 * * *" },
+    });
+    const res = await nodeDef.handler({}, { id: "n_cron", config: { cronExpression: "0 12 * * *" } }, ctx);
+    assert.strictEqual(res.output.cronExpression, "0 12 * * *");
+    assert.strictEqual(res.output.scheduledAt, "2026-10-25T12:00:00Z");
+    assert.strictEqual(res.timestamp, "2026-10-25T12:00:00Z");
+  });
+
+  await test("data.validate: passes valid payloads through", async () => {
+    const nodeDef = defaultRegistry.get("data.validate");
+    const payload = { ticketId: "TCK-1", title: "Error", affectedUsers: 50, errorRate: 0.1 };
+    const res = await nodeDef.handler(
+      { input: payload },
+      { config: { requiredFields: ["ticketId", "title"], rules: { errorRate: { min: 0, max: 1 } } } }
+    );
+    assert.deepStrictEqual(res.output, payload);
+    assert.strictEqual(res.valid, true);
+  });
+
+  await test("data.validate: throws VALIDATION_FAILED when required fields are missing", async () => {
+    const nodeDef = defaultRegistry.get("data.validate");
+    await assert.rejects(
+      async () => {
+        await nodeDef.handler(
+          { input: { title: "Error" } },
+          { config: { requiredFields: ["ticketId", "title"] } }
+        );
+      },
+      (err) => err.code === ErrorCodes.VALIDATION_FAILED
+    );
+  });
+
+  await test("data.validate: throws VALIDATION_FAILED when numeric bounds are violated", async () => {
+    const nodeDef = defaultRegistry.get("data.validate");
+    await assert.rejects(
+      async () => {
+        await nodeDef.handler(
+          { input: { ticketId: "TCK-1", errorRate: 2.5 } },
+          { config: { rules: { errorRate: { max: 1.0 } } } }
+        );
+      },
+      (err) => err.code === ErrorCodes.VALIDATION_FAILED
+    );
+  });
+
+  await test("http.request: failOnError option throws HTTP_REQUEST_FAILED on status >= 400", async () => {
+    const nodeDef = defaultRegistry.get("http.request");
+    const validation = nodeDef.validateConfig({ failOnError: true, method: "GET" });
+    assert.strictEqual(validation.valid, true);
+  });
+
+  console.log("\n--- 6. Phase 1 Extended Execution Semantics ---");
+
+  await test("Scheduler: single-node workflow executes and returns result", async () => {
+    const singleWorkflow = {
+      schemaVersion: 1,
+      name: "Single Node",
+      nodes: [
+        {
+          id: "solo_node",
+          type: "utility.uuid",
+          version: 1,
+          name: "UUID Gen",
+          config: {},
+        },
+      ],
+      edges: [],
+    };
+    const summary = await executeWorkflow(singleWorkflow);
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.solo_node.status, TaskRunStatus.SUCCEEDED);
+    assert.ok(summary.tasks.solo_node.outputs.output);
+  });
+
+  await test("Scheduler: rejects empty workflow gracefully with schema error", async () => {
+    const emptyWorkflow = { schemaVersion: 1, name: "Empty", nodes: [], edges: [] };
+    const summary = await executeWorkflow(emptyWorkflow);
+    assert.strictEqual(summary.status, WorkflowRunStatus.FAILED);
+    assert.strictEqual(summary.error.code, ErrorCodes.WORKFLOW_SCHEMA_UNSUPPORTED);
+  });
+
+  await test("Scheduler: repeated execution with different inputs produces isolated results", async () => {
+    const echoWorkflow = {
+      schemaVersion: 1,
+      name: "Echo Test",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+    const run1 = await executeWorkflow(echoWorkflow, { triggerData: { message: "First" } });
+    const run2 = await executeWorkflow(echoWorkflow, { triggerData: { message: "Second" } });
+    assert.strictEqual(run1.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(run2.status, WorkflowRunStatus.SUCCEEDED);
+    assert.deepStrictEqual(run1.finalOutput, { message: "First" });
+    assert.deepStrictEqual(run2.finalOutput, { message: "Second" });
+  });
+
+  console.log("\n--- 7. Flagship 'Dormammu AI Operations Center' Workflow Scenarios ---");
+
+  const opsCenterWorkflow = require("./workflows/dormammu_ai_operations_center.json");
+
+  await test("Flagship Scenario 1: Critical outage routes to CRITICAL escalation with impact score 96", async () => {
+    const criticalPayload = {
+      ticketId: "TCK-8092",
+      title: "Payment gateway returning HTTP 504 errors",
+      description: "Multiple users cannot complete checkout.",
+      service: "payment-gateway",
+      customerTier: "enterprise",
+      affectedUsers: 1200,
+      errorRate: 0.42,
+      region: "ap-south-1",
+      source: "support-webhook",
+    };
+
+    const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: criticalPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+
+    // Verify task execution statuses
+    assert.strictEqual(summary.tasks.trig_ops.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.validate_incident.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.normalize_incident.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ai_classifier.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.calc_raw_impact.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.calc_impact_score.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.build_impact_summary.status, TaskRunStatus.SUCCEEDED);
+
+    // Verify routing: critical executed, warning and normal skipped
+    assert.strictEqual(summary.tasks.action_critical.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.action_warning.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.action_normal.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.merge_actions.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.assemble_final_report.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.ops_return.status, TaskRunStatus.SUCCEEDED);
+
+    // Verify math & impact score calculation (1200 * 0.42 * 0.190476 = 96.0 -> round -> 96)
+    assert.strictEqual(summary.tasks.calc_raw_impact.outputs.output, 504);
+    assert.strictEqual(summary.tasks.calc_impact_score.outputs.output, 96);
+    assert.strictEqual(summary.tasks.build_impact_summary.outputs.output.impactScore, 96);
+
+    // Verify final report structure and content
+    const report = summary.finalOutput;
+    assert.strictEqual(report.ticketId, "TCK-8092");
+    assert.strictEqual(report.service, "payment-gateway");
+    assert.strictEqual(report.customerTier, "enterprise");
+    assert.ok(report.actionSummary.includes("CRITICAL OUTAGE ESCALATION"));
+  });
+
+  await test("Flagship Scenario 2: Normal billing inquiry routes to STANDARD support queue", async () => {
+    const normalPayload = {
+      ticketId: "TCK-4102",
+      title: "Question about an invoice",
+      description: "The customer wants clarification about a recent invoice.",
+      service: "billing",
+      customerTier: "standard",
+      affectedUsers: 1,
+      errorRate: 0,
+      region: "ap-south-1",
+      source: "support-webhook",
+    };
+
+    const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: normalPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+
+    // Critical and warning must be skipped, normal must succeed
+    assert.strictEqual(summary.tasks.action_critical.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.action_warning.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.action_normal.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.merge_actions.status, TaskRunStatus.SUCCEEDED);
+
+    const report = summary.finalOutput;
+    assert.strictEqual(report.ticketId, "TCK-4102");
+    assert.ok(report.actionSummary.includes("STANDARD SUPPORT"));
+  });
+
+  await test("Flagship Scenario 3: Warning degradation routes to PROMPT INVESTIGATION", async () => {
+    const warningPayload = {
+      ticketId: "TCK-6204",
+      title: "Slow response times and latency spikes on reporting cluster",
+      description: "Average latency increased to 950ms on reporting queries",
+      service: "reporting-api",
+      customerTier: "standard",
+      affectedUsers: 150,
+      errorRate: 0.12,
+      region: "ap-south-1",
+      source: "support-webhook",
+    };
+
+    const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: warningPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+
+    // Critical and normal must be skipped, warning must succeed
+    assert.strictEqual(summary.tasks.action_critical.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.action_warning.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.action_normal.status, TaskRunStatus.SKIPPED);
+    assert.strictEqual(summary.tasks.merge_actions.status, TaskRunStatus.SUCCEEDED);
+
+    const report = summary.finalOutput;
+    assert.strictEqual(report.ticketId, "TCK-6204");
+    assert.ok(report.actionSummary.includes("WARNING INVESTIGATION"));
+  });
+
+  await test("Flagship Scenario 4: Invalid input rejected fast at validate_incident, marking downstream BLOCKED", async () => {
+    const invalidPayload = {
+      ticketId: "TCK-INVALID",
+      // missing required fields: title, service, customerTier, errorRate
+    };
+
+    const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: invalidPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.trig_ops.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.validate_incident.status, TaskRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.validate_incident.error.code, ErrorCodes.VALIDATION_FAILED);
+
+    // Downstream nodes must be BLOCKED
+    assert.strictEqual(summary.tasks.normalize_incident.status, TaskRunStatus.BLOCKED);
+    assert.strictEqual(summary.tasks.ai_classifier.status, TaskRunStatus.BLOCKED);
+    assert.strictEqual(summary.tasks.ops_return.status, TaskRunStatus.BLOCKED);
+  });
+
+  await test("Flagship Scenario 5: Controlled HTTP failure stops workflow and marks downstream BLOCKED", async () => {
+    const testFailureWorkflow = {
+      schemaVersion: 1,
+      name: "HTTP Failure Simulation",
+      nodes: [
+        { id: "trig", type: "trigger.manual", version: 1, config: {} },
+        {
+          id: "http_node",
+          type: "http.request",
+          version: 1,
+          config: {
+            url: "http://127.0.0.1:5000/api/mock/service-health/fail-service",
+            allowPrivateNetwork: false, // will fail SSRF or network
+            failOnError: true,
+          },
+        },
+        { id: "after_http", type: "text.template", version: 1, config: { template: "Never runs" } },
+      ],
+      edges: [
+        { id: "e1", source: "trig", sourcePort: "output", target: "http_node", targetPort: "body" },
+        { id: "e2", source: "http_node", sourcePort: "output", target: "after_http", targetPort: "input" },
+      ],
+    };
+
+    const summary = await executeWorkflow(testFailureWorkflow);
+    assert.strictEqual(summary.status, WorkflowRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.trig.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.http_node.status, TaskRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.after_http.status, TaskRunStatus.BLOCKED);
+  });
+
+  console.log("\n--- 8. Cron Scheduler & SSE Streaming Services ---");
+
+  await test("CronSchedulerService: registers schedule and matches cron time correctly", async () => {
+    const { CronSchedulerService, isCronMatch } = require("./src/services/cron.service");
+    const testDate = new Date("2026-10-25T14:30:00Z"); // min: 30, hour: 14, dom: 25, mon: 10, dow: 0 (Sunday)
+
+    assert.strictEqual(isCronMatch("30 14 * * *", testDate), true);
+    assert.strictEqual(isCronMatch("*/15 14 * * *", testDate), true);
+    assert.strictEqual(isCronMatch("0 14 * * *", testDate), false);
+
+    const scheduler = new CronSchedulerService();
+    scheduler.registerSchedule("wf_test", {
+      ownerId: "user_1",
+      cronExpression: "30 14 * * *",
+    });
+
+    const sched = scheduler.getSchedule("wf_test");
+    assert.ok(sched);
+    assert.strictEqual(sched.cronExpression, "30 14 * * *");
+    assert.strictEqual(sched.running, false);
+
+    scheduler.unregisterSchedule("wf_test");
+    assert.strictEqual(scheduler.getSchedule("wf_test"), null);
+  });
+
+  await test("SseService: registers subscriber and emits live formatted events", async () => {
+    const { SseService } = require("./src/services/sse.service");
+    const sse = new SseService();
+    const emitted = [];
+
+    const mockRes = {
+      setHeader: () => {},
+      flushHeaders: () => {},
+      write: (data) => emitted.push(data),
+      on: () => {},
+    };
+
+    sse.subscribe("run_abc", mockRes);
+    assert.strictEqual(sse.getSubscriberCount("run_abc"), 1);
+
+    sse.emitRunEvent("run_abc", "task:running", { nodeId: "node_1", status: "RUNNING" });
+    assert.ok(emitted.some((chunk) => chunk.includes("task:running") && chunk.includes("node_1")));
+
+    sse.emitRunEvent("run_abc", "workflow:completed", { status: "SUCCEEDED" });
+    assert.ok(emitted.some((chunk) => chunk.includes("workflow:completed")));
+  });
+
   console.log("\n-------------------------------------------------------");
   console.log(` Results: ${passed} passed, ${failed} failed`);
   console.log("-------------------------------------------------------\n");
 
   if (failed > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

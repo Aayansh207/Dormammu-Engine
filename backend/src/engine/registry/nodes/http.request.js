@@ -79,6 +79,12 @@ module.exports = {
       default: false,
       description: "Explicitly allow destinations on private or local network",
     },
+    failOnError: {
+      type: "boolean",
+      required: false,
+      default: false,
+      description: "Throw an error if response HTTP status code is >= 400",
+    },
   },
   validateConfig: (config = {}) => {
     if (config.method && !SUPPORTED_METHODS.includes(config.method.toUpperCase())) {
@@ -311,6 +317,15 @@ module.exports = {
     response.headers.forEach((value, key) => {
       respHeaders[key] = value;
     });
+
+    // Check failOnError policy
+    if (config.failOnError && response.status >= 400) {
+      throw new EngineError(
+        ErrorCodes.HTTP_REQUEST_FAILED,
+        `HTTP request to '${targetUrl}' failed with status ${response.status}`,
+        { status: response.status, url: targetUrl, body: parsedData }
+      );
+    }
 
     return {
       output: parsedData,

@@ -327,6 +327,10 @@ class ApiService {
   async getNodeMetadata(type) {
     return this.request(`/nodes/${type}`, { method: "GET" });
   }
+
+  getRunEventsUrl(runId) {
+    return `${this.baseUrl}/runs/${runId}/events`;
+  }
 }
 
 export const api = new ApiService();

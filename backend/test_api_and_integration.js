@@ -6,6 +6,7 @@ const assert = require("assert");
 const prisma = require("./src/config/db");
 const nodeService = require("./src/services/node.service");
 const workflowService = require("./src/services/workflow.service");
+const webhookController = require("./src/controllers/webhook.controller");
 const { defaultRegistry } = require("./src/engine/registry/node.registry");
 
 let passed = 0;
@@ -221,6 +222,144 @@ async function runApiAndIntegrationTests() {
       );
     });
 
+    console.log("\n--- 4. Webhook Trigger Pipeline Integration ---");
+
+    const webhookWorkflowDef = {
+      schemaVersion: 1,
+      name: "Webhook Ingestion Workflow",
+      nodes: [
+        {
+          id: "trig_wb",
+          type: "trigger.webhook",
+          version: 1,
+          config: { webhookToken: "secret-token-123", allowedMethods: ["POST"] },
+        },
+        {
+          id: "ret_wb",
+          type: "output.return",
+          version: 1,
+          config: {},
+        },
+      ],
+      edges: [
+        { id: "e1", source: "trig_wb", sourcePort: "output", target: "ret_wb", targetPort: "input" },
+      ],
+    };
+
+    const webhookWf = await workflowService.createWorkflow(testUserAId, {
+      name: "Webhook Test Workflow",
+      definition: webhookWorkflowDef,
+    });
+
+    await test("Webhook: executes workflow and persists WorkflowRun with trigger payload", async () => {
+      let responseStatus = 0;
+      let responseBody = null;
+      const mockReq = {
+        params: { workflowId: webhookWf.id },
+        method: "POST",
+        headers: { "x-webhook-token": "secret-token-123" },
+        body: { event: "stripe_charge", amount: 9900 },
+        query: {},
+      };
+      const mockRes = {
+        status: (s) => {
+          responseStatus = s;
+          return {
+            json: (b) => {
+              responseBody = b;
+            },
+          };
+        },
+      };
+
+      await webhookController.handleWebhook(mockReq, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert.strictEqual(responseStatus, 200);
+      assert.strictEqual(responseBody.success, true);
+      assert.strictEqual(responseBody.status, "SUCCEEDED");
+      assert.deepStrictEqual(responseBody.output, { event: "stripe_charge", amount: 9900 });
+
+      // Verify persistence in PostgreSQL
+      const persistedRun = await prisma.workflowRun.findUnique({
+        where: { id: responseBody.runId },
+        include: { taskRuns: true },
+      });
+      assert.ok(persistedRun);
+      assert.strictEqual(persistedRun.status, "SUCCEEDED");
+      assert.strictEqual(persistedRun.taskRuns.length, 2);
+    });
+
+    await test("Webhook: rejects unauthorized request with 401 when token is invalid or missing", async () => {
+      let responseStatus = 0;
+      let responseBody = null;
+      const mockReq = {
+        params: { workflowId: webhookWf.id },
+        method: "POST",
+        headers: { "x-webhook-token": "wrong-token" },
+        body: { event: "spoofed" },
+        query: {},
+      };
+      const mockRes = {
+        status: (s) => {
+          responseStatus = s;
+          return {
+            json: (b) => {
+              responseBody = b;
+            },
+          };
+        },
+      };
+
+      await webhookController.handleWebhook(mockReq, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert.strictEqual(responseStatus, 401);
+      assert.strictEqual(responseBody.success, false);
+      assert.strictEqual(responseBody.error.code, "UNAUTHORIZED_WEBHOOK");
+    });
+
+    console.log("\n--- 5. Flagship Operations Center Persistence ---");
+
+    const opsCenterDef = require("./workflows/dormammu_ai_operations_center.json");
+    const opsWorkflowRecord = await workflowService.createWorkflow(testUserAId, {
+      name: "Dormammu AI Operations Center",
+      definition: opsCenterDef,
+    });
+
+    await test("Flagship: persists full 16-node operations workflow execution in PostgreSQL", async () => {
+      const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
+        triggerData: {
+          ticketId: "TCK-8092",
+          title: "Payment gateway returning HTTP 504 errors",
+          description: "Multiple users cannot complete checkout.",
+          service: "payment-gateway",
+          customerTier: "enterprise",
+          affectedUsers: 1200,
+          errorRate: 0.42,
+          region: "ap-south-1",
+          source: "support-webhook",
+        },
+      });
+
+      assert.strictEqual(execResult.status, "SUCCEEDED");
+      assert.ok(execResult.runId);
+
+      const dbRun = await workflowService.getRunById(testUserAId, execResult.runId);
+      assert.strictEqual(dbRun.status, "SUCCEEDED");
+      assert.strictEqual(dbRun.taskRuns.length, opsCenterDef.nodes.length);
+
+      // Verify critical task succeeded and standard task skipped
+      const critTask = dbRun.taskRuns.find((t) => t.nodeId === "action_critical");
+      const normTask = dbRun.taskRuns.find((t) => t.nodeId === "action_normal");
+      assert.ok(critTask);
+      assert.strictEqual(critTask.status, "SUCCEEDED");
+      assert.ok(normTask);
+      assert.strictEqual(normTask.status, "SKIPPED");
+    });
+
     // Cleanup test data
     await prisma.workflow.deleteMany({ where: { ownerId: { in: [testUserAId, testUserBId] } } });
     await prisma.user.deleteMany({ where: { id: { in: [testUserAId, testUserBId] } } });
@@ -237,6 +376,8 @@ async function runApiAndIntegrationTests() {
 
   if (failed > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

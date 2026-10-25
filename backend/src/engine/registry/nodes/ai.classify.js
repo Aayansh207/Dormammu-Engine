@@ -22,6 +22,7 @@ module.exports = {
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "The assigned category" }),
     category: defineOutputPort({ name: "category", type: PortTypes.STRING, description: "Assigned category alias" }),
+    severity: defineOutputPort({ name: "severity", type: PortTypes.STRING, description: "Calculated severity ('critical', 'warning', 'normal')" }),
     confidence: defineOutputPort({ name: "confidence", type: PortTypes.NUMBER, description: "Confidence score between 0 and 1" }),
     reasoning: defineOutputPort({ name: "reasoning", type: PortTypes.STRING, description: "Explanation for the classification" }),
     provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('grok', 'gemini', 'openai', or 'mock')" }),
@@ -67,7 +68,8 @@ module.exports = {
     let text = "";
 
     if (rawText && typeof rawText === "object") {
-      text = rawText.issue || rawText.message || rawText.text || rawText.content || JSON.stringify(rawText);
+      const parts = [rawText.title, rawText.description, rawText.issue, rawText.message, rawText.text, rawText.content].filter(Boolean);
+      text = parts.length > 0 ? parts.join(" - ") : JSON.stringify(rawText);
     } else {
       text = String(rawText || "");
     }
@@ -102,9 +104,18 @@ module.exports = {
     const confidence = typeof result.confidence === "number" ? result.confidence : 0.9;
     const reasoning = result.reasoning || `Classified as ${assignedCategory}`;
 
+    let severity = result.severity;
+    if (!severity) {
+      const lowerCat = String(assignedCategory).toLowerCase();
+      if (/urgent|critical|outage|emergency|high/i.test(lowerCat)) severity = "critical";
+      else if (/warning|degradation|medium/i.test(lowerCat)) severity = "warning";
+      else severity = "normal";
+    }
+
     return {
       output: assignedCategory,
       category: assignedCategory,
+      severity,
       confidence,
       reasoning,
       provider: result.provider,
