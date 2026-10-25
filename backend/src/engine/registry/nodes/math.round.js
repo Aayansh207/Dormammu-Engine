@@ -1,6 +1,8 @@
 /**
  * Node: math.round
- * Rounds a number to a specified precision and mode
+ * Rounds a number to a specified precision and mode.
+ * Input: single 'input' port.
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -13,11 +15,9 @@ module.exports = {
   description: "Rounds a number to specified decimal precision using round, floor, or ceil mode",
   inputs: {
     input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "Number to round" }),
-    value: defineInputPort({ name: "value", type: PortTypes.NUMBER, required: false, description: "Number to round (alias)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Rounded result" }),
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Rounded result (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Rounded number result" }),
   },
   configSchema: {
     precision: {
@@ -68,6 +68,6 @@ module.exports = {
       rounded = Math.round(num * factor) / factor;
     }
 
-    return { output: rounded, result: rounded };
+    return { output: rounded };
   },
 };

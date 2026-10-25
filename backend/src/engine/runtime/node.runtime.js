@@ -29,8 +29,27 @@ function resolveNodeInputs(node, registry, nodeOutputsStore, incomingEdges = [])
       );
     }
 
-    const value = sourceNodeOutputs[edge.sourcePort];
-    resolvedInputs[edge.targetPort] = value;
+    let sourcePort = edge.sourcePort;
+    if (sourceNodeOutputs[sourcePort] === undefined) {
+      if (sourcePort === "result" && sourceNodeOutputs["output"] !== undefined) {
+        sourcePort = "output";
+      } else if (sourcePort === "output" && sourceNodeOutputs["result"] !== undefined) {
+        sourcePort = "result";
+      }
+    }
+
+    const value = sourceNodeOutputs[sourcePort];
+
+    let targetPort = edge.targetPort;
+    if (!nodeDef.inputs[targetPort]) {
+      if (targetPort === "input" && nodeDef.inputs["a"]) {
+        targetPort = "a";
+      } else if (targetPort === "input" && nodeDef.inputs["base"]) {
+        targetPort = "base";
+      }
+    }
+
+    resolvedInputs[targetPort] = value;
   }
 
   // For ports not satisfied by edges, check config or port defaultValue

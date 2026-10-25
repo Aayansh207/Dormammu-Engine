@@ -1,6 +1,8 @@
 /**
  * Node: output.log
- * Writes diagnostic message to safe execution logger
+ * Writes diagnostic message to execution log and passes data through.
+ * Input: single 'input' port.
+ * Output: single 'output' port (passes input through).
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -16,25 +18,14 @@ module.exports = {
       name: "input",
       type: PortTypes.ANY,
       required: false,
-      description: "Data to log",
-    }),
-    message: defineInputPort({
-      name: "message",
-      type: PortTypes.ANY,
-      required: false,
-      description: "Message or data to log (alias)",
+      description: "Data to log and pass through downstream",
     }),
   },
   outputs: {
     output: defineOutputPort({
       name: "output",
       type: PortTypes.ANY,
-      description: "Forwarded logged data",
-    }),
-    logged: defineOutputPort({
-      name: "logged",
-      type: PortTypes.BOOLEAN,
-      description: "True if logged successfully",
+      description: "Forwarded data",
     }),
   },
   configSchema: {
@@ -59,15 +50,11 @@ module.exports = {
   handler: async (inputs, node, context) => {
     const rawVal = inputs.input !== undefined ? inputs.input : inputs.message;
     const level = (node.config && node.config.level) || "info";
-    const logger = context && context.logger ? context.logger : console;
-    const logFn = typeof logger[level] === "function" ? logger[level] : logger.info;
 
-    const nodeLabel = (node && (node.name || node.id)) || "node";
-    const msgStr = typeof rawVal === "object" ? JSON.stringify(rawVal) : String(rawVal ?? "");
-    logFn(`[${nodeLabel}] ${msgStr}`, rawVal);
-    return {
-      output: rawVal,
-      logged: true,
-    };
+    if (context && context.logger && typeof context.logger[level] === "function") {
+      context.logger[level](`[Node ${node.id}]`, rawVal);
+    }
+
+    return { output: rawVal };
   },
 };

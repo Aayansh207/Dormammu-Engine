@@ -1,6 +1,7 @@
 /**
  * Node: data.input
  * Exposes run input values from trigger payload to the graph.
+ * Outputs value onto single 'output' port.
  */
 
 const { defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -16,12 +17,7 @@ module.exports = {
     output: defineOutputPort({
       name: "output",
       type: PortTypes.ANY,
-      description: "Extracted value from trigger payload",
-    }),
-    value: defineOutputPort({
-      name: "value",
-      type: PortTypes.ANY,
-      description: "Extracted value (alias)",
+      description: "Extracted value from trigger payload or default",
     }),
   },
   configSchema: {
@@ -59,14 +55,13 @@ module.exports = {
         ? node.config.defaultValue
         : triggerData;
     } else {
-      result = triggerData[key] !== undefined
-        ? triggerData[key]
-        : (node.config && node.config.defaultValue !== undefined ? node.config.defaultValue : null);
+      if (typeof triggerData === "object" && triggerData !== null && key in triggerData) {
+        result = triggerData[key];
+      } else {
+        result = (node.config && node.config.defaultValue !== undefined) ? node.config.defaultValue : null;
+      }
     }
 
-    return {
-      output: result,
-      value: result,
-    };
+    return { output: result };
   },
 };

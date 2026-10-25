@@ -1,6 +1,8 @@
 /**
  * Node: utility.uuid
- * Generates a random UUID v4
+ * Generates a random RFC4122 v4 UUID.
+ * Inputs: none.
+ * Output: single 'output' port.
  */
 
 const { defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -15,7 +17,6 @@ module.exports = {
   inputs: {},
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "Generated UUID v4" }),
-    uuid: defineOutputPort({ name: "uuid", type: PortTypes.STRING, description: "Generated UUID v4 (alias)" }),
   },
   configSchema: {},
   validateConfig: () => ({ valid: true }),

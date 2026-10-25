@@ -52,7 +52,6 @@ async function runWorkflowEngineTests() {
     const ctx = createExecutionContext({ runId: "r1", taskId: "t1", nodeId: "n1", triggerData: { amount: 150 } });
     const res = await nodeDef.handler({}, { config: { key: "amount" } }, ctx);
     assert.strictEqual(res.output, 150);
-    assert.strictEqual(res.value, 150);
   });
 
   await test("data.input: returns defaultValue if key is missing in triggerData", async () => {
@@ -193,7 +192,6 @@ async function runWorkflowEngineTests() {
     const res = await nodeDef.handler({}, {});
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     assert.match(res.output, uuidRegex);
-    assert.strictEqual(res.output, res.uuid);
   });
 
   await test("utility.datetime: returns timestamp and formatted string", async () => {
@@ -218,7 +216,6 @@ async function runWorkflowEngineTests() {
 
     const res = await nodeDef.handler({ input: { status: "ok" } }, { id: "log1", config: { level: "info" } }, ctx);
     assert.deepStrictEqual(res.output, { status: "ok" });
-    assert.strictEqual(res.logged, true);
     assert.strictEqual(logBuffer.length, 1);
   });
 
@@ -226,7 +223,6 @@ async function runWorkflowEngineTests() {
     const nodeDef = defaultRegistry.get("output.return");
     const res = await nodeDef.handler({ input: 12345 });
     assert.strictEqual(res.output, 12345);
-    assert.strictEqual(res.finalValue, 12345);
   });
 
   console.log("\n--- 2. Validation & Graph Integrity Tests ---");

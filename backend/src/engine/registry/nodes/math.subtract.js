@@ -1,6 +1,8 @@
 /**
  * Node: math.subtract
- * Computes a - b (or input - subtrahend)
+ * Computes difference (a - b).
+ * Inputs: a (minuend), b (subtrahend, optional with config fallback).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -10,15 +12,13 @@ module.exports = {
   version: 1,
   category: "mathematical",
   label: "Subtract",
-  description: "Computes the difference between numbers (a - b or input - subtrahend)",
+  description: "Computes the difference between two numbers (a - b)",
   inputs: {
-    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "Minuend" }),
-    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Minuend (a)" }),
-    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Subtrahend (b)" }),
+    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Minuend (number to subtract from)" }),
+    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Subtrahend (number to subtract)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Difference result" }),
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Difference result (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Difference result (a - b)" }),
   },
   configSchema: {
     subtrahend: {
@@ -38,12 +38,12 @@ module.exports = {
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
     const sub = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.subtrahend !== undefined ? node.config.subtrahend : 0);
 
-    const diff = Number(rawVal || 0) - Number(sub || 0);
-    return { output: diff, result: diff };
+    const diff = Number(valA || 0) - Number(sub || 0);
+    return { output: diff };
   },
 };

@@ -1,6 +1,8 @@
 /**
  * Node: json.parse
- * Parses a JSON string into an object or value
+ * Parses a JSON string into an object or value.
+ * Input: single 'input' port.
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -14,11 +16,9 @@ module.exports = {
   description: "Parses a valid JSON string into an object or primitive value",
   inputs: {
     input: defineInputPort({ name: "input", type: PortTypes.STRING, required: false, description: "JSON string to parse" }),
-    text: defineInputPort({ name: "text", type: PortTypes.STRING, required: false, description: "JSON string to parse (alias)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.ANY, description: "Parsed JSON data" }),
-    data: defineOutputPort({ name: "data", type: PortTypes.ANY, description: "Parsed JSON data (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.ANY, description: "Parsed JSON data object/array" }),
   },
   configSchema: {
     defaultText: {
@@ -37,7 +37,7 @@ module.exports = {
 
     try {
       const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-      return { output: parsed, data: parsed };
+      return { output: parsed };
     } catch (err) {
       throw new EngineError(
         ErrorCodes.INVALID_JSON,

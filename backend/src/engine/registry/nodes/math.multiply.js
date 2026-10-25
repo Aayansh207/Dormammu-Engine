@@ -1,6 +1,8 @@
 /**
  * Node: math.multiply
- * Multiplies a numeric input by a factor (or a * b)
+ * Multiplies two numbers (a * b).
+ * Inputs: a (multiplicand), b (multiplier, optional with factor config fallback).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -10,14 +12,8 @@ module.exports = {
   version: 1,
   category: "mathematical",
   label: "Multiply",
-  description: "Multiplies a numeric input by a factor or computes product (a * b)",
+  description: "Computes the product of two numbers (a * b)",
   inputs: {
-    input: defineInputPort({
-      name: "input",
-      type: PortTypes.NUMBER,
-      required: false,
-      description: "Numeric value to multiply",
-    }),
     a: defineInputPort({
       name: "a",
       type: PortTypes.NUMBER,
@@ -28,19 +24,14 @@ module.exports = {
       name: "b",
       type: PortTypes.NUMBER,
       required: false,
-      description: "Multiplier",
+      description: "Multiplier (optional, uses factor if not connected)",
     }),
   },
   outputs: {
     output: defineOutputPort({
       name: "output",
       type: PortTypes.NUMBER,
-      description: "Product result",
-    }),
-    result: defineOutputPort({
-      name: "result",
-      type: PortTypes.NUMBER,
-      description: "Product result alias",
+      description: "Product result (a * b)",
     }),
   },
   configSchema: {
@@ -48,7 +39,7 @@ module.exports = {
       type: "number",
       required: false,
       default: 1,
-      description: "Multiplier factor if not connecting a second port",
+      description: "Multiplier factor if port 'b' is not connected",
     },
   },
   validateConfig: (config = {}) => {
@@ -63,20 +54,18 @@ module.exports = {
     }
     return { valid: true };
   },
-  capabilities: { pure: true, sideEffects: false, retryable: true },
+  capabilities: {
+    pure: true,
+    sideEffects: false,
+    retryable: true,
+  },
   handler: async (inputs, node) => {
-    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
     const factor = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.factor !== undefined ? node.config.factor : 1);
 
-    const val = rawVal !== undefined ? Number(rawVal) : 0;
-    const mult = Number(factor);
-    const product = val * mult;
-
-    return {
-      output: product,
-      result: product,
-    };
+    const prod = Number(valA || 0) * Number(factor !== undefined ? factor : 1);
+    return { output: prod };
   },
 };

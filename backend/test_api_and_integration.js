@@ -199,7 +199,7 @@ async function runApiAndIntegrationTests() {
       const multTask = dbRun.taskRuns.find((t) => t.nodeId === "n2");
       assert.ok(multTask);
       assert.strictEqual(multTask.status, "SUCCEEDED");
-      assert.deepStrictEqual(multTask.output, { output: 50, result: 50 });
+      assert.deepStrictEqual(multTask.output, { output: 50 });
       assert.ok(multTask.startedAt);
       assert.ok(multTask.finishedAt);
     });

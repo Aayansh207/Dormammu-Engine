@@ -81,7 +81,7 @@ const STARTER_TEMPLATES = [
           source: "trigger_01",
           sourcePort: "output",
           target: "math_01",
-          targetPort: "input",
+          targetPort: "a",
         },
         {
           id: "edge_02",
@@ -218,14 +218,14 @@ const STARTER_TEMPLATES = [
           source: "trigger_01",
           sourcePort: "output",
           target: "add_01",
-          targetPort: "input",
+          targetPort: "a",
         },
         {
           id: "edge_02",
           source: "trigger_01",
           sourcePort: "output",
           target: "multiply_01",
-          targetPort: "input",
+          targetPort: "a",
         },
         {
           id: "edge_03",

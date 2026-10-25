@@ -1,6 +1,8 @@
 /**
  * Node: math.max
- * Computes maximum of numbers
+ * Computes maximum of two numbers max(a, b).
+ * Inputs: a (first number), b (second number, optional with compareValue config fallback).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -10,15 +12,13 @@ module.exports = {
   version: 1,
   category: "mathematical",
   label: "Maximum",
-  description: "Returns the greater of two numbers (max(a, b) or max(input, compareValue))",
+  description: "Returns the greater of two numbers (max(a, b))",
   inputs: {
-    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "First number" }),
-    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "First number (alias)" }),
-    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Second number" }),
+    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "First number" }),
+    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Second number (optional, uses compareValue config if not connected)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Maximum result" }),
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Maximum result (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Greater of a and b" }),
   },
   configSchema: {
     compareValue: {
@@ -38,12 +38,12 @@ module.exports = {
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
     const compare = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.compareValue !== undefined ? node.config.compareValue : 0);
 
-    const max = Math.max(Number(rawVal || 0), Number(compare || 0));
-    return { output: max, result: max };
+    const maxVal = Math.max(Number(valA || 0), Number(compare || 0));
+    return { output: maxVal };
   },
 };

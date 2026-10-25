@@ -1,6 +1,8 @@
 /**
  * Node: text.concat
- * Concatenates text strings
+ * Concatenates text strings (a + b).
+ * Inputs: a (first text), b (second text).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -10,11 +12,10 @@ module.exports = {
   version: 1,
   category: "text",
   label: "Concatenate Text",
-  description: "Concatenates two or more strings together with an optional separator",
+  description: "Concatenates two strings together (a + b) with an optional separator and suffix",
   inputs: {
     a: defineInputPort({ name: "a", type: PortTypes.STRING, required: false, description: "First text" }),
     b: defineInputPort({ name: "b", type: PortTypes.STRING, required: false, description: "Second text" }),
-    input: defineInputPort({ name: "input", type: PortTypes.STRING, required: false, description: "Input text" }),
   },
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "Concatenated result" }),
@@ -42,7 +43,7 @@ module.exports = {
     const first = inputs.a !== undefined ? inputs.a : (inputs.input !== undefined ? inputs.input : "");
     const second = inputs.b !== undefined ? inputs.b : "";
 
-    const result = `${String(first)}${second ? sep + String(second) : ""}${suffix}`;
+    const result = `${String(first)}${second !== undefined && second !== "" ? sep + String(second) : ""}${suffix}`;
     return { output: result };
   },
 };

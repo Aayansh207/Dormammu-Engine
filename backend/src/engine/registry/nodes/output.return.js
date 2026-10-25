@@ -1,6 +1,8 @@
 /**
  * Node: output.return
- * Terminal node that declares and returns the final workflow output
+ * Terminal node that declares and returns the final workflow output.
+ * Input: single 'input' port.
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -18,12 +20,6 @@ module.exports = {
       required: false,
       description: "Final return value",
     }),
-    value: defineInputPort({
-      name: "value",
-      type: PortTypes.ANY,
-      required: false,
-      description: "Final return value (alias)",
-    }),
   },
   outputs: {
     output: defineOutputPort({
@@ -31,19 +27,11 @@ module.exports = {
       type: PortTypes.ANY,
       description: "Final value propagated",
     }),
-    finalValue: defineOutputPort({
-      name: "finalValue",
-      type: PortTypes.ANY,
-      description: "Final value propagated (alias)",
-    }),
   },
   validateConfig: () => ({ valid: true }),
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs) => {
     const res = inputs.input !== undefined ? inputs.input : inputs.value;
-    return {
-      output: res,
-      finalValue: res,
-    };
+    return { output: res };
   },
 };

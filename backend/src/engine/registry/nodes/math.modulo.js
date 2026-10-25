@@ -1,6 +1,8 @@
 /**
  * Node: math.modulo
- * Computes a % b (or input % divisor) with modulo-by-zero protection
+ * Computes remainder of division (a % b) with modulo-by-zero protection.
+ * Inputs: a (dividend), b (divisor, optional with config fallback).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -11,15 +13,13 @@ module.exports = {
   version: 1,
   category: "mathematical",
   label: "Modulo",
-  description: "Computes the remainder of division of two numbers (a % b or input % divisor)",
+  description: "Computes the remainder of division of two numbers (a % b)",
   inputs: {
-    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "Dividend" }),
-    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Dividend (a)" }),
-    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Divisor (b)" }),
+    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Dividend" }),
+    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Divisor (optional, uses divisor config if not connected)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Remainder result" }),
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Remainder result (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Remainder result (a % b)" }),
   },
   configSchema: {
     divisor: {
@@ -42,7 +42,7 @@ module.exports = {
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
     const divisor = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.divisor !== undefined ? node.config.divisor : 1);
@@ -52,11 +52,11 @@ module.exports = {
       throw new EngineError(
         ErrorCodes.DIVISION_BY_ZERO,
         "Modulo by zero is not allowed",
-        { nodeId: node && node.id, a: rawVal, b: divisor }
+        { nodeId: node && node.id, a: valA, b: divisor }
       );
     }
-    const dividend = Number(rawVal || 0);
+    const dividend = Number(valA || 0);
     const rem = dividend % numDivisor;
-    return { output: rem, result: rem };
+    return { output: rem };
   },
 };

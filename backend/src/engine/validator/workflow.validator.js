@@ -228,6 +228,22 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
     const sourceDef = registry.get(sourceNode.type);
     const targetDef = registry.get(targetNode.type);
 
+    // Normalize legacy port aliases for seamless backward compatibility
+    if (edge.sourcePort && !sourceDef.outputs[edge.sourcePort]) {
+      if (edge.sourcePort === "result" && sourceDef.outputs["output"]) {
+        edge.sourcePort = "output";
+      } else if (edge.sourcePort === "output" && sourceDef.outputs["result"]) {
+        edge.sourcePort = "result";
+      }
+    }
+    if (edge.targetPort && !targetDef.inputs[edge.targetPort]) {
+      if (edge.targetPort === "input" && targetDef.inputs["a"]) {
+        edge.targetPort = "a";
+      } else if (edge.targetPort === "input" && targetDef.inputs["base"]) {
+        edge.targetPort = "base";
+      }
+    }
+
     // Source port check
     if (!edge.sourcePort || !sourceDef.outputs[edge.sourcePort]) {
       rawErrors.push({

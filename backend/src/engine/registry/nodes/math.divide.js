@@ -1,6 +1,8 @@
 /**
  * Node: math.divide
- * Computes a / b (with division by zero protection)
+ * Computes quotient (a / b) with division by zero protection.
+ * Inputs: a (dividend), b (divisor, optional with config fallback).
+ * Output: single 'output' port.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -11,15 +13,13 @@ module.exports = {
   version: 1,
   category: "mathematical",
   label: "Divide",
-  description: "Computes division (a / b or input / divisor)",
+  description: "Computes division (a / b)",
   inputs: {
-    input: defineInputPort({ name: "input", type: PortTypes.NUMBER, required: false, description: "Dividend" }),
-    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Dividend (a)" }),
-    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Divisor (b)" }),
+    a: defineInputPort({ name: "a", type: PortTypes.NUMBER, required: false, description: "Dividend" }),
+    b: defineInputPort({ name: "b", type: PortTypes.NUMBER, required: false, description: "Divisor (optional, uses divisor config if not connected)" }),
   },
   outputs: {
-    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Quotient result" }),
-    result: defineOutputPort({ name: "result", type: PortTypes.NUMBER, description: "Quotient result (alias)" }),
+    output: defineOutputPort({ name: "output", type: PortTypes.NUMBER, description: "Quotient result (a / b)" }),
   },
   configSchema: {
     divisor: {
@@ -42,19 +42,20 @@ module.exports = {
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const rawVal = inputs.input !== undefined ? inputs.input : inputs.a;
+    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
     const divisor = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.divisor !== undefined ? node.config.divisor : 1);
 
     const numDivisor = Number(divisor);
     if (numDivisor === 0) {
-      throw new EngineError(ErrorCodes.DIVISION_BY_ZERO, "Division by zero encountered in math.divide node", {
-        nodeId: node.id,
-      });
+      throw new EngineError(
+        ErrorCodes.DIVISION_BY_ZERO,
+        "Division by zero is not allowed",
+        { nodeId: node && node.id, a: valA, b: divisor }
+      );
     }
-
-    const quotient = Number(rawVal || 0) / numDivisor;
-    return { output: quotient, result: quotient };
+    const quotient = Number(valA || 0) / numDivisor;
+    return { output: quotient };
   },
 };

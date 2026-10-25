@@ -50,6 +50,8 @@ A production-grade, reliable visual workflow automation platform and DAG executi
 | `output.log` | `output` | `input`, `message` | `output`, `logged` | `level` | Writes diagnostic logs and forwards input |
 | `output.return` | `output` | `input`, `value` | `output`, `finalValue` | - | Captures and exposes the final workflow output |
 
+> 📖 **Complete Node Reference & Workflow Creation Guide**: Read [`docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md`](docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md) for full port specifications, configuration parameters, execution rules, and step-by-step pipeline blueprints.
+
 ---
 
 ## 🛠️ Repository Structure
