@@ -11,6 +11,9 @@ import {
   Sidebar as SidebarIcon,
   CheckCircle2,
   Loader2,
+  Plus,
+  Wand2,
+  Sparkles,
 } from "lucide-react";
 import { api } from "../../services/api";
 import NodePalette from "./NodePalette";
@@ -19,6 +22,8 @@ import EdgePath, { calculatePortPosition, generateBezierPath } from "./EdgePath"
 import NodeInspector from "./NodeInspector";
 import ValidationDrawer from "./ValidationDrawer";
 import RunExecutionModal from "./RunExecutionModal";
+import QuickAddPopover from "./QuickAddPopover";
+import { calculateAutoLayout } from "./autoLayout";
 
 export default function WorkflowEditor({ workflowId, onBack }) {
   // Core Workflow State
@@ -46,6 +51,16 @@ export default function WorkflowEditor({ workflowId, onBack }) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(true);
   const [isValidationDrawerOpen, setIsValidationDrawerOpen] = useState(false);
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+
+  // Quick Add Popover State
+  const [quickAdd, setQuickAdd] = useState({
+    isOpen: false,
+    screenX: 0,
+    screenY: 0,
+    canvasX: 0,
+    canvasY: 0,
+    autoConnectSource: null,
+  });
 
   // Validation State
   const [validationResult, setValidationResult] = useState({ valid: true, errors: [], warnings: [] });
@@ -228,43 +243,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     };
   }, [workflowId, validateDefinition]);
 
-  // Keyboard Shortcuts (Delete, Save, Esc)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ctrl+S / Cmd+S
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-      }
-      // Delete or Backspace to delete selected element
-      if ((e.key === "Delete" || e.key === "Backspace") && stateRef.current.selectedElement) {
-        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-        const sel = stateRef.current.selectedElement;
-        if (sel.type === "node") {
-          handleDeleteNode(sel.id);
-        } else if (sel.type === "edge") {
-          handleDeleteEdge(sel.id);
-        }
-      }
-      // Escape to clear selection
-      if (e.key === "Escape") {
-        setSelectedElement(null);
-        setConnectingSource(null);
-        setConnectingMousePos(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSave, handleDeleteNode, handleDeleteEdge]);
-
-
-  // Add a node to the canvas
-  const handleAddNode = (catalogueNode, customPos = null) => {
-    // Generate unique node ID e.g. "node_01", "node_02"
-    let index = nodes.length + 1;
+  // Add a node to the canvas with optional auto-connect
+  const handleAddNode = useCallback((catalogueNode, customPos = null, autoConnectSource = null) => {
+    let index = stateRef.current.nodes.length + 1;
     let newId = `node_${String(index).padStart(2, "0")}`;
-    while (nodes.some((n) => n.id === newId)) {
+    while (stateRef.current.nodes.some((n) => n.id === newId)) {
       index++;
       newId = `node_${String(index).padStart(2, "0")}`;
     }
@@ -274,7 +257,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       posX = customPos.x;
       posY = customPos.y;
     } else {
-      // Place in center of current pan viewport
       const container = canvasRef.current;
       const viewWidth = container ? container.clientWidth : 800;
       const viewHeight = container ? container.clientHeight : 600;
@@ -302,14 +284,138 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       config: initialConfig,
     };
 
-    const nextNodes = [...nodes, newNode];
-    setNodes(nextNodes);
+    setNodes((prevNodes) => {
+      const nextNodes = [...prevNodes, newNode];
+
+      setEdges((prevEdges) => {
+        let nextEdges = [...prevEdges];
+
+        // If autoConnectSource is passed, wire it to the first compatible input of the new node
+        if (autoConnectSource && autoConnectSource.nodeId) {
+          const inputKeys = Object.keys(catalogueNode.inputs || {});
+          const targetPort = inputKeys.includes("input") ? "input" : inputKeys[0];
+          if (targetPort) {
+            let edgeIndex = nextEdges.length + 1;
+            let newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+            while (nextEdges.some((e) => e.id === newEdgeId)) {
+              edgeIndex++;
+              newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+            }
+
+            nextEdges.push({
+              id: newEdgeId,
+              source: autoConnectSource.nodeId,
+              sourcePort: autoConnectSource.portName,
+              target: newId,
+              targetPort: targetPort,
+            });
+          }
+        }
+
+        validateDefinition({ ...getWorkflowJson(), nodes: nextNodes, edges: nextEdges });
+        return nextEdges;
+      });
+
+      return nextNodes;
+    });
+
     setSelectedElement({ id: newId, type: "node" });
     setIsDirty(true);
+  }, [getWorkflowJson, validateDefinition, pan.x, pan.y, scale]);
 
-    // Re-validate definition with newly added node
-    validateDefinition({ ...getWorkflowJson(), nodes: nextNodes });
-  };
+  // Open Quick Add Popover from toolbar button or Space shortcut
+  const handleOpenQuickAddFromToolbar = useCallback(() => {
+    const container = canvasRef.current;
+    const viewWidth = container ? container.clientWidth : 800;
+    const viewHeight = container ? container.clientHeight : 600;
+
+    const canvasX = Math.round((-pan.x + viewWidth / 2 - 120) / scale);
+    const canvasY = Math.round((-pan.y + viewHeight / 2 - 60) / scale);
+
+    setQuickAdd({
+      isOpen: true,
+      screenX: window.innerWidth / 2,
+      screenY: window.innerHeight / 2 - 100,
+      canvasX,
+      canvasY,
+      autoConnectSource: null,
+    });
+  }, [pan.x, pan.y, scale]);
+
+  // Quick Connect from NodeCard "+ Next" button
+  const handleQuickConnect = useCallback((sourceNodeId, sourcePortName, event) => {
+    const srcNode = stateRef.current.nodes.find((n) => n.id === sourceNodeId);
+    const canvasX = srcNode ? srcNode.position.x + 360 : 300;
+    const canvasY = srcNode ? srcNode.position.y : 200;
+
+    setQuickAdd({
+      isOpen: true,
+      screenX: event ? event.clientX + 10 : window.innerWidth / 2,
+      screenY: event ? event.clientY : window.innerHeight / 2,
+      canvasX,
+      canvasY,
+      autoConnectSource: { nodeId: sourceNodeId, portName: sourcePortName },
+    });
+  }, []);
+
+  // 1-Click Tidy Graph Auto Layout
+  const handleAutoLayout = useCallback(() => {
+    const tidied = calculateAutoLayout(stateRef.current.nodes, stateRef.current.edges);
+    setNodes(tidied);
+    setIsDirty(true);
+    validateDefinition({ ...getWorkflowJson(), nodes: tidied });
+  }, [getWorkflowJson, validateDefinition]);
+
+  // Keyboard Shortcuts (Delete, Save, Esc, QuickAdd, AutoLayout)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+S / Cmd+S
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+
+      // Space or / to open Quick Add (unless typing in input)
+      if (e.key === " " || e.key === "/") {
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+        e.preventDefault();
+        handleOpenQuickAddFromToolbar();
+        return;
+      }
+
+      // 't' or 'T' for auto layout (unless typing in input)
+      if ((e.key === "t" || e.key === "T") && !e.ctrlKey && !e.metaKey) {
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+        e.preventDefault();
+        handleAutoLayout();
+        return;
+      }
+
+      // Delete or Backspace to delete selected element
+      if ((e.key === "Delete" || e.key === "Backspace") && stateRef.current.selectedElement) {
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+        const sel = stateRef.current.selectedElement;
+        if (sel.type === "node") {
+          handleDeleteNode(sel.id);
+        } else if (sel.type === "edge") {
+          handleDeleteEdge(sel.id);
+        }
+        return;
+      }
+
+      // Escape to clear selection or cancel connecting
+      if (e.key === "Escape") {
+        setSelectedElement(null);
+        setConnectingSource(null);
+        setConnectingMousePos(null);
+        setQuickAdd((prev) => ({ ...prev, isOpen: false, autoConnectSource: null }));
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleSave, handleDeleteNode, handleDeleteEdge, handleOpenQuickAddFromToolbar, handleAutoLayout]);
 
   // Drag and drop onto canvas from NodePalette
   const handleCanvasDragOver = (e) => {
@@ -337,6 +443,26 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
   };
 
+  // Double click canvas to quick add node at cursor
+  const handleCanvasDoubleClick = (e) => {
+    if (e.target === canvasRef.current || e.target.tagName === "svg" || e.target.classList.contains("workflow-canvas-grid")) {
+      const container = canvasRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const canvasX = Math.round((e.clientX - rect.left - pan.x) / scale - 120);
+      const canvasY = Math.round((e.clientY - rect.top - pan.y) / scale - 30);
+
+      setQuickAdd({
+        isOpen: true,
+        screenX: e.clientX,
+        screenY: e.clientY,
+        canvasX,
+        canvasY,
+        autoConnectSource: null,
+      });
+    }
+  };
+
   // Update existing node
   const handleUpdateNode = (updatedNode) => {
     const nextNodes = nodes.map((n) => (n.id === updatedNode.id ? updatedNode : n));
@@ -344,7 +470,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     setIsDirty(true);
     validateDefinition({ ...getWorkflowJson(), nodes: nextNodes });
   };
-
 
   // Start dragging a node
   const handleStartDragNode = (nodeId, e) => {
@@ -362,11 +487,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     };
   };
 
-  // Start port connection drag
+  // Start port connection drag or click
   const handleStartConnection = (nodeId, portName, e) => {
     setConnectingSource({ nodeId, portName });
 
-    if (canvasRef.current) {
+    if (canvasRef.current && e) {
       const rect = canvasRef.current.getBoundingClientRect();
       setConnectingMousePos({
         x: (e.clientX - rect.left - pan.x) / scale,
@@ -464,14 +589,30 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
   };
 
-  const handleCanvasMouseUp = () => {
+  const handleCanvasMouseUp = (e) => {
     if (draggingNodeId) {
       setDraggingNodeId(null);
     }
     if (isPanning) {
       setIsPanning(false);
     }
+
     if (connectingSource) {
+      // If user released on open canvas, open QuickAdd popover with auto-connect
+      if (connectingMousePos && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const canvasX = Math.round(connectingMousePos.x - 120);
+        const canvasY = Math.round(connectingMousePos.y - 30);
+
+        setQuickAdd({
+          isOpen: true,
+          screenX: e ? e.clientX : rect.left + connectingMousePos.x * scale + pan.x,
+          screenY: e ? e.clientY : rect.top + connectingMousePos.y * scale + pan.y,
+          canvasX,
+          canvasY,
+          autoConnectSource: connectingSource,
+        });
+      }
       setConnectingSource(null);
       setConnectingMousePos(null);
     }
@@ -494,12 +635,10 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
   };
 
-
   // Run execution
   const handleExecuteRun = async (triggerData) => {
     setIsRunning(true);
     try {
-      // First auto-save if dirty
       if (isDirty) {
         await handleSave();
       }
@@ -540,8 +679,8 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           zIndex: 25,
         }}
       >
-        {/* Left: Back & Title */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        {/* Left: Back & Title & Quick Tools */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <button
             onClick={onBack}
             title="Back to workflows"
@@ -563,6 +702,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             Workflows
           </button>
 
+          {/* Toggle Palette */}
           <button
             onClick={() => setIsPaletteOpen(!isPaletteOpen)}
             title="Toggle Node Catalogue"
@@ -580,6 +720,54 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             <SidebarIcon size={16} />
           </button>
 
+          {/* Fast "+ Add Node" Tool */}
+          <button
+            onClick={handleOpenQuickAddFromToolbar}
+            title="Add Node (Space or /)"
+            style={{
+              padding: "6px 12px",
+              background: "var(--brand-light)",
+              border: "1px solid var(--brand-border)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--brand)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "0.82rem",
+              fontWeight: "700",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Plus size={14} />
+            Add Node
+          </button>
+
+          {/* Auto Align / Tidy Tool */}
+          <button
+            onClick={handleAutoLayout}
+            title="Auto Align Graph (T)"
+            style={{
+              padding: "6px 10px",
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "0.82rem",
+              fontWeight: "600",
+            }}
+          >
+            <Wand2 size={14} color="var(--brand)" />
+            Tidy
+          </button>
+
+          <div style={{ width: "1px", height: "18px", background: "var(--border-subtle)", margin: "0 4px" }} />
+
+          {/* Workflow Name & Version */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <input
               type="text"
@@ -593,11 +781,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                 border: "none",
                 borderBottom: "1px dashed var(--border-medium)",
                 color: "var(--text-primary)",
-                fontSize: "1.05rem",
+                fontSize: "1.02rem",
                 fontWeight: "700",
                 outline: "none",
                 padding: "2px 4px",
-                width: "220px",
+                width: "200px",
               }}
             />
 
@@ -617,7 +805,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
             {isDirty && (
               <span style={{ fontSize: "0.72rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "4px" }}>
-                • Unsaved changes
+                • Unsaved
               </span>
             )}
             {saveSuccessMsg && (
@@ -658,7 +846,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               {isValidating
                 ? "Validating..."
                 : validationResult.valid
-                ? "Definition Valid"
+                ? "Ready to Run"
                 : `${validationResult.errors.length} Issue${validationResult.errors.length > 1 ? "s" : ""}`}
             </span>
           </button>
@@ -709,7 +897,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         {/* Node Category Sidebar */}
         <NodePalette
           catalogue={catalogue}
-          onAddNode={handleAddNode}
+          onAddNode={(nodeMeta, customPos) => handleAddNode(nodeMeta, customPos)}
           isOpen={isPaletteOpen}
           onToggle={() => setIsPaletteOpen(!isPaletteOpen)}
         />
@@ -721,6 +909,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
+          onDoubleClick={handleCanvasDoubleClick}
           onDragOver={handleCanvasDragOver}
           onDrop={handleCanvasDrop}
           className="workflow-canvas-grid"
@@ -732,6 +921,134 @@ export default function WorkflowEditor({ workflowId, onBack }) {
             cursor: isPanning ? "grabbing" : "default",
           }}
         >
+          {/* Floating Connecting Mode Banner */}
+          {connectingSource && (
+            <div
+              style={{
+                position: "absolute",
+                top: "16px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--brand)",
+                boxShadow: "0 10px 30px var(--brand-glow)",
+                borderRadius: "20px",
+                padding: "8px 18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                zIndex: 35,
+                fontSize: "0.82rem",
+                fontWeight: "600",
+                color: "var(--text-primary)",
+              }}
+            >
+              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--brand)" }} />
+              <span>
+                Connecting from <strong style={{ color: "var(--brand)" }}>{connectingSource.nodeId} · {connectingSource.portName}</strong>
+                {" → Click an input port on any node (or release on canvas to pick a new node)"}
+              </span>
+              <button
+                onClick={() => {
+                  setConnectingSource(null);
+                  setConnectingMousePos(null);
+                }}
+                style={{
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  borderRadius: "10px",
+                  padding: "3px 10px",
+                  fontSize: "0.72rem",
+                  fontWeight: "700",
+                }}
+              >
+                Cancel (Esc)
+              </button>
+            </div>
+          )}
+
+          {/* Canvas Quick-Start Guide (shown when nodes <= 1) */}
+          {nodes.length <= 1 && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: "24px",
+                left: "24px",
+                maxWidth: "400px",
+                background: "var(--bg-card)",
+                backdropFilter: "blur(16px)",
+                WebkitBackdropFilter: "blur(16px)",
+                border: "1px solid var(--border-medium)",
+                borderRadius: "var(--radius-md)",
+                padding: "16px",
+                boxShadow: "var(--shadow-lg)",
+                zIndex: 15,
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Sparkles size={16} color="var(--brand)" />
+                <span style={{ fontSize: "0.88rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                  Quick Start Guide
+                </span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4, margin: 0 }}>
+                Double-click anywhere to add nodes, or drag from the green output port to connect nodes together.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                <button
+                  onClick={() => {
+                    const cat = catalogueMap["math.multiply"];
+                    if (cat) {
+                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
+                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
+                      const y = nodes[0] ? nodes[0].position.y : 180;
+                      handleAddNode(cat, { x, y }, src);
+                    }
+                  }}
+                  className="btn btn-secondary"
+                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
+                >
+                  + Add Math Multiply
+                </button>
+                <button
+                  onClick={() => {
+                    const cat = catalogueMap["json.parse"];
+                    if (cat) {
+                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
+                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
+                      const y = nodes[0] ? nodes[0].position.y : 180;
+                      handleAddNode(cat, { x, y }, src);
+                    }
+                  }}
+                  className="btn btn-secondary"
+                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
+                >
+                  + Add JSON Parser
+                </button>
+                <button
+                  onClick={() => {
+                    const cat = catalogueMap["output.return"];
+                    if (cat) {
+                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
+                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
+                      const y = nodes[0] ? nodes[0].position.y : 180;
+                      handleAddNode(cat, { x, y }, src);
+                    }
+                  }}
+                  className="btn btn-secondary"
+                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
+                >
+                  + Add Return Output
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Zoom / Viewport Controls Floating Overlay */}
           <div
             style={{
@@ -770,6 +1087,13 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               <ZoomOut size={16} />
             </button>
             <div style={{ width: "1px", height: "14px", background: "var(--border-subtle)" }} />
+            <button
+              onClick={handleAutoLayout}
+              title="Tidy Graph (T)"
+              style={{ padding: "6px", background: "none", border: "none", color: "var(--brand)", cursor: "pointer", borderRadius: "6px" }}
+            >
+              <Wand2 size={16} />
+            </button>
             <button
               onClick={() => {
                 setScale(1);
@@ -856,7 +1180,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                     <path
                       d={path}
                       fill="none"
-                      stroke="var(--accent-cyan)"
+                      stroke="var(--brand)"
                       strokeWidth="2.5"
                       strokeDasharray="6, 6"
                       style={{ pointerEvents: "none" }}
@@ -884,6 +1208,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                     onStartDrag={handleStartDragNode}
                     onStartConnection={handleStartConnection}
                     onCompleteConnection={handleCompleteConnection}
+                    onQuickConnect={handleQuickConnect}
                     errors={validationResult.errors}
                     executionTask={task}
                     isConnecting={Boolean(connectingSource)}
@@ -909,6 +1234,18 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         )}
       </div>
 
+      {/* Quick Add Node Popover */}
+      <QuickAddPopover
+        isOpen={quickAdd.isOpen}
+        onClose={() => setQuickAdd((prev) => ({ ...prev, isOpen: false, autoConnectSource: null }))}
+        position={quickAdd}
+        catalogue={catalogue}
+        autoConnectSource={quickAdd.autoConnectSource}
+        onSelectNode={(nodeMeta, customPos, autoConnectSource) => {
+          handleAddNode(nodeMeta, customPos, autoConnectSource);
+        }}
+      />
+
       {/* Validation Flyout Drawer */}
       <ValidationDrawer
         isOpen={isValidationDrawerOpen}
@@ -918,7 +1255,6 @@ export default function WorkflowEditor({ workflowId, onBack }) {
           setSelectedElement({ id, type });
           const targetNode = nodes.find((n) => n.id === id);
           if (targetNode) {
-            // Pan smoothly to target node
             setPan({
               x: -targetNode.position.x * scale + 200,
               y: -targetNode.position.y * scale + 200,

@@ -2,21 +2,44 @@ import React, { useState, useEffect } from "react";
 import { 
   Plus, 
   Workflow, 
-  Play, 
   Trash2, 
   ExternalLink, 
   Clock, 
   Layers, 
   GitBranch, 
-  Search,
-  Sparkles,
-  Loader2,
-  Calculator,
-  FileJson
+  Search, 
+  Sparkles, 
+  Loader2, 
+  Calculator, 
+  FileJson,
+  X,
+  Check
 } from "lucide-react";
 import { api } from "../../services/api";
 
 const STARTER_TEMPLATES = [
+  {
+    id: "blank",
+    name: "Blank Canvas",
+    description: "Clean slate with an initial Manual Trigger node ready to wire",
+    icon: Workflow,
+    color: "#39AEA9",
+    definition: {
+      schemaVersion: 1,
+      name: "Untitled Workflow",
+      nodes: [
+        {
+          id: "trigger_01",
+          type: "trigger.manual",
+          version: 1,
+          name: "Manual Trigger",
+          position: { x: 160, y: 180 },
+          config: {},
+        },
+      ],
+      edges: [],
+    },
+  },
   {
     id: "canonical_math",
     name: "Canonical Math Multiply",
@@ -162,7 +185,7 @@ const STARTER_TEMPLATES = [
           version: 1,
           name: "Add 10",
           position: { x: 380, y: 100 },
-          config: { addend: 10 },
+          config: { b: 10 },
         },
         {
           id: "multiply_01",
@@ -176,7 +199,7 @@ const STARTER_TEMPLATES = [
           id: "sub_01",
           type: "math.subtract",
           version: 1,
-          name: "Subtract (Mult - Add)",
+          name: "Subtract Nodes",
           position: { x: 680, y: 180 },
           config: {},
         },
@@ -184,7 +207,7 @@ const STARTER_TEMPLATES = [
           id: "output_01",
           type: "output.return",
           version: 1,
-          name: "Final Result",
+          name: "Return Result",
           position: { x: 960, y: 180 },
           config: {},
         },
@@ -304,35 +327,15 @@ const STARTER_TEMPLATES = [
       ],
     },
   },
-  {
-    id: "blank",
-    name: "Blank Canvas",
-    description: "Start from a clean canvas with an initial Manual Trigger node ready to wire",
-    icon: Workflow,
-    color: "#39AEA9",
-    definition: {
-      schemaVersion: 1,
-      name: "Untitled Workflow",
-      nodes: [
-        {
-          id: "trigger_01",
-          type: "trigger.manual",
-          version: 1,
-          name: "Manual Trigger",
-          position: { x: 160, y: 180 },
-          config: {},
-        },
-      ],
-      edges: [],
-    },
-  },
 ];
 
 export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newWorkflowName, setNewWorkflowName] = useState("Untitled Workflow");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("blank");
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
@@ -357,6 +360,69 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
     }
   };
 
+  // Instant 1-click Blank Workflow creation
+  const handleCreateBlankWorkflow = async () => {
+    setIsCreating(true);
+    try {
+      const res = await api.createWorkflow({
+        name: "Untitled Workflow",
+        description: "",
+        definition: {
+          schemaVersion: 1,
+          name: "Untitled Workflow",
+          nodes: [
+            {
+              id: "trigger_01",
+              type: "trigger.manual",
+              version: 1,
+              name: "Manual Trigger",
+              position: { x: 160, y: 180 },
+              config: {},
+            },
+          ],
+          edges: [],
+        },
+      });
+
+      if (res && res.data) {
+        onOpenWorkflow(res.data.id);
+      }
+    } catch (err) {
+      console.error("Failed to create workflow:", err);
+      alert(`Failed to create workflow: ${err.message}`);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // Create workflow from selected template with custom name
+  const handleConfirmCreate = async () => {
+    setIsCreating(true);
+    try {
+      const selectedTmpl = STARTER_TEMPLATES.find((t) => t.id === selectedTemplateId) || STARTER_TEMPLATES[0];
+      const wfName = newWorkflowName.trim() || selectedTmpl.name;
+      const res = await api.createWorkflow({
+        name: wfName,
+        description: selectedTmpl.description,
+        definition: {
+          ...selectedTmpl.definition,
+          name: wfName,
+        },
+      });
+
+      if (res && res.data) {
+        setIsCreateModalOpen(false);
+        onOpenWorkflow(res.data.id);
+      }
+    } catch (err) {
+      console.error("Failed to create workflow:", err);
+      alert(`Failed to create workflow: ${err.message}`);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // Direct create from template item
   const handleCreateFromTemplate = async (template) => {
     setIsCreating(true);
     try {
@@ -367,7 +433,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
       });
 
       if (res && res.data) {
-        setIsTemplateModalOpen(false);
+        setIsCreateModalOpen(false);
         onOpenWorkflow(res.data.id);
       }
     } catch (err) {
@@ -400,9 +466,9 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
       <div style={{ maxWidth: "800px", margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
         <div className="glass-panel" style={{ padding: "40px" }}>
           <Workflow size={48} color="var(--brand)" style={{ margin: "0 auto 16px auto" }} />
-          <h2 style={{ fontSize: "1.6rem", fontWeight: "800", marginBottom: "8px", color: "var(--text-primary)" }}>Sign In to NexFlow</h2>
+          <h2 style={{ fontSize: "1.6rem", fontWeight: "800", marginBottom: "8px", color: "var(--text-primary)" }}>Sign In to Dormammu</h2>
           <p style={{ color: "var(--text-secondary)", marginBottom: "24px", fontSize: "0.95rem" }}>
-            Build, validate, persist, and execute directed acyclic graph (DAG) pipelines with the Dormammu Loop engine.
+            Build, validate, persist, and execute directed acyclic graph (DAG) pipelines with precision.
           </p>
           <button
             onClick={() => onOpenAuth("login")}
@@ -429,20 +495,48 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsTemplateModalOpen(true)}
-          className="btn btn-primary"
-          style={{
-            padding: "10px 20px",
-            fontSize: "0.92rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          <Plus size={18} />
-          New Workflow
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {/* Quick 1-Click Blank Canvas */}
+          <button
+            onClick={handleCreateBlankWorkflow}
+            disabled={isCreating}
+            className="btn btn-secondary"
+            title="Start from scratch with 1 click"
+            style={{
+              padding: "9px 16px",
+              fontSize: "0.88rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              borderRadius: "var(--radius-full)",
+            }}
+          >
+            <Workflow size={15} color="var(--brand)" />
+            Blank Canvas
+          </button>
+
+          {/* New Workflow Modal Trigger */}
+          <button
+            onClick={() => {
+              setNewWorkflowName("Untitled Workflow");
+              setSelectedTemplateId("blank");
+              setIsCreateModalOpen(true);
+            }}
+            disabled={isCreating}
+            className="btn btn-primary"
+            style={{
+              padding: "9px 20px",
+              fontSize: "0.92rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              borderRadius: "var(--radius-full)",
+            }}
+          >
+            {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={18} />}
+            {isCreating ? "Creating..." : "New Workflow"}
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -461,7 +555,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
         />
       </div>
 
-      {/* Workflows Grid */}
+      {/* Workflows Grid / Empty State */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
           <Loader2 size={32} color="var(--brand)" className="animate-spin" />
@@ -470,34 +564,84 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
         <div 
           className="glass-panel"
           style={{ 
-            textAlign: "center", 
-            padding: "60px 20px",
+            padding: "40px 24px",
             display: "flex",
             flexDirection: "column",
-            alignItems: "center",
-            gap: "14px",
+            gap: "24px",
           }}
         >
-          <div style={{ width: "50px", height: "50px", borderRadius: "12px", background: "var(--brand-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Workflow size={24} color="var(--brand)" />
+          <div style={{ textAlign: "center", maxWidth: "560px", margin: "0 auto" }}>
+            <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: "var(--brand-light)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px auto" }}>
+              <Workflow size={24} color="var(--brand)" />
+            </div>
+            <h3 style={{ fontSize: "1.3rem", fontWeight: "800", color: "var(--text-primary)" }}>Create Your First Workflow</h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", marginTop: "6px" }}>
+              Click any starter card below to launch into the visual editor instantly.
+            </p>
           </div>
-          <h3 style={{ fontSize: "1.2rem", fontWeight: "700" }}>No Workflows Found</h3>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", maxWidth: "420px" }}>
-            Get started by launching a pre-built starter pipeline or create your own custom nodes on the canvas.
-          </p>
-          <button
-            onClick={() => setIsTemplateModalOpen(true)}
-            className="btn btn-primary"
-            style={{
-              padding: "10px 20px",
-              fontSize: "0.88rem",
-            }}
-          >
-            Create First Workflow
-          </button>
+
+          {/* Quick starter cards grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+            {STARTER_TEMPLATES.map((tmpl) => {
+              const IconComp = tmpl.icon;
+              return (
+                <div
+                  key={tmpl.id}
+                  onClick={() => handleCreateFromTemplate(tmpl)}
+                  style={{
+                    padding: "18px",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = tmpl.color;
+                    e.currentTarget.style.transform = "translateY(-3px)";
+                    e.currentTarget.style.boxShadow = "var(--shadow-md)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.transform = "translateY(0px)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div
+                      style={{
+                        width: "34px",
+                        height: "34px",
+                        borderRadius: "8px",
+                        background: `${tmpl.color}22`,
+                        color: tmpl.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <IconComp size={18} />
+                    </div>
+                    <span style={{ fontSize: "0.92rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                      {tmpl.name}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.4 }}>
+                    {tmpl.description}
+                  </p>
+                  <span style={{ fontSize: "0.75rem", color: "var(--brand)", fontWeight: "600", marginTop: "auto", display: "flex", alignItems: "center", gap: "4px" }}>
+                    Start with this →
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "20px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "18px" }}>
           {filteredWorkflows.map((wf) => (
             <div
               key={wf.id}
@@ -511,7 +655,6 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                 justifyContent: "space-between",
                 gap: "16px",
                 transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                position: "relative",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = "translateY(-3px)";
@@ -607,16 +750,16 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
         </div>
       )}
 
-      {/* Starter Template Modal */}
-      {isTemplateModalOpen && (
+      {/* Streamlined Create Workflow Modal */}
+      {isCreateModalOpen && (
         <div
           style={{
             position: "fixed",
             inset: 0,
             zIndex: 60,
-            background: "rgba(0, 0, 0, 0.6)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
+            background: "rgba(0, 0, 0, 0.65)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -627,11 +770,11 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
             className="glass-panel"
             style={{
               width: "100%",
-              maxWidth: "600px",
+              maxWidth: "580px",
               padding: "24px",
               display: "flex",
               flexDirection: "column",
-              gap: "18px",
+              gap: "20px",
               border: "1px solid var(--border-medium)",
               background: "var(--bg-card)",
               boxShadow: "var(--shadow-xl)"
@@ -639,76 +782,122 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <h3 style={{ fontSize: "1.2rem", fontWeight: "800", color: "var(--text-primary)" }}>Choose Starter Template</h3>
+                <h3 style={{ fontSize: "1.25rem", fontWeight: "800", color: "var(--text-primary)" }}>Create New Workflow</h3>
                 <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                  Select a workflow pipeline configuration to begin
+                  Name your workflow and choose a starting point
                 </p>
               </div>
 
               <button
-                onClick={() => setIsTemplateModalOpen(false)}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "1.2rem" }}
+                onClick={() => setIsCreateModalOpen(false)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "1.2rem", padding: "4px" }}
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {STARTER_TEMPLATES.map((tmpl) => {
-                const IconComponent = tmpl.icon;
-                return (
-                  <div
-                    key={tmpl.id}
-                    onClick={() => handleCreateFromTemplate(tmpl)}
-                    style={{
-                      padding: "14px 16px",
-                      background: "var(--bg-secondary)",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "10px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "14px",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = tmpl.color;
-                      e.currentTarget.style.background = "var(--bg-chip-hover)";
-                      e.currentTarget.style.transform = "translateX(4px)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border-subtle)";
-                      e.currentTarget.style.background = "var(--bg-secondary)";
-                      e.currentTarget.style.transform = "translateX(0px)";
-                    }}
-                  >
+            {/* Workflow Name Input */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label style={{ fontSize: "0.78rem", fontWeight: "700", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                Workflow Name
+              </label>
+              <input
+                type="text"
+                value={newWorkflowName}
+                autoFocus
+                onChange={(e) => setNewWorkflowName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleConfirmCreate();
+                  }
+                }}
+                placeholder="e.g. Order Processing Pipeline"
+                className="input-control"
+                style={{ padding: "10px 14px", fontSize: "0.95rem", fontWeight: "600" }}
+              />
+            </div>
+
+            {/* Template Selection */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <label style={{ fontSize: "0.78rem", fontWeight: "700", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                Choose Starting Setup
+              </label>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "280px", overflowY: "auto" }} className="custom-scrollbar">
+                {STARTER_TEMPLATES.map((tmpl) => {
+                  const IconComp = tmpl.icon;
+                  const isSelected = selectedTemplateId === tmpl.id;
+
+                  return (
                     <div
+                      key={tmpl.id}
+                      onClick={() => setSelectedTemplateId(tmpl.id)}
                       style={{
-                        width: "38px",
-                        height: "38px",
-                        borderRadius: "8px",
-                        background: `${tmpl.color}22`,
-                        color: tmpl.color,
+                        padding: "12px 14px",
+                        background: isSelected ? "var(--brand-light)" : "var(--bg-secondary)",
+                        border: `1.5px solid ${isSelected ? "var(--brand)" : "var(--border-subtle)"}`,
+                        borderRadius: "10px",
+                        cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
+                        gap: "12px",
+                        transition: "all 0.15s ease",
                       }}
                     >
-                      <IconComponent size={20} />
-                    </div>
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "8px",
+                          background: `${tmpl.color}22`,
+                          color: tmpl.color,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <IconComp size={17} />
+                      </div>
 
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "0.95rem", fontWeight: "700", color: "var(--text-primary)" }}>
-                        {tmpl.name}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "0.9rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                          {tmpl.name}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px", lineHeight: 1.3 }}>
+                          {tmpl.description}
+                        </div>
                       </div>
-                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "2px", lineHeight: 1.3 }}>
-                        {tmpl.description}
-                      </div>
+
+                      {isSelected && (
+                        <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Check size={12} color="#ffffff" />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px", paddingTop: "6px", borderTop: "1px solid var(--border-subtle)" }}>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className="btn btn-secondary"
+                style={{ padding: "8px 16px", fontSize: "0.85rem" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCreate}
+                disabled={isCreating}
+                className="btn btn-primary"
+                style={{ padding: "8px 22px", fontSize: "0.88rem", display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                {isCreating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={16} />}
+                {isCreating ? "Creating..." : "Create Workflow"}
+              </button>
             </div>
           </div>
         </div>

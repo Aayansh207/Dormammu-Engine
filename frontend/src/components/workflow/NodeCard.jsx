@@ -6,7 +6,8 @@ import {
   XCircle, 
   Loader2, 
   Ban,
-  Sparkles
+  Sparkles,
+  Plus
 } from "lucide-react";
 import { CATEGORY_META } from "./NodePalette";
 import { 
@@ -35,6 +36,7 @@ export default function NodeCard({
   onStartDrag,
   onStartConnection,
   onCompleteConnection,
+  onQuickConnect,
   errors = [],
   executionTask = null,
   isConnecting = false,
@@ -187,6 +189,41 @@ export default function NodeCard({
             </div>
           )}
 
+          {outputEntries.length > 0 && onQuickConnect && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickConnect(node.id, outputEntries[0][0], e);
+              }}
+              title="Add and connect next node"
+              style={{
+                background: "var(--brand-light)",
+                border: "1px solid var(--brand-border)",
+                color: "var(--brand)",
+                cursor: "pointer",
+                padding: "2px 6px",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px",
+                borderRadius: "4px",
+                fontSize: "0.68rem",
+                fontWeight: "700",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--brand)";
+                e.currentTarget.style.color = "#ffffff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--brand-light)";
+                e.currentTarget.style.color = "var(--brand)";
+              }}
+            >
+              <Plus size={11} />
+              Next
+            </button>
+          )}
+
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -265,6 +302,12 @@ export default function NodeCard({
                       transition: "all 0.15s ease",
                     }}
                     title={`Input Port: ${inPortName} (${inPortDef.type})`}
+                    onClick={(e) => {
+                      if (isConnecting) {
+                        e.stopPropagation();
+                        onCompleteConnection(node.id, inPortName);
+                      }
+                    }}
                     onMouseUp={(e) => {
                       e.stopPropagation();
                       onCompleteConnection(node.id, inPortName);
@@ -282,7 +325,13 @@ export default function NodeCard({
                         color: inTypeColor,
                         boxShadow: isEligibleTarget ? `0 0 10px ${inTypeColor}` : "none",
                       }}
-                      title={`Input: ${inPortName} (${inPortDef.type})`}
+                      title={`Input: ${inPortName} (${inPortDef.type}) - Click to connect`}
+                      onClick={(e) => {
+                        if (isConnecting) {
+                          e.stopPropagation();
+                          onCompleteConnection(node.id, inPortName);
+                        }
+                      }}
                       onMouseUp={(e) => {
                         e.stopPropagation();
                         onCompleteConnection(node.id, inPortName);
@@ -320,8 +369,12 @@ export default function NodeCard({
                       padding: "2px 4px",
                       borderRadius: "4px",
                     }}
-                    title={`Output Port: ${outPortName} (${outPortDef.type}) - Drag to connect`}
+                    title={`Output Port: ${outPortName} (${outPortDef.type}) - Click or Drag to connect`}
                     onMouseDown={(e) => {
+                      e.stopPropagation();
+                      onStartConnection(node.id, outPortName, e);
+                    }}
+                    onClick={(e) => {
                       e.stopPropagation();
                       onStartConnection(node.id, outPortName, e);
                     }}
@@ -353,8 +406,12 @@ export default function NodeCard({
                         backgroundColor: outTypeColor,
                         color: outTypeColor,
                       }}
-                      title={`Output: ${outPortName} (${outPortDef.type}) - Drag to connect`}
+                      title={`Output: ${outPortName} (${outPortDef.type}) - Click or Drag to connect`}
                       onMouseDown={(e) => {
+                        e.stopPropagation();
+                        onStartConnection(node.id, outPortName, e);
+                      }}
+                      onClick={(e) => {
                         e.stopPropagation();
                         onStartConnection(node.id, outPortName, e);
                       }}
