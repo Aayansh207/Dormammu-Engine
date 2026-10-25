@@ -13,7 +13,8 @@ import {
   Calculator, 
   FileJson,
   X,
-  Check
+  Check,
+  Zap
 } from "lucide-react";
 import { api } from "../../services/api";
 
@@ -320,6 +321,74 @@ const STARTER_TEMPLATES = [
         {
           id: "edge_03",
           source: "concat_01",
+          sourcePort: "output",
+          target: "output_01",
+          targetPort: "input",
+        },
+      ],
+    },
+  },
+  {
+    id: "dual_manual_trigger",
+    name: "Dual Trigger Pipeline",
+    description: "Two distinct manual triggers executing in parallel and converging into an Addition node",
+    icon: Zap,
+    color: "#E2703A",
+    definition: {
+      schemaVersion: 1,
+      name: "Dual Trigger Pipeline",
+      nodes: [
+        {
+          id: "trig_a",
+          type: "trigger.manual",
+          version: 1,
+          name: "Trigger A (Input A)",
+          position: { x: 100, y: 100 },
+          config: { triggerKey: "inputA", defaultPayload: 15 },
+        },
+        {
+          id: "trig_b",
+          type: "trigger.manual",
+          version: 1,
+          name: "Trigger B (Input B)",
+          position: { x: 100, y: 260 },
+          config: { triggerKey: "inputB", defaultPayload: 35 },
+        },
+        {
+          id: "add_join",
+          type: "math.add",
+          version: 1,
+          name: "Combine (A + B)",
+          position: { x: 420, y: 180 },
+          config: {},
+        },
+        {
+          id: "output_01",
+          type: "output.return",
+          version: 1,
+          name: "Return Sum",
+          position: { x: 720, y: 180 },
+          config: {},
+        },
+      ],
+      edges: [
+        {
+          id: "edge_01",
+          source: "trig_a",
+          sourcePort: "output",
+          target: "add_join",
+          targetPort: "a",
+        },
+        {
+          id: "edge_02",
+          source: "trig_b",
+          sourcePort: "output",
+          target: "add_join",
+          targetPort: "b",
+        },
+        {
+          id: "edge_03",
+          source: "add_join",
           sourcePort: "output",
           target: "output_01",
           targetPort: "input",

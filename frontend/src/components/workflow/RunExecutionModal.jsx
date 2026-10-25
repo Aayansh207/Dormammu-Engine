@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   X, 
   Play, 
@@ -10,7 +10,9 @@ import {
   Clock, 
   Terminal,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Zap,
+  Sliders
 } from "lucide-react";
 
 export default function RunExecutionModal({
@@ -21,25 +23,89 @@ export default function RunExecutionModal({
   isRunning,
   runResult,
 }) {
+  const manualTriggers = (workflow?.nodes || []).filter((n) => n.type === "trigger.manual");
+  const isMultiTrigger = manualTriggers.length >= 2;
+
   const [triggerInput, setTriggerInput] = useState("10");
+  const [multiTriggerMode, setMultiTriggerMode] = useState("per_trigger"); // "per_trigger" | "broadcast"
+  const [selectedTriggerId, setSelectedTriggerId] = useState(null);
+  const [perTriggerInputs, setPerTriggerInputs] = useState({});
   const [activeTab, setActiveTab] = useState("trigger"); // "trigger" | "results"
   const [copied, setCopied] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState({});
 
+  // Synchronize multi-trigger default values whenever modal opens or workflow changes
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (manualTriggers.length > 0) {
+      if (!selectedTriggerId || !manualTriggers.find((t) => t.id === selectedTriggerId)) {
+        setSelectedTriggerId(manualTriggers[0].id);
+      }
+
+      setPerTriggerInputs((prev) => {
+        const next = { ...prev };
+        manualTriggers.forEach((trig, idx) => {
+          if (next[trig.id] === undefined) {
+            if (trig.config?.defaultPayload !== undefined && Object.keys(trig.config.defaultPayload).length > 0) {
+              next[trig.id] = typeof trig.config.defaultPayload === "object"
+                ? JSON.stringify(trig.config.defaultPayload, null, 2)
+                : String(trig.config.defaultPayload);
+            } else {
+              next[trig.id] = String((idx + 1) * 10);
+            }
+          }
+        });
+        return next;
+      });
+    }
+  }, [isOpen, workflow?.nodes?.length]);
+
   if (!isOpen) return null;
 
   const handleExecute = () => {
-    let parsed = triggerInput;
-    try {
-      parsed = JSON.parse(triggerInput);
-    } catch {
-      // If it's a number string
-      if (!isNaN(Number(triggerInput)) && triggerInput.trim() !== "") {
-        parsed = Number(triggerInput);
+    let payloadToSend;
+
+    if (isMultiTrigger && multiTriggerMode === "per_trigger") {
+      const multiPayload = { $multiTrigger: true };
+      for (const trig of manualTriggers) {
+        const raw = perTriggerInputs[trig.id];
+        let val;
+        if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+          try {
+            val = JSON.parse(raw);
+          } catch {
+            if (!isNaN(Number(raw))) {
+              val = Number(raw);
+            } else {
+              val = raw;
+            }
+          }
+        } else if (trig.config?.defaultPayload !== undefined) {
+          val = trig.config.defaultPayload;
+        } else {
+          val = {};
+        }
+
+        multiPayload[trig.id] = val;
+        if (trig.config?.triggerKey && trig.config.triggerKey.trim() !== "") {
+          multiPayload[trig.config.triggerKey] = val;
+        }
       }
+      payloadToSend = multiPayload;
+    } else {
+      let parsed = triggerInput;
+      try {
+        parsed = JSON.parse(triggerInput);
+      } catch {
+        if (!isNaN(Number(triggerInput)) && triggerInput.trim() !== "") {
+          parsed = Number(triggerInput);
+        }
+      }
+      payloadToSend = parsed;
     }
 
-    onRun(parsed);
+    onRun(payloadToSend);
     setActiveTab("results");
   };
 
@@ -181,49 +247,263 @@ export default function RunExecutionModal({
         {/* Tab Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
           {activeTab === "trigger" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <label style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--text-secondary)" }}>
-                  Trigger Input Data (JSON or number)
-                </label>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button
-                    onClick={() => setTriggerInput("10")}
-                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
-                  >
-                    Number 10
-                  </button>
-                  <button
-                    onClick={() => setTriggerInput('{"userId": "usr_99", "amount": 250}')}
-                    style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
-                  >
-                    JSON Object
-                  </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {/* Multi-Trigger Arrangement Banner */}
+              {isMultiTrigger ? (
+                <div
+                  style={{
+                    background: "rgba(57, 174, 169, 0.08)",
+                    border: "1px solid var(--brand-border)",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Zap size={16} color="var(--brand)" />
+                      <div>
+                        <div style={{ fontSize: "0.84rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                          {manualTriggers.length} Manual Triggers Configured
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                          Target independent inputs to each trigger or broadcast a shared payload
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mode Toggle */}
+                    <div style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: "6px", padding: "2px", border: "1px solid var(--border-subtle)" }}>
+                      <button
+                        type="button"
+                        onClick={() => setMultiTriggerMode("per_trigger")}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          border: "none",
+                          fontSize: "0.72rem",
+                          fontWeight: "700",
+                          background: multiTriggerMode === "per_trigger" ? "var(--brand)" : "transparent",
+                          color: multiTriggerMode === "per_trigger" ? "#ffffff" : "var(--text-muted)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <Sliders size={12} />
+                        Per-Trigger
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMultiTriggerMode("broadcast")}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          border: "none",
+                          fontSize: "0.72rem",
+                          fontWeight: "700",
+                          background: multiTriggerMode === "broadcast" ? "var(--brand)" : "transparent",
+                          color: multiTriggerMode === "broadcast" ? "#ffffff" : "var(--text-muted)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Broadcast
+                      </button>
+                    </div>
+                  </div>
+
+                  {multiTriggerMode === "per_trigger" && (
+                    <>
+                      {/* Trigger Tab Selector */}
+                      <div style={{ display: "flex", gap: "6px", overflowX: "auto", paddingBottom: "2px" }}>
+                        {manualTriggers.map((trig, idx) => {
+                          const isSel = selectedTriggerId === trig.id;
+                          return (
+                            <button
+                              key={trig.id}
+                              type="button"
+                              onClick={() => setSelectedTriggerId(trig.id)}
+                              style={{
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                border: `1px solid ${isSel ? "var(--brand-border)" : "var(--border-subtle)"}`,
+                                background: isSel ? "var(--brand-light)" : "var(--bg-card)",
+                                color: isSel ? "var(--brand)" : "var(--text-secondary)",
+                                fontWeight: isSel ? "700" : "500",
+                                fontSize: "0.78rem",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: "18px",
+                                  height: "18px",
+                                  borderRadius: "50%",
+                                  background: isSel ? "var(--brand)" : "rgba(255,255,255,0.08)",
+                                  color: isSel ? "#ffffff" : "var(--text-muted)",
+                                  fontSize: "0.68rem",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontWeight: "700",
+                                }}
+                              >
+                                {idx + 1}
+                              </span>
+                              <span>{trig.name || trig.id}</span>
+                              {trig.config?.triggerKey && (
+                                <span style={{ fontSize: "0.65rem", opacity: 0.7, fontFamily: "var(--font-mono)" }}>
+                                  ({trig.config.triggerKey})
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Selected Trigger Input Box */}
+                      {selectedTriggerId && (() => {
+                        const activeTrig = manualTriggers.find((t) => t.id === selectedTriggerId) || manualTriggers[0];
+                        const activeVal = perTriggerInputs[activeTrig.id] ?? "";
+
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "6px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "0.8rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                                  Payload for {activeTrig.name || activeTrig.id}
+                                </span>
+                                <span style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "1px 6px", borderRadius: "4px" }}>
+                                  ID: {activeTrig.id}
+                                </span>
+                              </div>
+
+                              <div style={{ display: "flex", gap: "5px" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: "10" }))}
+                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                >
+                                  10
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: "25" }))}
+                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                >
+                                  25
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: JSON.stringify({ item: activeTrig.id, value: 100 }, null, 2) }))}
+                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                >
+                                  JSON
+                                </button>
+                                {activeTrig.config?.defaultPayload !== undefined && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPerTriggerInputs((p) => ({
+                                      ...p,
+                                      [activeTrig.id]: typeof activeTrig.config.defaultPayload === "object"
+                                        ? JSON.stringify(activeTrig.config.defaultPayload, null, 2)
+                                        : String(activeTrig.config.defaultPayload),
+                                    }))}
+                                    style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--brand)", cursor: "pointer" }}
+                                  >
+                                    Default
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <textarea
+                              rows={5}
+                              value={activeVal}
+                              onChange={(e) => setPerTriggerInputs((prev) => ({ ...prev, [activeTrig.id]: e.target.value }))}
+                              placeholder={`Enter custom payload for ${activeTrig.name || activeTrig.id}...`}
+                              style={{
+                                width: "100%",
+                                padding: "10px",
+                                background: "var(--bg-input)",
+                                border: "1px solid var(--border-subtle)",
+                                borderRadius: "8px",
+                                color: "var(--text-primary)",
+                                fontSize: "0.82rem",
+                                fontFamily: "var(--font-mono)",
+                                outline: "none",
+                                resize: "vertical",
+                              }}
+                            />
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                              Targeted directly to <code>{activeTrig.id}</code> on execution. Other triggers use their respective payloads.
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
-              </div>
+              ) : null}
 
-              <textarea
-                rows={6}
-                value={triggerInput}
-                onChange={(e) => setTriggerInput(e.target.value)}
-                placeholder="Enter input data to pass to manual trigger or data.input..."
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  background: "var(--bg-input)",
-                  border: "1px solid var(--border-subtle)",
-                  borderRadius: "10px",
-                  color: "var(--text-primary)",
-                  fontSize: "0.85rem",
-                  fontFamily: "var(--font-mono)",
-                  outline: "none",
-                  resize: "vertical",
-                }}
-              />
+              {/* Broadcast or Single-Trigger Input View */}
+              {(!isMultiTrigger || multiTriggerMode === "broadcast") && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--text-secondary)" }}>
+                      {isMultiTrigger ? "Broadcast Payload (Passed to all triggers)" : "Trigger Input Data (JSON or number)"}
+                    </label>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setTriggerInput("10")}
+                        style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                      >
+                        Number 10
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTriggerInput('{"userId": "usr_99", "amount": 250}')}
+                        style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                      >
+                        JSON Object
+                      </button>
+                    </div>
+                  </div>
 
-              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
-                💡 Any <code>trigger.manual</code> or <code>data.input</code> nodes in your graph will ingest this payload during execution.
-              </div>
+                  <textarea
+                    rows={6}
+                    value={triggerInput}
+                    onChange={(e) => setTriggerInput(e.target.value)}
+                    placeholder="Enter input data to pass to trigger nodes..."
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "10px",
+                      color: "var(--text-primary)",
+                      fontSize: "0.85rem",
+                      fontFamily: "var(--font-mono)",
+                      outline: "none",
+                      resize: "vertical",
+                    }}
+                  />
+
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                    {isMultiTrigger
+                      ? `📢 This payload will be broadcasted to all ${manualTriggers.length} manual trigger nodes simultaneously.`
+                      : "💡 Any trigger.manual or data.input nodes in your graph will ingest this payload during execution."}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -272,6 +552,51 @@ export default function RunExecutionModal({
                       <span>{runResult.durationMs || 0} ms</span>
                     </div>
                   </div>
+
+                  {/* Multi-Trigger Ingestion Summary in Results */}
+                  {isMultiTrigger && runResult?.tasks && (
+                    <div
+                      style={{
+                        background: "rgba(57, 174, 169, 0.08)",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "10px",
+                        padding: "12px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "var(--brand)", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Zap size={13} /> Trigger Task Ingestions ({manualTriggers.length})
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "8px" }}>
+                        {manualTriggers.map((trig) => {
+                          const task = runResult.tasks?.[trig.id];
+                          return (
+                            <div
+                              key={trig.id}
+                              style={{
+                                background: "var(--bg-card)",
+                                padding: "8px 10px",
+                                borderRadius: "6px",
+                                border: "1px solid var(--border-subtle)",
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                                <span style={{ fontSize: "0.75rem", fontWeight: "600" }}>{trig.name || trig.id}</span>
+                                <span style={{ fontSize: "0.68rem", fontWeight: "700", color: task?.status === "SUCCEEDED" ? "#10b981" : "var(--text-muted)" }}>
+                                  {task?.status || "PENDING"}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                Output: {task?.outputs?.output !== undefined ? JSON.stringify(task.outputs.output) : "—"}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Final Output */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>

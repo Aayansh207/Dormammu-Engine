@@ -47,6 +47,30 @@ async function runWorkflowEngineTests() {
     assert.deepStrictEqual(res.output, { foo: "bar" });
   });
 
+  await test("trigger.manual: extracts targeted payload when multiple triggers exist", async () => {
+    const nodeDef = defaultRegistry.get("trigger.manual");
+    const multiPayload = {
+      $multiTrigger: true,
+      trig_orders: { orderId: "ord_101", total: 499 },
+      trig_users: { userId: "usr_55", name: "Alice" },
+    };
+
+    // Test targeted by node.id
+    const ctx1 = createExecutionContext({ runId: "r1", taskId: "t1", nodeId: "trig_orders", triggerData: multiPayload });
+    const res1 = await nodeDef.handler({}, { id: "trig_orders", config: {} }, ctx1);
+    assert.deepStrictEqual(res1.output, { orderId: "ord_101", total: 499 });
+
+    // Test targeted by node.config.triggerKey
+    const ctx2 = createExecutionContext({ runId: "r1", taskId: "t2", nodeId: "custom_node", triggerData: multiPayload });
+    const res2 = await nodeDef.handler({}, { id: "custom_node", config: { triggerKey: "trig_users" } }, ctx2);
+    assert.deepStrictEqual(res2.output, { userId: "usr_55", name: "Alice" });
+
+    // Test fallback to defaultPayload when not in multi-trigger map
+    const ctx3 = createExecutionContext({ runId: "r1", taskId: "t3", nodeId: "trig_other", triggerData: multiPayload });
+    const res3 = await nodeDef.handler({}, { id: "trig_other", config: { defaultPayload: "fallback_val" } }, ctx3);
+    assert.strictEqual(res3.output, "fallback_val");
+  });
+
   await test("data.input: extracts key from triggerData", async () => {
     const nodeDef = defaultRegistry.get("data.input");
     const ctx = createExecutionContext({ runId: "r1", taskId: "t1", nodeId: "n1", triggerData: { amount: 150 } });
@@ -477,6 +501,36 @@ async function runWorkflowEngineTests() {
     const summary = await executeWorkflow(workflow, { abortSignal: controller.signal });
     assert.strictEqual(summary.status, WorkflowRunStatus.CANCELLED);
     assert.ok(summary.tasks.n1.status === TaskRunStatus.CANCELLED || summary.tasks.n2.status === TaskRunStatus.CANCELLED);
+  });
+
+  await test("Scheduler: executes workflow with multiple manual triggers", async () => {
+    const workflow = {
+      schemaVersion: 1,
+      name: "Dual Trigger Workflow",
+      nodes: [
+        { id: "trig_a", type: "trigger.manual", version: 1, config: {} },
+        { id: "trig_b", type: "trigger.manual", version: 1, config: {} },
+        { id: "join_add", type: "math.add", version: 1, config: {} },
+        { id: "ret", type: "output.return", version: 1, config: {} },
+      ],
+      edges: [
+        { id: "e1", source: "trig_a", sourcePort: "output", target: "join_add", targetPort: "a" },
+        { id: "e2", source: "trig_b", sourcePort: "output", target: "join_add", targetPort: "b" },
+        { id: "e3", source: "join_add", sourcePort: "output", target: "ret", targetPort: "input" },
+      ],
+    };
+
+    const multiPayload = {
+      $multiTrigger: true,
+      trig_a: 15,
+      trig_b: 25,
+    };
+
+    const summary = await executeWorkflow(workflow, { triggerData: multiPayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.finalOutput, 40);
+    assert.strictEqual(summary.tasks.trig_a.outputs.output, 15);
+    assert.strictEqual(summary.tasks.trig_b.outputs.output, 25);
   });
 
   console.log("\n-------------------------------------------------------");

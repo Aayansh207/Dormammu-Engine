@@ -143,9 +143,18 @@ Workflow root trigger that initiates execution when a user clicks Run in the UI 
 |:---|:---|:---|:---|
 | **Input Ports** | *None* | — | Entry point node; has 0 incoming ports. |
 | **Output Port** | `output` | `any` | Emits the trigger payload (or `defaultPayload`) to downstream nodes. |
+| **Configuration** | `triggerKey` | `string` | Optional unique targeting key when multiple manual triggers are present (e.g. `'orderData'`, `'userData'`). |
 | **Configuration** | `defaultPayload` | `json` | Default fallback payload (object or primitive) used when running without trigger input. |
 
-- **Execution Behavior**: If `triggerData` is passed during execution, it is forwarded. If `triggerData` is empty/null, `config.defaultPayload` is emitted.
+##### Handling Workflows with Multiple Manual Triggers
+When a workflow contains **two or more manual triggers**, Dormammu handles them deterministically:
+1. **Parallel Entry Points**: All manual triggers act as valid DAG roots and start simultaneously in the execution ready queue.
+2. **Targeted Per-Trigger Ingestion**:
+   - The execution modal allows configuring separate inputs for each trigger.
+   - The backend resolves payloads targeted by `node.id`, `node.config.triggerKey`, or `node.name`.
+   - Packaged multi-trigger payloads use `{ "$multiTrigger": true, "<nodeId>": payload, ... }`.
+3. **Broadcast Mode**: Users can toggle to "Broadcast" in the UI to send an identical shared payload to all manual triggers.
+4. **Independent Fallbacks**: Any trigger that does not receive an explicit input cleanly falls back to its own configured `defaultPayload` without blocking the workflow.
 
 ---
 

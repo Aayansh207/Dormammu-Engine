@@ -1,72 +1,92 @@
 /**
  * Node: trigger.manual
- * Initiates workflow execution manually with an optional payload.
+ * Root entry point for workflow execution.
+ * Has 0 graph input ports (it receives payload from execution triggerData).
+ * Outputs payload onto 'output'.
  */
 
-const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
+const { defineOutputPort, PortTypes } = require("../../contracts/ports");
 
 module.exports = {
   type: "trigger.manual",
   version: 1,
   category: "trigger",
   label: "Manual Trigger",
-  description: "Initiates workflow execution manually with optional input payload",
-  inputs: {
-    input: defineInputPort({
-      name: "input",
-      type: PortTypes.ANY,
-      required: false,
-      description: "Optional payload provided at trigger time",
-    }),
-    payload: defineInputPort({
-      name: "payload",
-      type: PortTypes.ANY,
-      required: false,
-      description: "Optional payload provided at trigger time (alias)",
-    }),
-  },
+  description: "Initiates workflow execution with payload received from run triggerData",
+  inputs: {},
   outputs: {
     output: defineOutputPort({
       name: "output",
       type: PortTypes.ANY,
-      description: "Output payload forwarded to downstream nodes",
+      description: "Trigger payload forwarded downstream",
     }),
   },
   configSchema: {
+    triggerKey: {
+      type: "string",
+      required: false,
+      default: "",
+      description: "Identifier key for targeting this trigger when multiple manual triggers exist (e.g. 'orderData')",
+    },
     defaultPayload: {
       type: "json",
       required: false,
       default: {},
-      description: "Default JSON payload if none supplied during run execution",
+      description: "Default fallback JSON payload if none supplied during run execution",
     },
   },
-  validateConfig: () => ({ valid: true }),
+  validateConfig: (config) => {
+    if (config && config.triggerKey !== undefined && typeof config.triggerKey !== "string") {
+      return { valid: false, errors: ["Config property 'triggerKey' must be a string"], field: "config.triggerKey" };
+    }
+    return { valid: true };
+  },
   capabilities: {
     pure: true,
     sideEffects: false,
     retryable: true,
   },
-  handler: async (inputs, node, context) => {
-    // 1. If context.triggerData was passed explicitly at execution time
+  handler: async (inputs, node, context = {}) => {
     const triggerData = context && context.triggerData;
+
     if (triggerData !== undefined && triggerData !== null) {
-      // If triggerData is { input: 10 } or { value: 10 } or raw primitive 10
+      // Check if triggerData is partitioned by trigger/node keys
+      if (typeof triggerData === "object" && !Array.isArray(triggerData)) {
+        // 1. Direct match by node.id (e.g. { "trigger_01": payload })
+        if (triggerData[node.id] !== undefined) {
+          return { output: triggerData[node.id] };
+        }
+
+        // 2. Match by custom triggerKey in node config (e.g. { "orderData": payload })
+        const triggerKey = node.config && node.config.triggerKey;
+        if (triggerKey && triggerKey.trim() !== "" && triggerData[triggerKey] !== undefined) {
+          return { output: triggerData[triggerKey] };
+        }
+
+        // 3. Match by node.name (e.g. { "Manual Trigger 1": payload })
+        if (node.name && triggerData[node.name] !== undefined) {
+          return { output: triggerData[node.name] };
+        }
+
+        // 4. If explicitly packaged as a multi-trigger map ($multiTrigger: true)
+        // and this node was not supplied a payload, fallback to defaultPayload
+        if (triggerData.$multiTrigger === true) {
+          if (node.config && node.config.defaultPayload !== undefined) {
+            return { output: node.config.defaultPayload };
+          }
+          return { output: {} };
+        }
+      }
+
+      // If triggerData is a direct primitive, array, or unpartitioned single payload, broadcast it
       return { output: triggerData };
     }
 
-    // 2. If an edge connected into input or payload
-    if (inputs.input !== undefined) {
-      return { output: inputs.input };
-    }
-    if (inputs.payload !== undefined) {
-      return { output: inputs.payload };
+    // Fallback to configured defaultPayload
+    if (node.config && node.config.defaultPayload !== undefined) {
+      return { output: node.config.defaultPayload };
     }
 
-    // 3. Fallback to default payload from config
-    const configDefault = (node && node.config && node.config.defaultPayload) !== undefined
-      ? node.config.defaultPayload
-      : {};
-
-    return { output: configDefault };
+    return { output: {} };
   },
 };

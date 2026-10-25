@@ -14,6 +14,7 @@ import {
   Plus,
   Wand2,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { api } from "../../services/api";
 import NodePalette from "./NodePalette";
@@ -803,6 +804,26 @@ export default function WorkflowEditor({ workflowId, onBack }) {
               v{workflowVersion}
             </span>
 
+            {nodes.filter((n) => n.type === "trigger.manual").length >= 2 && (
+              <span
+                title={`${nodes.filter((n) => n.type === "trigger.manual").length} manual triggers configured in graph`}
+                style={{
+                  fontSize: "0.7rem",
+                  fontWeight: "700",
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  background: "rgba(57, 174, 169, 0.15)",
+                  color: "var(--brand)",
+                  border: "1px solid var(--brand-border)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <Zap size={11} /> {nodes.filter((n) => n.type === "trigger.manual").length} Triggers
+              </span>
+            )}
+
             {isDirty && (
               <span style={{ fontSize: "0.72rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "4px" }}>
                 • Unsaved
@@ -1267,7 +1288,13 @@ export default function WorkflowEditor({ workflowId, onBack }) {
       <RunExecutionModal
         isOpen={isRunModalOpen}
         onClose={() => setIsRunModalOpen(false)}
-        workflow={workflow || { name: workflowName, version: workflowVersion }}
+        workflow={{
+          ...workflow,
+          name: workflowName,
+          version: workflowVersion,
+          nodes,
+          edges,
+        }}
         onRun={handleExecuteRun}
         isRunning={isRunning}
         runResult={runResult}
