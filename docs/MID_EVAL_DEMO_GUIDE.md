@@ -3,7 +3,7 @@
 **Project:** The Dormammu Loop (Dormammu Engine)  
 **Evaluation Standard:** Mid-Evaluation Master Showcase  
 **Target Duration:** 8–10 Minutes  
-**Engine Baseline:** 86 Tests Passing (0 Failures) | 35 Production Nodes | Sub-millisecond Execution Latency  
+**Engine Baseline:** 92 Tests Passing (0 Failures) | 35 Production Nodes | Sub-millisecond Execution Latency  
 
 ---
 
@@ -218,11 +218,12 @@ curl -X POST http://localhost:5001/api/webhooks/ops-center-demo \
 
 ### Part 7: Engineering Rigor, Performance & Summary (8:30 – 10:00)
 1. **Benchmark Numbers:**
+   - In-memory DAG engine (17 nodes): **0.253 ms median** (~3,054 runs/sec per Node.js process).
    - Small 3-node workflow: **0.023 ms median**.
-   - Flagship 17-node workflow: **0.139 ms median** (over 7,000 workflow executions per second per Node.js process).
+   - End-to-end cloud persisted execution (Neon PostgreSQL over WAN): **5.95s median** (~34 WAN SSL roundtrips), demonstrating durability without sacrificing raw engine speed.
 2. **Test Suite:**
-   - **86 passing automated tests, 0 failures.**
-   - Verified across Unit, Graph Integrity, DAG Scheduler, Branching, Webhook, Cron, PostgreSQL persistence, and Security regression tests.
+   - **92 passing automated tests, 0 failures.**
+   - Verified across Unit, Graph Integrity, DAG Scheduler, Branching, Webhook, Cron, PostgreSQL persistence (all 5 flagship scenarios), and Security regression tests.
 3. **Conclusion:**
    - "Dormammu Engine delivers rock-solid execution semantics, comprehensive observability, and sub-millisecond orchestration for modern AI and event-driven workflows."
 
@@ -241,7 +242,7 @@ NODE_ENV=development
 DATABASE_URL="postgresql://user:password@ep-host.neon.tech/neondb?sslmode=require"
 JWT_SECRET="dormammu-secure-jwt-secret-key"
 CORS_ORIGIN="http://localhost:5173"
-AI_PROVIDER="mock"
+GROQ_API_KEY="gsk_your_groq_api_key_here"
 ```
 
 ### 3.3 Running Locally

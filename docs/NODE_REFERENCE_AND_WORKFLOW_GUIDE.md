@@ -213,59 +213,63 @@ Branching nodes (`logic.condition`, `logic.switch`) do not function as ordinary 
 #### `ai.classify`
 - **Category**: `ai`
 - **Label**: `AI Classify`
-- **Description**: Classifies text into configured categories using **xAI Grok** (`grok-beta`, `grok-2`), Google Gemini, OpenAI, or deterministic labelled `[DEMO MOCK]` fallback.
+- **Description**: Classifies text into configured categories exclusively using **Groq AI** (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`), with deterministic offline simulation fallback.
 - **Inputs**:
   - `text` (`any`, optional): Text content or structured object (automatically unwraps `issue`, `message`, `content`).
   - `input` (`any`, optional): Alternative input alias.
 - **Outputs**:
   - `output` (`string`): Assigned classification category.
   - `category` (`string`): Assigned category alias.
+  - `severity` (`string`): Calculated severity (`'critical'`, `'warning'`, `'normal'`).
   - `confidence` (`number`): Confidence score between 0.0 and 1.0.
   - `reasoning` (`string`): Rationale for the classification.
-  - `provider` (`string`): Provider identifier (`"grok"`, `"gemini"`, `"openai"`, or `"mock"`).
+  - `provider` (`string`): Provider identifier (`"groq"`).
   - `mode` (`string`): Execution mode (`"live"` or `"demo"`).
 - **Transparency**:
-  - Displays `⚡ Live AI (Grok/Gemini/OpenAI)` badge in UI for genuine model execution.
+  - Displays `⚡ Live AI (Groq: llama-3.3-70b-versatile)` badge in UI for genuine model execution.
   - Displays `🎭 Demo Simulation` badge in UI for deterministic offline fallback.
-  - Strictly raises provider errors when API keys are configured, never disguising failures as simulated successes.
+  - Strictly raises provider errors when `GROQ_API_KEY` is missing or invalid in live mode.
 - **Configuration**:
-  - `provider` (`string`, default: `"auto"`, enum: `["auto", "grok", "gemini", "openai"]`): Explicit provider selection.
-  - `model` (`string`, optional): Model identifier (e.g. `"grok-beta"`, `"grok-2-latest"`).
+  - `provider` (`string`, default: `"groq"`, enum: `["groq"]`): Sole AI provider (Groq AI LPU).
+  - `model` (`string`, default: `"llama-3.3-70b-versatile"`): Groq model identifier (e.g. `"llama-3.3-70b-versatile"`, `"llama-3.1-8b-instant"`).
+  - `apiKey` (`string`, optional): Optional node-level Groq API key override.
   - `categories` (`array`): List of target categories (e.g. `["urgent", "bug", "billing", "general"]`).
   - `instructions` (`string`): System prompt guidance.
 
 #### `ai.extract`
 - **Category**: `ai`
 - **Label**: `AI Extract`
-- **Description**: Extracts structured JSON entities from unstructured text conforming to a configured schema using Grok, Gemini, or OpenAI.
+- **Description**: Extracts structured JSON entities from unstructured text conforming to a configured schema using Groq AI.
 - **Inputs**:
   - `text` (`any`, optional): Source text or object to extract information from.
   - `input` (`any`, optional): Alternative input alias.
 - **Outputs**:
   - `output` (`object`): Extracted JSON entity object.
-  - `provider` (`string`): Provider identifier (`"grok"`, `"gemini"`, `"openai"`, or `"mock"`).
+  - `provider` (`string`): Provider identifier (`"groq"`).
   - `mode` (`string`): Execution mode (`"live"` or `"demo"`).
 - **Configuration**:
-  - `provider` (`string`, default: `"auto"`, enum: `["auto", "grok", "gemini", "openai"]`).
-  - `model` (`string`, optional): Model identifier.
+  - `provider` (`string`, default: `"groq"`, enum: `["groq"]`).
+  - `model` (`string`, default: `"llama-3.3-70b-versatile"`).
+  - `apiKey` (`string`, optional): Optional node-level Groq API key override.
   - `schema` (`object`): Schema mapping field names to expected data types.
   - `instructions` (`string`): Additional extraction constraints.
 
 #### `ai.summarize`
 - **Category**: `ai`
 - **Label**: `AI Summarize`
-- **Description**: Produces concise summaries and key bullet points from text using Grok, Gemini, or OpenAI models.
+- **Description**: Produces concise summaries and key bullet points from text using Groq AI models.
 - **Inputs**:
   - `text` (`any`, optional): Text or structured object to summarize.
   - `input` (`any`, optional): Alternative input alias.
 - **Outputs**:
   - `output` (`string`): Generated summary text.
   - `keyPoints` (`array`): Bullet points and takeaways.
-  - `provider` (`string`): Provider identifier (`"grok"`, `"gemini"`, `"openai"`, or `"mock"`).
+  - `provider` (`string`): Provider identifier (`"groq"`).
   - `mode` (`string`): Execution mode (`"live"` or `"demo"`).
 - **Configuration**:
-  - `provider` (`string`, default: `"auto"`, enum: `["auto", "grok", "gemini", "openai"]`).
-  - `model` (`string`, optional): Model identifier.
+  - `provider` (`string`, default: `"groq"`, enum: `["groq"]`).
+  - `model` (`string`, default: `"llama-3.3-70b-versatile"`).
+  - `apiKey` (`string`, optional): Optional node-level Groq API key override.
   - `format` (`string`, default: `"paragraph"`): `"paragraph"`, `"bullet_points"`, `"one_sentence"`.
   - `maxLength` (`number`, default: `300`): Target maximum length in characters.
 

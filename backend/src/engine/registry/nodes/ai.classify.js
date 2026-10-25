@@ -1,6 +1,6 @@
 /**
  * Node: ai.classify
- * Classifies input text into a configured set of categories using AI provider models.
+ * Classifies input text into a configured set of categories using Groq AI.
  */
 
 const { defineInputPort, defineOutputPort, PortTypes } = require("../../contracts/ports");
@@ -14,7 +14,7 @@ module.exports = {
   version: 1,
   category: "ai",
   label: "AI Classify",
-  description: "Classifies text into configured categories using artificial intelligence",
+  description: "Classifies text into configured categories using Groq AI",
   inputs: {
     text: defineInputPort({ name: "text", type: PortTypes.ANY, required: false, description: "Text content or structured object to classify" }),
     input: defineInputPort({ name: "input", type: PortTypes.ANY, required: false, description: "Alternative input for text" }),
@@ -25,21 +25,27 @@ module.exports = {
     severity: defineOutputPort({ name: "severity", type: PortTypes.STRING, description: "Calculated severity ('critical', 'warning', 'normal')" }),
     confidence: defineOutputPort({ name: "confidence", type: PortTypes.NUMBER, description: "Confidence score between 0 and 1" }),
     reasoning: defineOutputPort({ name: "reasoning", type: PortTypes.STRING, description: "Explanation for the classification" }),
-    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('grok', 'gemini', 'openai', or 'mock')" }),
+    provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('groq')" }),
     mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
   configSchema: {
     provider: {
       type: "string",
       required: false,
-      default: "auto",
-      enum: ["auto", "grok", "gemini", "openai"],
-      description: "AI Provider service: 'auto', 'grok' (xAI), 'gemini', or 'openai'",
+      default: "groq",
+      enum: ["groq"],
+      description: "AI Provider service: fixed exclusively to 'groq' (Groq AI)",
     },
     model: {
       type: "string",
       required: false,
-      description: "Specific model identifier (e.g. 'grok-beta', 'grok-2-latest', 'gemini-1.5-flash', 'gpt-4o-mini')",
+      default: "llama-3.3-70b-versatile",
+      description: "Groq model identifier (e.g. 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant')",
+    },
+    apiKey: {
+      type: "string",
+      required: false,
+      description: "Optional Groq API Key override (falls back to GROQ_API_KEY from environment)",
     },
     categories: {
       type: "array",
@@ -95,8 +101,9 @@ module.exports = {
       },
       {
         abortSignal: context.abortSignal,
-        provider: config.provider,
-        model: config.model,
+        provider: "groq",
+        model: config.model || "llama-3.3-70b-versatile",
+        apiKey: config.apiKey,
       }
     );
 
@@ -118,10 +125,11 @@ module.exports = {
       severity,
       confidence,
       reasoning,
-      provider: result.provider,
+      provider: "groq",
       mode: result.mode,
       _aiExecution: {
-        provider: result.provider,
+        provider: "groq",
+        model: result.model || config.model || "llama-3.3-70b-versatile",
         mode: result.mode,
         isDemo: Boolean(result.isDemo),
         badge: result.badge,

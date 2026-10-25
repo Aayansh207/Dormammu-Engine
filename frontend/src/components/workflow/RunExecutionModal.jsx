@@ -12,7 +12,12 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Sliders
+  Sliders,
+  Sparkles,
+  Ban,
+  FastForward,
+  Slash,
+  AlertCircle
 } from "lucide-react";
 
 export default function RunExecutionModal({
@@ -35,6 +40,8 @@ export default function RunExecutionModal({
   const [activeTab, setActiveTab] = useState("trigger"); // "trigger" | "results"
   const [copied, setCopied] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState({});
+  const [taskTabs, setTaskTabs] = useState({}); // taskId -> "outputs" | "inputs" | "raw"
+  const [copiedTaskId, setCopiedTaskId] = useState(null);
 
   // Auto-load sample payload or AI scenario when modal opens
   useEffect(() => {
@@ -721,160 +728,408 @@ export default function RunExecutionModal({
                     </pre>
                   </div>
 
-                  {/* Tasks Breakdown */}
-                  {runResult.tasks && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <label style={{ fontSize: "0.78rem", fontWeight: "700", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                        Node Execution Sequence ({Object.keys(runResult.tasks).length} Tasks)
-                      </label>
+                  {/* Tasks Breakdown - Comprehensive Node Execution Box Sequence */}
+                  {runResult.tasks && (() => {
+                    const tasksList = Object.values(runResult.tasks);
+                    const succeededCount = tasksList.filter((t) => t.status === "SUCCEEDED").length;
+                    const failedCount = tasksList.filter((t) => t.status === "FAILED").length;
+                    const skippedCount = tasksList.filter((t) => t.status === "SKIPPED").length;
+                    const blockedCount = tasksList.filter((t) => t.status === "BLOCKED").length;
 
-                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {Object.values(runResult.tasks).map((task) => {
-                          const isExpanded = Boolean(expandedNodes[task.nodeId]);
-                          const isSuccess = task.status === "SUCCEEDED";
+                    const allExpanded = tasksList.every((t) => Boolean(expandedNodes[t.nodeId]));
+                    const handleToggleAll = () => {
+                      if (allExpanded) {
+                        setExpandedNodes({});
+                      } else {
+                        const next = {};
+                        tasksList.forEach((t) => { next[t.nodeId] = true; });
+                        setExpandedNodes(next);
+                      }
+                    };
 
-                          return (
-                            <div
-                              key={task.nodeId}
-                              style={{
-                                background: "rgba(255, 255, 255, 0.03)",
-                                border: "1px solid var(--border-subtle)",
-                                borderRadius: "8px",
-                                overflow: "hidden",
-                              }}
-                            >
-                              <div
-                                onClick={() => toggleNodeExpand(task.nodeId)}
-                                style={{
-                                  padding: "8px 12px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                  {isExpanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
-                                  <span style={{ fontSize: "0.82rem", fontWeight: "600" }}>{task.nodeId}</span>
-                                  <code style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>({task.nodeType})</code>
-                                </div>
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <Terminal size={14} color="var(--brand)" />
+                            <label style={{ fontSize: "0.8rem", fontWeight: "700", color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                              Node Execution Sequence ({tasksList.length} Nodes)
+                            </label>
+                          </div>
 
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{task.durationMs || 0}ms</span>
-                                  {/* AI Execution Transparency Badge */}
-                                  {task.nodeType?.startsWith("ai.") && (
-                                    task.status === "FAILED" ? (
-                                      <span
-                                        style={{
-                                          fontSize: "0.68rem",
-                                          fontWeight: "700",
-                                          color: "#f43f5e",
-                                          background: "rgba(244, 63, 94, 0.15)",
-                                          border: "1px solid rgba(244, 63, 94, 0.3)",
-                                          padding: "1px 6px",
-                                          borderRadius: "4px",
-                                        }}
-                                      >
-                                        ⚠️ AI Failed
-                                      </span>
-                                    ) : (task.outputs?.mode === "live" || ["gemini", "openai", "grok", "xai"].includes(task.outputs?.provider)) ? (
-                                      <span
-                                        style={{
-                                          fontSize: "0.68rem",
-                                          fontWeight: "700",
-                                          color: "#10b981",
-                                          background: "rgba(16, 185, 129, 0.15)",
-                                          border: "1px solid rgba(16, 185, 129, 0.3)",
-                                          padding: "1px 6px",
-                                          borderRadius: "4px",
-                                        }}
-                                      >
-                                        ⚡ Live AI ({task.outputs?.provider})
-                                      </span>
-                                    ) : (
-                                      <span
-                                        style={{
-                                          fontSize: "0.68rem",
-                                          fontWeight: "700",
-                                          color: "#f59e0b",
-                                          background: "rgba(245, 158, 11, 0.15)",
-                                          border: "1px solid rgba(245, 158, 11, 0.3)",
-                                          padding: "1px 6px",
-                                          borderRadius: "4px",
-                                        }}
-                                      >
-                                        🎭 Demo Simulation
-                                      </span>
-                                    )
-                                  )}
-                                  {(() => {
-                                    const badgeStyles = {
-                                      SUCCEEDED: { color: "#10b981", bg: "rgba(16, 185, 129, 0.15)" },
-                                      FAILED: { color: "#f43f5e", bg: "rgba(244, 63, 94, 0.15)" },
-                                      SKIPPED: { color: "#9ca3af", bg: "rgba(156, 163, 175, 0.15)" },
-                                      BLOCKED: { color: "#f59e0b", bg: "rgba(245, 158, 11, 0.15)" },
-                                      CANCELLED: { color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
-                                      RUNNING: { color: "#38bdf8", bg: "rgba(56, 189, 248, 0.15)" },
-                                    };
-                                    const s = badgeStyles[task.status] || { color: "#94a3b8", bg: "rgba(148, 163, 184, 0.15)" };
-                                    return (
-                                      <span
-                                        style={{
-                                          fontSize: "0.68rem",
-                                          fontWeight: "700",
-                                          color: s.color,
-                                          background: s.bg,
-                                          padding: "1px 6px",
-                                          borderRadius: "4px",
-                                        }}
-                                      >
-                                        {task.status}
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                              </div>
-
-                              {isExpanded && (
-                                <div style={{ padding: "8px 12px 12px 12px", borderTop: "1px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.2)", fontSize: "0.72rem", fontFamily: "var(--font-mono)" }}>
-                                  {task.nodeType?.startsWith("ai.") && (
-                                    <div
-                                      style={{
-                                        marginBottom: "8px",
-                                        padding: "8px 10px",
-                                        borderRadius: "6px",
-                                        background: task.outputs?.mode === "live" ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)",
-                                        border: `1px solid ${task.outputs?.mode === "live" ? "rgba(16, 185, 129, 0.3)" : "rgba(245, 158, 11, 0.3)"}`,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                      }}
-                                    >
-                                      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "600", color: task.outputs?.mode === "live" ? "#34d399" : "#fbbf24" }}>
-                                        <span>{task.outputs?.mode === "live" ? "⚡ Live AI Execution" : "🎭 Offline Demo Simulation (Deterministic)"}</span>
-                                      </div>
-                                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                                        Provider: {task.outputs?.provider || "mock"}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <div style={{ color: "var(--text-muted)" }}>Outputs:</div>
-                                  <pre style={{ color: "#38bdf8", marginTop: "2px" }}>
-                                    {JSON.stringify(task.outputs, null, 2)}
-                                  </pre>
-                                  {task.error && (
-                                    <div style={{ marginTop: "6px", color: "#f43f5e" }}>
-                                      Error: {task.error.message}
-                                    </div>
-                                  )}
-                                </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            {/* Summary Chips */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>
+                              <span style={{ color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
+                                {succeededCount} Pass
+                              </span>
+                              {failedCount > 0 && (
+                                <span style={{ color: "#f43f5e", background: "rgba(244, 63, 94, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
+                                  {failedCount} Fail
+                                </span>
+                              )}
+                              {skippedCount > 0 && (
+                                <span style={{ color: "#9ca3af", background: "rgba(156, 163, 175, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
+                                  {skippedCount} Skipped
+                                </span>
+                              )}
+                              {blockedCount > 0 && (
+                                <span style={{ color: "#f59e0b", background: "rgba(245, 158, 11, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
+                                  {blockedCount} Blocked
+                                </span>
                               )}
                             </div>
-                          );
-                        })}
+
+                            <button
+                              onClick={handleToggleAll}
+                              style={{
+                                background: "transparent",
+                                border: "1px solid var(--border-subtle)",
+                                color: "var(--text-secondary)",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.7rem",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {allExpanded ? "Collapse All" : "Expand All"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          {tasksList.map((task) => {
+                            const isExpanded = Boolean(expandedNodes[task.nodeId]);
+                            const isSuccess = task.status === "SUCCEEDED";
+                            const isFailed = task.status === "FAILED";
+                            const isBlocked = task.status === "BLOCKED";
+                            const isSkipped = task.status === "SKIPPED";
+
+                            const statusTheme = {
+                              SUCCEEDED: { color: "#10b981", bg: "rgba(16, 185, 129, 0.12)", border: "rgba(16, 185, 129, 0.3)" },
+                              FAILED: { color: "#f43f5e", bg: "rgba(244, 63, 94, 0.12)", border: "rgba(244, 63, 94, 0.35)" },
+                              BLOCKED: { color: "#f59e0b", bg: "rgba(245, 158, 11, 0.12)", border: "rgba(245, 158, 11, 0.3)" },
+                              SKIPPED: { color: "#9ca3af", bg: "rgba(156, 163, 175, 0.12)", border: "rgba(156, 163, 175, 0.2)" },
+                              CANCELLED: { color: "#c084fc", bg: "rgba(192, 132, 252, 0.12)", border: "rgba(192, 132, 252, 0.3)" },
+                              RUNNING: { color: "#38bdf8", bg: "rgba(56, 189, 248, 0.12)", border: "rgba(56, 189, 248, 0.3)" },
+                            };
+                            const st = statusTheme[task.status] || { color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", border: "var(--border-subtle)" };
+
+                            const isAiNode = task.nodeType?.startsWith("ai.") || task.outputs?.provider === "groq" || task.outputs?.provider === "grok" || Boolean(task.outputs?._aiExecution);
+                            const currentTab = taskTabs[task.nodeId] || "outputs";
+
+                            const tabData = currentTab === "inputs"
+                              ? (task.inputs || { note: "No direct inputs mapped" })
+                              : currentTab === "raw"
+                              ? task
+                              : (task.outputs || { note: "No outputs emitted" });
+
+                            const handleCopyTaskData = (e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(JSON.stringify(tabData, null, 2));
+                              setCopiedTaskId(task.nodeId);
+                              setTimeout(() => setCopiedTaskId(null), 2000);
+                            };
+
+                            return (
+                              <div
+                                key={task.nodeId}
+                                style={{
+                                  background: "var(--bg-card)",
+                                  border: `1px solid ${isExpanded ? st.border : "var(--border-subtle)"}`,
+                                  borderRadius: "8px",
+                                  overflow: "hidden",
+                                  transition: "border-color 0.15s ease",
+                                }}
+                              >
+                                {/* Header Row */}
+                                <div
+                                  onClick={() => toggleNodeExpand(task.nodeId)}
+                                  style={{
+                                    padding: "9px 12px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    cursor: "pointer",
+                                    background: isExpanded ? "rgba(255, 255, 255, 0.02)" : "transparent",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
+                                    {isExpanded ? (
+                                      <ChevronDown size={14} color="var(--text-muted)" />
+                                    ) : (
+                                      <ChevronRight size={14} color="var(--text-muted)" />
+                                    )}
+                                    <span style={{ fontSize: "0.85rem", fontWeight: "700", color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                                      {task.nodeName || task.nodeId}
+                                    </span>
+                                    <code style={{ fontSize: "0.68rem", color: "var(--brand)", background: "var(--bg-chip)", padding: "1px 6px", borderRadius: "4px" }}>
+                                      {task.nodeId}
+                                    </code>
+                                    <code style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                                      ({task.nodeType})
+                                    </code>
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                      {task.durationMs !== null ? `${task.durationMs}ms` : "—"}
+                                    </span>
+
+                                    {/* AI Node Badge */}
+                                    {isAiNode && (
+                                      isFailed ? (
+                                        <span
+                                          style={{
+                                            fontSize: "0.68rem",
+                                            fontWeight: "700",
+                                            color: "#f43f5e",
+                                            background: "rgba(244, 63, 94, 0.15)",
+                                            border: "1px solid rgba(244, 63, 94, 0.3)",
+                                            padding: "1px 6px",
+                                            borderRadius: "4px",
+                                          }}
+                                        >
+                                          ⚠️ AI Failed
+                                        </span>
+                                      ) : (
+                                        <span
+                                          style={{
+                                            fontSize: "0.68rem",
+                                            fontWeight: "700",
+                                            color: "#38bdf8",
+                                            background: "rgba(56, 189, 248, 0.12)",
+                                            border: "1px solid rgba(56, 189, 248, 0.3)",
+                                            padding: "1px 7px",
+                                            borderRadius: "4px",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "3px",
+                                          }}
+                                        >
+                                          <Sparkles size={11} color="#38bdf8" />
+                                          Groq AI
+                                        </span>
+                                      )
+                                    )}
+
+                                    {/* Status Badge */}
+                                    <span
+                                      style={{
+                                        fontSize: "0.68rem",
+                                        fontWeight: "700",
+                                        color: st.color,
+                                        background: st.bg,
+                                        border: `1px solid ${st.border}`,
+                                        padding: "1px 8px",
+                                        borderRadius: "4px",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      {isSuccess && <CheckCircle2 size={11} />}
+                                      {isFailed && <XCircle size={11} />}
+                                      {isBlocked && <Ban size={11} />}
+                                      {isSkipped && <FastForward size={11} />}
+                                      {task.status}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Expanded Drawer */}
+                                {isExpanded && (
+                                  <div
+                                    style={{
+                                      padding: "12px",
+                                      borderTop: "1px solid var(--border-subtle)",
+                                      background: "rgba(0, 0, 0, 0.2)",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "10px",
+                                    }}
+                                  >
+                                    {/* Groq AI Live Intelligence Callout */}
+                                    {isAiNode && isSuccess && (
+                                      <div
+                                        style={{
+                                          background: "rgba(57, 174, 169, 0.08)",
+                                          border: "1px solid rgba(57, 174, 169, 0.3)",
+                                          borderRadius: "8px",
+                                          padding: "10px 12px",
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          gap: "8px",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "700", color: "var(--brand)", fontSize: "0.8rem" }}>
+                                            <Sparkles size={14} />
+                                            <span>Groq AI Live Execution</span>
+                                          </div>
+                                          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                            Model: {task.outputs?.model || "llama-3.3-70b-versatile"}
+                                          </span>
+                                        </div>
+
+                                        {/* Classification highlights */}
+                                        {task.outputs?.category && (
+                                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Assigned Category:</span>
+                                            <span
+                                              style={{
+                                                fontSize: "0.78rem",
+                                                fontWeight: "700",
+                                                color: "var(--text-primary)",
+                                                background: "var(--bg-card)",
+                                                border: "1px solid var(--border-subtle)",
+                                                padding: "2px 8px",
+                                                borderRadius: "4px",
+                                              }}
+                                            >
+                                              {task.outputs.category}
+                                            </span>
+                                            {task.outputs?.severity && (
+                                              <span
+                                                style={{
+                                                  fontSize: "0.7rem",
+                                                  fontWeight: "700",
+                                                  color: task.outputs.severity === "critical" ? "#f43f5e" : task.outputs.severity === "warning" ? "#f59e0b" : "#10b981",
+                                                  background: task.outputs.severity === "critical" ? "rgba(244, 63, 94, 0.15)" : task.outputs.severity === "warning" ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                                                  border: `1px solid ${task.outputs.severity === "critical" ? "rgba(244, 63, 94, 0.3)" : task.outputs.severity === "warning" ? "rgba(245, 158, 11, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                                                  padding: "2px 7px",
+                                                  borderRadius: "4px",
+                                                  textTransform: "uppercase",
+                                                }}
+                                              >
+                                                {task.outputs.severity}
+                                              </span>
+                                            )}
+                                            {typeof task.outputs?.confidence === "number" && (
+                                              <span style={{ fontSize: "0.72rem", color: "#34d399", fontWeight: "600", marginLeft: "auto" }}>
+                                                {Math.round(task.outputs.confidence * 100)}% Confidence
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {task.outputs?.reasoning && (
+                                          <div
+                                            style={{
+                                              fontSize: "0.74rem",
+                                              color: "var(--text-secondary)",
+                                              background: "rgba(0, 0, 0, 0.25)",
+                                              padding: "8px 10px",
+                                              borderRadius: "6px",
+                                              borderLeft: "3px solid var(--brand)",
+                                              lineHeight: 1.4,
+                                              fontStyle: "italic",
+                                            }}
+                                          >
+                                            "{task.outputs.reasoning}"
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Error Container */}
+                                    {task.error && (
+                                      <div
+                                        style={{
+                                          padding: "10px",
+                                          borderRadius: "6px",
+                                          background: "rgba(244, 63, 94, 0.12)",
+                                          border: "1px solid rgba(244, 63, 94, 0.3)",
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          gap: "4px",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#f43f5e", fontSize: "0.78rem", fontWeight: "700" }}>
+                                          <AlertCircle size={14} />
+                                          <span>{task.error.code || "TASK_FAILED"}</span>
+                                        </div>
+                                        <div style={{ fontSize: "0.74rem", color: "#fca5a5", lineHeight: 1.35 }}>
+                                          {task.error.message}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Tab Navigation & Copy Action */}
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "6px" }}>
+                                      <div style={{ display: "flex", gap: "4px" }}>
+                                        {["outputs", "inputs", "raw"].map((tKey) => (
+                                          <button
+                                            key={tKey}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setTaskTabs((prev) => ({ ...prev, [task.nodeId]: tKey }));
+                                            }}
+                                            style={{
+                                              padding: "3px 8px",
+                                              fontSize: "0.72rem",
+                                              fontWeight: "600",
+                                              textTransform: "capitalize",
+                                              background: currentTab === tKey ? "var(--brand)" : "transparent",
+                                              color: currentTab === tKey ? "#ffffff" : "var(--text-muted)",
+                                              border: "none",
+                                              borderRadius: "4px",
+                                              cursor: "pointer",
+                                              transition: "all 0.15s ease",
+                                            }}
+                                          >
+                                            {tKey}
+                                          </button>
+                                        ))}
+                                      </div>
+
+                                      <button
+                                        onClick={handleCopyTaskData}
+                                        title="Copy tab content"
+                                        style={{
+                                          background: "transparent",
+                                          border: "none",
+                                          color: "var(--text-muted)",
+                                          fontSize: "0.72rem",
+                                          cursor: "pointer",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                        }}
+                                      >
+                                        {copiedTaskId === task.nodeId ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                                        {copiedTaskId === task.nodeId ? "Copied" : "Copy"}
+                                      </button>
+                                    </div>
+
+                                    {/* Data Inspector Display */}
+                                    <pre
+                                      style={{
+                                        margin: 0,
+                                        padding: "10px",
+                                        background: "rgba(0, 0, 0, 0.45)",
+                                        border: "1px solid var(--border-subtle)",
+                                        borderRadius: "6px",
+                                        fontSize: "0.74rem",
+                                        fontFamily: "var(--font-mono)",
+                                        color: isSuccess ? "#34d399" : isFailed ? "#fca5a5" : "var(--text-secondary)",
+                                        overflowX: "auto",
+                                        maxHeight: "180px",
+                                        lineHeight: 1.35,
+                                      }}
+                                    >
+                                      {JSON.stringify(tabData, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </>
               )}
             </div>

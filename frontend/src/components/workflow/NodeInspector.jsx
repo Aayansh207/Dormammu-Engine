@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { 
   X, 
   Trash2, 
@@ -8,7 +8,14 @@ import {
   AlertCircle, 
   CheckCircle2, 
   Clock,
-  ArrowRight
+  ArrowRight,
+  Terminal,
+  Sparkles,
+  XCircle,
+  Ban,
+  FastForward,
+  Copy,
+  Check
 } from "lucide-react";
 import { CATEGORY_META } from "./NodePalette";
 
@@ -22,6 +29,9 @@ export default function NodeInspector({
   executionTask = null,
 }) {
   if (!selectedNode) return null;
+
+  const [execTab, setExecTab] = useState("outputs"); // "outputs" | "inputs" | "raw"
+  const [copiedExec, setCopiedExec] = useState(false);
 
   const configSchema = (metadata && metadata.configSchema) || {};
   const currentConfig = selectedNode.config || {};
@@ -316,39 +326,274 @@ export default function NodeInspector({
           </div>
         </div>
 
-        {/* Execution Output Preview if node was run */}
-        {executionTask && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Execution Results
-              </span>
-              <span style={{
-                fontSize: "0.68rem",
-                fontWeight: "700",
-                color: executionTask.status === "SUCCEEDED" ? "#10b981" : "#f43f5e",
-                background: executionTask.status === "SUCCEEDED" ? "rgba(16, 185, 129, 0.15)" : "rgba(244, 63, 94, 0.15)",
-                padding: "2px 6px",
-                borderRadius: "4px",
-              }}>
-                {executionTask.status}
-              </span>
-            </div>
+        {/* Comprehensive Node Execution Box */}
+        {executionTask && (() => {
+          const isSuccess = executionTask.status === "SUCCEEDED";
+          const isFailed = executionTask.status === "FAILED";
+          const isSkipped = executionTask.status === "SKIPPED";
+          const isBlocked = executionTask.status === "BLOCKED";
 
-            <div style={{ background: "rgba(0, 0, 0, 0.3)", border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "10px", fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", overflowX: "auto" }}>
-              <div>Duration: {executionTask.durationMs || 0}ms</div>
-              <div style={{ marginTop: "6px", fontWeight: "600", color: "var(--text-primary)" }}>Output:</div>
-              <pre style={{ margin: "4px 0 0 0", color: "var(--accent-emerald)" }}>
-                {JSON.stringify(executionTask.outputs, null, 2) || "null"}
-              </pre>
-              {executionTask.error && (
-                <div style={{ marginTop: "6px", color: "#f43f5e" }}>
-                  Error: {executionTask.error.message}
+          const statusColors = {
+            SUCCEEDED: { color: "#10b981", bg: "rgba(16, 185, 129, 0.12)", border: "rgba(16, 185, 129, 0.3)" },
+            FAILED: { color: "#f43f5e", bg: "rgba(244, 63, 94, 0.12)", border: "rgba(244, 63, 94, 0.35)" },
+            BLOCKED: { color: "#f59e0b", bg: "rgba(245, 158, 11, 0.12)", border: "rgba(245, 158, 11, 0.3)" },
+            SKIPPED: { color: "#9ca3af", bg: "rgba(156, 163, 175, 0.12)", border: "rgba(156, 163, 175, 0.25)" },
+            CANCELLED: { color: "#c084fc", bg: "rgba(192, 132, 252, 0.12)", border: "rgba(192, 132, 252, 0.3)" },
+            RUNNING: { color: "#38bdf8", bg: "rgba(56, 189, 248, 0.12)", border: "rgba(56, 189, 248, 0.3)" },
+          };
+          const sc = statusColors[executionTask.status] || { color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", border: "var(--border-subtle)" };
+
+          const isAiNode = selectedNode.type?.startsWith("ai.") || executionTask.outputs?.provider === "groq" || executionTask.outputs?.provider === "grok" || Boolean(executionTask.outputs?._aiExecution);
+          const aiCategory = executionTask.outputs?.category || executionTask.outputs?.output;
+          const aiConfidence = typeof executionTask.outputs?.confidence === "number" ? Math.round(executionTask.outputs.confidence * 100) : null;
+          const aiReasoning = executionTask.outputs?.reasoning;
+          const aiSeverity = executionTask.outputs?.severity;
+
+          const currentTabContent = execTab === "inputs"
+            ? (executionTask.inputs || { note: "No direct inputs recorded for this node" })
+            : execTab === "raw"
+            ? executionTask
+            : (executionTask.outputs || { note: "No outputs emitted" });
+
+          const handleCopyCurrent = () => {
+            navigator.clipboard.writeText(JSON.stringify(currentTabContent, null, 2));
+            setCopiedExec(true);
+            setTimeout(() => setCopiedExec(false), 2000);
+          };
+
+          return (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+                background: "var(--bg-secondary)",
+                border: `1px solid ${sc.border}`,
+                borderRadius: "10px",
+                padding: "12px",
+                boxShadow: "0 4px 18px rgba(0, 0, 0, 0.15)",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Terminal size={14} color="var(--brand)" />
+                  <span style={{ fontSize: "0.78rem", fontWeight: "700", color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Execution Box
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    ⚡ {executionTask.durationMs || 0}ms
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      fontWeight: "700",
+                      color: sc.color,
+                      background: sc.bg,
+                      border: `1px solid ${sc.border}`,
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    {isSuccess && <CheckCircle2 size={11} />}
+                    {isFailed && <XCircle size={11} />}
+                    {isBlocked && <Ban size={11} />}
+                    {isSkipped && <FastForward size={11} />}
+                    {executionTask.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Groq AI Live Intelligence Highlight */}
+              {isAiNode && isSuccess && (
+                <div
+                  style={{
+                    background: "rgba(57, 174, 169, 0.08)",
+                    border: "1px solid rgba(57, 174, 169, 0.3)",
+                    borderRadius: "8px",
+                    padding: "10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Sparkles size={13} color="var(--brand)" />
+                      <span style={{ fontSize: "0.75rem", fontWeight: "700", color: "var(--brand)" }}>
+                        Groq AI Intelligence
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "0.65rem",
+                        fontFamily: "var(--font-mono)",
+                        background: "var(--brand-light)",
+                        color: "var(--brand)",
+                        border: "1px solid var(--brand-border)",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        fontWeight: "600",
+                      }}
+                    >
+                      {executionTask.outputs?.model || "llama-3.3-70b-versatile"}
+                    </span>
+                  </div>
+
+                  {aiCategory && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Classified:</span>
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: "700",
+                          color: "var(--text-primary)",
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-subtle)",
+                          padding: "2px 8px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        {String(aiCategory)}
+                      </span>
+                      {aiSeverity && (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: "700",
+                            color: aiSeverity === "critical" ? "#f43f5e" : aiSeverity === "warning" ? "#f59e0b" : "#10b981",
+                            background: aiSeverity === "critical" ? "rgba(244, 63, 94, 0.15)" : aiSeverity === "warning" ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                            border: `1px solid ${aiSeverity === "critical" ? "rgba(244, 63, 94, 0.3)" : aiSeverity === "warning" ? "rgba(245, 158, 11, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {aiSeverity}
+                        </span>
+                      )}
+                      {aiConfidence !== null && (
+                        <span style={{ fontSize: "0.7rem", color: "#34d399", fontWeight: "600", marginLeft: "auto" }}>
+                          {aiConfidence}% Confidence
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {aiReasoning && (
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        color: "var(--text-secondary)",
+                        background: "rgba(0, 0, 0, 0.25)",
+                        padding: "8px 10px",
+                        borderRadius: "6px",
+                        borderLeft: "3px solid var(--brand)",
+                        fontStyle: "italic",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      "{aiReasoning}"
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* Error Alert Box */}
+              {executionTask.error && (
+                <div
+                  style={{
+                    background: "rgba(244, 63, 94, 0.12)",
+                    border: "1px solid rgba(244, 63, 94, 0.3)",
+                    borderRadius: "8px",
+                    padding: "8px 10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#f43f5e", fontSize: "0.75rem", fontWeight: "700" }}>
+                    <AlertCircle size={14} />
+                    <span>{executionTask.error.code || "EXECUTION_ERROR"}</span>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "#fca5a5", lineHeight: 1.3 }}>
+                    {executionTask.error.message}
+                  </div>
+                </div>
+              )}
+
+              {/* Tabs & Copy Action */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "6px" }}>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  {["outputs", "inputs", "raw"].map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setExecTab(t)}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "0.7rem",
+                        fontWeight: "600",
+                        textTransform: "capitalize",
+                        background: execTab === t ? "var(--brand)" : "transparent",
+                        color: execTab === t ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleCopyCurrent}
+                  title="Copy current tab JSON"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    fontSize: "0.7rem",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  {copiedExec ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                  {copiedExec ? "Copied" : "Copy"}
+                </button>
+              </div>
+
+              {/* JSON Payload Display */}
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "10px",
+                  background: "rgba(0, 0, 0, 0.4)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "0.72rem",
+                  fontFamily: "var(--font-mono)",
+                  color: isSuccess ? "#34d399" : isFailed ? "#fca5a5" : "var(--text-secondary)",
+                  overflowX: "auto",
+                  maxHeight: "180px",
+                  lineHeight: 1.35,
+                }}
+              >
+                {JSON.stringify(currentTabContent, null, 2)}
+              </pre>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Delete Node Button */}
         <button

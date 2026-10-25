@@ -49,6 +49,8 @@
       "name": "AI Priority Classifier",
       "position": { "x": 620, "y": 220 },
       "config": {
+        "provider": "groq",
+        "model": "llama-3.3-70b-versatile",
         "categories": ["urgent", "bug", "billing", "general"],
         "instructions": "Classify infrastructure outages, timeouts, and severe database errors as urgent"
       }

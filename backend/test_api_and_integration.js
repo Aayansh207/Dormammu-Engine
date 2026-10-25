@@ -9,6 +9,8 @@ const workflowService = require("./src/services/workflow.service");
 const webhookController = require("./src/controllers/webhook.controller");
 const { defaultRegistry } = require("./src/engine/registry/node.registry");
 
+process.env.ALLOW_OFFLINE_MOCK = "true";
+
 let passed = 0;
 let failed = 0;
 
@@ -329,7 +331,7 @@ async function runApiAndIntegrationTests() {
       definition: opsCenterDef,
     });
 
-    await test("Flagship: persists full 16-node operations workflow execution in PostgreSQL", async () => {
+    await test("Flagship: Scenario 1 (Critical Outage) persists full 17-node execution in PostgreSQL", async () => {
       const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
         triggerData: {
           ticketId: "TCK-8092",
@@ -358,6 +360,173 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(critTask.status, "SUCCEEDED");
       assert.ok(normTask);
       assert.strictEqual(normTask.status, "SKIPPED");
+    });
+
+    await test("Flagship: Scenario 2 (Normal) persists with action_normal SUCCEEDED and action_critical SKIPPED", async () => {
+      const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
+        triggerData: {
+          ticketId: "TCK-4102",
+          title: "Question about monthly invoice",
+          description: "The customer wants clarification regarding prorated tax charges on invoice #8819.",
+          service: "billing",
+          customerTier: "standard",
+          affectedUsers: 1,
+          errorRate: 0.0,
+          region: "ap-south-1",
+          source: "support-webhook",
+        },
+      });
+
+      assert.strictEqual(execResult.status, "SUCCEEDED");
+
+      const dbRun = await workflowService.getRunById(testUserAId, execResult.runId);
+      assert.strictEqual(dbRun.status, "SUCCEEDED");
+
+      const normTask = dbRun.taskRuns.find((t) => t.nodeId === "action_normal");
+      const critTask = dbRun.taskRuns.find((t) => t.nodeId === "action_critical");
+      const warnTask = dbRun.taskRuns.find((t) => t.nodeId === "action_warning");
+
+      assert.strictEqual(normTask?.status, "SUCCEEDED");
+      assert.strictEqual(critTask?.status, "SKIPPED");
+      assert.strictEqual(warnTask?.status, "SKIPPED");
+    });
+
+    await test("Flagship: Scenario 3 (Warning) persists with action_warning SUCCEEDED and others SKIPPED", async () => {
+      const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
+        triggerData: {
+          ticketId: "TCK-6204",
+          title: "Periodic latency spikes in worker cluster",
+          description: "Background job queue experiencing 250ms latency spikes.",
+          service: "worker-pool",
+          customerTier: "pro",
+          affectedUsers: 150,
+          errorRate: 0.05,
+          region: "eu-west-1",
+          source: "support-webhook",
+        },
+      });
+
+      assert.strictEqual(execResult.status, "SUCCEEDED");
+
+      const dbRun = await workflowService.getRunById(testUserAId, execResult.runId);
+      assert.strictEqual(dbRun.status, "SUCCEEDED");
+
+      const warnTask = dbRun.taskRuns.find((t) => t.nodeId === "action_warning");
+      const critTask = dbRun.taskRuns.find((t) => t.nodeId === "action_critical");
+      const normTask = dbRun.taskRuns.find((t) => t.nodeId === "action_normal");
+
+      assert.strictEqual(warnTask?.status, "SUCCEEDED");
+      assert.strictEqual(critTask?.status, "SKIPPED");
+      assert.strictEqual(normTask?.status, "SKIPPED");
+    });
+
+    await test("Flagship: Scenario 4 (Invalid Input) persists run as FAILED and downstream tasks as BLOCKED", async () => {
+      let failedRun = null;
+      try {
+        await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
+          triggerData: {
+            ticketId: "TCK-BROKEN",
+            title: "Missing critical fields",
+          },
+        });
+      } catch (err) {
+        failedRun = err;
+      }
+
+      // Even if run fails, we check the latest persisted run for this workflow
+      const latestRun = await prisma.workflowRun.findFirst({
+        where: { workflowVersion: { workflowId: opsWorkflowRecord.id } },
+        orderBy: { createdAt: "desc" },
+        include: { taskRuns: true },
+      });
+
+      assert.ok(latestRun);
+      assert.strictEqual(latestRun.status, "FAILED");
+
+      const validateTask = latestRun.taskRuns.find((t) => t.nodeId === "validate_incident");
+      const normalizeTask = latestRun.taskRuns.find((t) => t.nodeId === "normalize_incident");
+
+      assert.ok(validateTask);
+      assert.strictEqual(validateTask.status, "FAILED");
+      assert.ok(normalizeTask);
+      assert.strictEqual(normalizeTask.status, "BLOCKED");
+    });
+
+    await test("Webhook Security: rejects unsupported HTTP method with 405 Method Not Allowed", async () => {
+      let responseStatus = 0;
+      let responseBody = null;
+      const mockReq = {
+        params: { workflowId: webhookWf.id },
+        method: "DELETE",
+        headers: { "x-webhook-token": "secret-webhook-token-123" },
+        body: {},
+        query: {},
+      };
+      const mockRes = {
+        status: (s) => {
+          responseStatus = s;
+          return {
+            json: (b) => {
+              responseBody = b;
+            },
+          };
+        },
+      };
+
+      await webhookController.handleWebhook(mockReq, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert.strictEqual(responseStatus, 405);
+      assert.strictEqual(responseBody.success, false);
+      assert.strictEqual(responseBody.error.code, "METHOD_NOT_ALLOWED");
+    });
+
+    await test("Webhook Security: rejects unknown workflow ID with 404 Not Found", async () => {
+      let responseStatus = 0;
+      let responseBody = null;
+      const mockReq = {
+        params: { workflowId: "nonexistent-workflow-id-999" },
+        method: "POST",
+        headers: {},
+        body: {},
+        query: {},
+      };
+      const mockRes = {
+        status: (s) => {
+          responseStatus = s;
+          return {
+            json: (b) => {
+              responseBody = b;
+            },
+          };
+        },
+      };
+
+      await webhookController.handleWebhook(mockReq, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert.strictEqual(responseStatus, 404);
+      assert.strictEqual(responseBody.success, false);
+      assert.strictEqual(responseBody.error.code, "WORKFLOW_NOT_FOUND");
+    });
+
+    await test("Persistence Recovery: getRunById and getRunTasks retrieve full inspectable state", async () => {
+      const runs = await workflowService.listRunsForWorkflow(testUserAId, opsWorkflowRecord.id);
+      assert.ok(runs.length >= 3);
+
+      const firstRunId = runs[0].id;
+      const detailedRun = await workflowService.getRunById(testUserAId, firstRunId);
+      assert.ok(detailedRun);
+      assert.ok(detailedRun.taskRuns.length > 0);
+
+      // Verify each task run has required inspectability fields
+      for (const task of detailedRun.taskRuns) {
+        assert.ok(task.id);
+        assert.ok(task.nodeId);
+        assert.ok(["SUCCEEDED", "SKIPPED", "FAILED", "BLOCKED"].includes(task.status));
+      }
     });
 
     // Cleanup test data

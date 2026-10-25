@@ -9,7 +9,7 @@ Built with a modular Node.js/Express backend, Neon PostgreSQL persistence (via P
 ### Core Architectural Guarantees
 1. **Deterministic Execution**: Given the same workflow definition and input payload, graph execution follows predictable topological ordering with strict tie-breaking.
 2. **Branch-Aware Control Flow**: Branching nodes (`logic.condition`, `logic.switch`) activate only selected output ports. Unselected paths cascade `SKIPPED` statuses downstream without triggering node handlers or causing workflow deadlocks.
-3. **Transparent AI Capabilities**: Native provider abstractions support **xAI Grok**, **Google Gemini**, and **OpenAI**, alongside a deterministic offline simulation mode (`[DEMO MOCK]`). Live execution is visibly distinguished from mock execution in both API responses and UI badges.
+3. **Transparent AI Capabilities**: Native provider integration is built exclusively for **Groq AI** (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`), alongside deterministic offline simulation mode (`[DEMO MOCK]`). Live execution is visibly distinguished from mock execution in both API responses and UI badges.
 4. **Hardened Security Model**: Outbound network requests enforce strict Server-Side Request Forgery (SSRF) protections against private CIDRs and cloud metadata services, hop-by-hop redirect verification, streaming payload limits, secret token masking, and zero arbitrary JavaScript code evaluation.
 
 ---
@@ -28,7 +28,7 @@ Dormammu-Engine/
 │   │   ├── engine/                      # Webster Workflow & DAG Execution Engine
 │   │   │   ├── contracts/               # Core data structures, ports, errors, context
 │   │   │   ├── planner/                 # Execution graph planner and topological sorter
-│   │   │   ├── providers/               # AI Provider integrations (Grok, Gemini, OpenAI, Mock)
+│   │   │   ├── providers/               # Sole AI Provider integration (Groq AI LPU & Mock)
 │   │   │   ├── registry/                # 32 Canonical Node definitions and handlers
 │   │   │   │   └── nodes/               # Modular node definition files
 │   │   │   ├── runtime/                 # Individual node input/output resolution & execution
@@ -101,12 +101,10 @@ Dormammu-Engine/
   - Performs a topological sort validation check.
 
 #### AI Provider Abstraction (`backend/src/engine/providers/`)
-- **[ai.provider.js](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/backend/src/engine/providers/ai.provider.js)**: Unified AI provider dispatcher supporting **xAI Grok**, **Google Gemini**, and **OpenAI**.
-  - `callGrok(apiKey, prompt, systemInstruction, abortSignal, model)`: Communicates with xAI REST API (`https://api.x.ai/v1/chat/completions`) using `grok-beta` or `grok-2-latest`.
-  - `callGemini(apiKey, prompt, systemInstruction, abortSignal)`: Dispatches REST requests to Google Generative Language API (`gemini-1.5-flash`).
-  - `callOpenAI(apiKey, prompt, systemInstruction, abortSignal)`: Communicates with OpenAI Chat Completions API (`gpt-4o-mini`).
-  - `callMockAi(taskType, payload)`: Deterministic, keyword-aware simulation fallback when no external API credentials are provided.
-  - `executeAiTask(taskType, payload, options)`: Dispatches tasks to the requested or available provider. Enforces timeouts (15,000ms), structured JSON response parsing, and strict error re-throwing.
+- **[ai.provider.js](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/backend/src/engine/providers/ai.provider.js)**: Sole AI provider dispatcher exclusively integrating **Groq AI** (`https://api.groq.com/openai/v1/chat/completions`).
+  - `callGroq(apiKey, prompt, systemInstruction, abortSignal, model)`: Communicates with Groq OpenAI-compatible REST API using high-performance models (`llama-3.3-70b-versatile` default, `llama-3.1-8b-instant`).
+  - `callMockAi(taskType, payload)`: Deterministic, keyword-aware simulation fallback when running offline tests without external API credentials.
+  - `executeAiTask(taskType, payload, options)`: Dispatches tasks exclusively to Groq AI. Enforces timeouts (20,000ms), structured JSON response parsing, and strict error re-throwing.
 
 #### Runtime & Scheduler (`backend/src/engine/runtime/` & `scheduler/`)
 - **[node.runtime.js](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/backend/src/engine/runtime/node.runtime.js)**: Executes a single node within the engine.
@@ -367,41 +365,44 @@ Dormammu-Engine/
 #### `ai.classify`
 - **Identifier**: `ai.classify` | **Version**: 1 | **Category**: `ai`
 - **Label**: `AI Classify`
-- **Description**: Classifies text or structured ticket payloads into configured categories using **xAI Grok**, **Google Gemini**, **OpenAI**, or deterministic offline mock.
+- **Description**: Classifies text or structured ticket payloads into configured categories exclusively using **Groq AI** (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`), or deterministic offline simulation.
 - **Inputs**:
   - `text` (`any`): Text string or structured ticket object (auto-extracts `issue`, `message`, `text`).
 - **Outputs**:
   - `output` (`string`): Assigned classification category.
   - `category` (`string`): Category alias.
+  - `severity` (`string`): Calculated severity (`critical`, `warning`, `normal`).
   - `confidence` (`number`): Confidence score between 0.0 and 1.0.
   - `reasoning` (`string`): Explanation of classification.
-  - `provider` (`string`): Provider identifier (`grok`, `gemini`, `openai`, `mock`).
+  - `provider` (`string`): Provider identifier (`groq`).
   - `mode` (`string`): Execution mode (`live` or `demo`).
 - **Configuration Schema**:
-  - `provider` (`string`, default: `auto`, enum: `auto`, `grok`, `gemini`, `openai`): Explicit provider selection.
-  - `model` (`string`, optional): Model override (`grok-beta`, `grok-2-latest`, `gemini-1.5-flash`, `gpt-4o-mini`).
+  - `provider` (`string`, default: `groq`, enum: `["groq"]`): Sole AI provider (Groq AI).
+  - `model` (`string`, default: `llama-3.3-70b-versatile`): Groq model identifier.
+  - `apiKey` (`string`, optional): Groq API key override.
   - `categories` (`array`, default: `["urgent", "bug", "feature_request", "billing", "general"]`).
   - `instructions` (`string`, optional): System prompt guidelines.
 
 #### `ai.extract`
 - **Identifier**: `ai.extract` | **Version**: 1 | **Category**: `ai`
 - **Label**: `AI Extract`
-- **Description**: Extracts structured JSON entity objects from unstructured text matching a defined schema.
+- **Description**: Extracts structured JSON entity objects from unstructured text matching a defined schema using Groq AI.
 - **Inputs**:
   - `text` (`any`): Source text or object.
 - **Outputs**:
   - `output` (`object`): Extracted structured JSON entity object.
   - `provider` (`string`), `mode` (`string`).
 - **Configuration Schema**:
-  - `provider` (`string`, default: `auto`, enum: `auto`, `grok`, `gemini`, `openai`).
-  - `model` (`string`, optional): Model identifier.
+  - `provider` (`string`, default: `groq`, enum: `["groq"]`).
+  - `model` (`string`, default: `llama-3.3-70b-versatile`): Groq model identifier.
+  - `apiKey` (`string`, optional): Groq API key override.
   - `schema` (`object`): Field mapping to expected data types.
   - `instructions` (`string`, optional): Extraction guidelines.
 
 #### `ai.summarize`
 - **Identifier**: `ai.summarize` | **Version**: 1 | **Category**: `ai`
 - **Label**: `AI Summarize`
-- **Description**: Produces concise summaries and bullet takeaways from text using AI models.
+- **Description**: Produces concise summaries and bullet takeaways from text using Groq AI models.
 - **Inputs**:
   - `text` (`any`): Text to summarize.
 - **Outputs**:
@@ -409,8 +410,9 @@ Dormammu-Engine/
   - `keyPoints` (`array`): Bullet points list.
   - `provider` (`string`), `mode` (`string`).
 - **Configuration Schema**:
-  - `provider` (`string`, default: `auto`, enum: `auto`, `grok`, `gemini`, `openai`).
-  - `model` (`string`, optional): Model identifier.
+  - `provider` (`string`, default: `groq`, enum: `["groq"]`).
+  - `model` (`string`, default: `llama-3.3-70b-versatile`): Groq model identifier.
+  - `apiKey` (`string`, optional): Groq API key override.
   - `format` (`string`, default: `paragraph`, enum: `paragraph`, `bullet_points`, `one_sentence`).
   - `maxLength` (`number`, default: `300`).
 
@@ -472,7 +474,7 @@ Saved canonically at [backend/workflows/ai_support_triage_workflow.json](file://
 ```mermaid
 graph TD
     Ticket["1. Inbound Support Ticket<br/><b>(trigger.manual)</b>"] --> Normalize["2. Normalize Ticket Data<br/><b>(data.object)</b>"]
-    Normalize --> AIClassify["3. AI Priority Classifier<br/><b>(ai.classify)</b><br/>Grok / Gemini / OpenAI / Mock"]
+    Normalize --> AIClassify["3. AI Priority Classifier<br/><b>(ai.classify)</b><br/>Groq AI / Mock"]
     AIClassify -->|"category"| PriorityGate["4. Is Priority Urgent?<br/><b>(logic.condition)</b>"]
     Normalize -->|"ticket payload"| PriorityGate
 
@@ -524,15 +526,15 @@ graph TD
 
 ## 🧪 Verification & Automated Testing Commands
 
-### 1. Workflow Engine Test Suite (55 Tests)
+### 1. Workflow Engine Test Suite (73 Tests)
 ```bash
 node backend/test_workflow_engine.js
 ```
-- Tests all 32 node handlers.
-- Tests Grok, Gemini, OpenAI, and Mock AI providers.
+- Tests all 35 node handlers.
+- Tests Groq AI provider abstraction and credential validation.
 - Tests cycle detection and validation.
 - Tests sequential DAG scheduling, branching, inactive branch skipping, merge modes, and failure recovery.
-- **Status**: **55 passed, 0 failed**.
+- **Status**: **73 passed, 0 failed**.
 
 ### 2. PostgreSQL Persistence & API Integration Suite (10 Tests)
 ```bash

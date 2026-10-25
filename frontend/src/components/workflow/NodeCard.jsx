@@ -473,8 +473,8 @@ export default function NodeCard({
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
-          borderBottomLeftRadius: "11px",
-          borderBottomRightRadius: "11px",
+          borderBottomLeftRadius: executionTask ? "0px" : "11px",
+          borderBottomRightRadius: executionTask ? "0px" : "11px",
         }}>
           {Object.entries(node.config).map(([k, v]) => (
             <span key={k}>
@@ -483,6 +483,67 @@ export default function NodeCard({
           ))}
         </div>
       )}
+
+      {/* Node Execution Result Bar on Card */}
+      {executionTask && (() => {
+        const isSuccess = executionTask.status === "SUCCEEDED";
+        const isFailed = executionTask.status === "FAILED";
+        const isSkipped = executionTask.status === "SKIPPED";
+        const isBlocked = executionTask.status === "BLOCKED";
+
+        const bg = isSuccess ? "rgba(16, 185, 129, 0.1)" : isFailed ? "rgba(244, 63, 94, 0.1)" : isBlocked ? "rgba(245, 158, 11, 0.1)" : "rgba(156, 163, 175, 0.08)";
+        const border = isSuccess ? "rgba(16, 185, 129, 0.25)" : isFailed ? "rgba(244, 63, 94, 0.3)" : isBlocked ? "rgba(245, 158, 11, 0.25)" : "var(--border-subtle)";
+        const textCol = isSuccess ? "#10b981" : isFailed ? "#f43f5e" : isBlocked ? "#f59e0b" : "var(--text-muted)";
+
+        const isAi = node.type?.startsWith("ai.") || executionTask.outputs?.provider === "groq" || executionTask.outputs?.provider === "grok";
+        const aiLabel = executionTask.outputs?.category || executionTask.outputs?.output;
+
+        return (
+          <div
+            title={`Status: ${executionTask.status} (${executionTask.durationMs || 0}ms)`}
+            style={{
+              padding: "5px 12px",
+              borderTop: `1px solid ${border}`,
+              background: bg,
+              fontSize: "0.68rem",
+              fontWeight: "600",
+              color: textCol,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottomLeftRadius: "11px",
+              borderBottomRightRadius: "11px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              {isSuccess && <CheckCircle2 size={11} color="#10b981" />}
+              {isFailed && <XCircle size={11} color="#f43f5e" />}
+              {isBlocked && <Ban size={11} color="#f59e0b" />}
+              {isSkipped && <FastForward size={11} color="#9ca3af" />}
+              <span>{isSuccess ? `${executionTask.durationMs || 0}ms` : executionTask.status}</span>
+            </div>
+
+            {isAi && isSuccess && (
+              <span
+                style={{
+                  fontSize: "0.64rem",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--brand)",
+                  background: "var(--brand-light)",
+                  padding: "1px 5px",
+                  borderRadius: "4px",
+                  maxWidth: "110px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ⚡ Groq: {typeof aiLabel === "object" ? "JSON" : String(aiLabel || "Done")}
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

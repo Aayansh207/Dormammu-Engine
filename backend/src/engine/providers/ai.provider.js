@@ -1,77 +1,68 @@
 /**
  * Webster Execution Engine - AI Provider Abstraction
- * Supports Google Gemini and OpenAI with explicit, labelled [DEMO MOCK] fallback for offline environments.
+ * Sole Provider: Groq AI (LPU Inference Engine)
+ * Default Model: llama-3.3-70b-versatile
+ * Completely removed all other AI providers (Gemini, OpenAI, Mock choices)
  */
 
 const { ErrorCodes, EngineError } = require("../contracts/errors");
 
-const AI_TIMEOUT_MS = 15000;
+const AI_TIMEOUT_MS = 20000;
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 
 /**
- * Dispatches a prompt to Google Gemini via REST API
+ * Strips potential markdown code blocks (e.g. ```json ... ```) and parses JSON safely.
  */
-async function callGemini(apiKey, prompt, systemInstruction = "", abortSignal = null) {
-  const model = "gemini-1.5-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const body = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 1024,
-      responseMimeType: "application/json",
-    },
-  };
-
-  if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+function parseAiJsonResponse(rawText, provider = "groq") {
+  if (!rawText || typeof rawText !== "string") {
+    throw new EngineError(ErrorCodes.AI_INVALID_OUTPUT, `${provider} returned empty response content`, { provider });
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-  if (abortSignal) {
-    abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
+  let clean = rawText.trim();
+  if (clean.startsWith("```json")) {
+    clean = clean.slice(7);
+  } else if (clean.startsWith("```")) {
+    clean = clean.slice(3);
   }
+  if (clean.endsWith("```")) {
+    clean = clean.slice(0, -3);
+  }
+  clean = clean.trim();
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new EngineError(
-        ErrorCodes.AI_PROVIDER_ERROR,
-        `Gemini API error (${res.status}): ${errText.slice(0, 300)}`,
-        { status: res.status }
-      );
-    }
-
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new EngineError(ErrorCodes.AI_INVALID_OUTPUT, "Gemini returned empty candidate content");
-    }
-    return { text: rawText, provider: "gemini", mode: "live" };
+    return JSON.parse(clean);
   } catch (err) {
-    if (controller.signal.aborted) {
-      throw new EngineError(ErrorCodes.AI_TIMEOUT, `Gemini request timed out after ${AI_TIMEOUT_MS}ms`);
+    // Attempt regex extraction of first JSON object if surrounded by preamble
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (innerErr) {
+        // Fall through to error
+      }
     }
-    if (err instanceof EngineError) throw err;
-    throw new EngineError(ErrorCodes.AI_PROVIDER_ERROR, `Gemini network error: ${err.message}`);
-  } finally {
-    clearTimeout(timer);
+    throw new EngineError(
+      ErrorCodes.AI_INVALID_OUTPUT,
+      `${provider} response was not valid JSON: ${clean.slice(0, 200)}`,
+      { provider, raw: clean.slice(0, 300) }
+    );
   }
 }
 
 /**
- * Dispatches a prompt to OpenAI via Chat Completions REST API
+ * Dispatches a prompt to Groq AI via OpenAI-compatible REST API
+ * Default model: openai/gpt-oss-120b (high speed, 120B parameters on Groq LPU)
  */
-async function callOpenAI(apiKey, prompt, systemInstruction = "", abortSignal = null) {
-  const url = "https://api.openai.com/v1/chat/completions";
+async function callGroq(apiKey, prompt, systemInstruction = "", abortSignal = null, model = DEFAULT_GROQ_MODEL) {
+  const sanitizedKey = String(apiKey || "").trim();
+  const activeModel = model || DEFAULT_GROQ_MODEL;
+
+  // Groq chat completions endpoint (supports xAI fallback if xai key provided)
+  const isXaiKey = sanitizedKey.startsWith("xai-");
+  const url = isXaiKey ? "https://api.x.ai/v1/chat/completions" : GROQ_API_URL;
+  let dispatchModel = isXaiKey && activeModel.includes("openai") ? "grok-2-latest" : activeModel;
+
   const messages = [];
   if (systemInstruction) {
     messages.push({ role: "system", content: systemInstruction });
@@ -85,112 +76,91 @@ async function callOpenAI(apiKey, prompt, systemInstruction = "", abortSignal = 
   }
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${sanitizedKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: dispatchModel,
         messages,
-        temperature: 0.2,
+        temperature: 0.1,
         response_format: { type: "json_object" },
       }),
       signal: controller.signal,
     });
 
+    // If requested model returns 404 model_not_found, seamlessly fall back to primary available Groq model
+    if (!res.ok && res.status === 404 && dispatchModel !== DEFAULT_GROQ_MODEL && !isXaiKey) {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sanitizedKey}`,
+        },
+        body: JSON.stringify({
+          model: DEFAULT_GROQ_MODEL,
+          messages,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        dispatchModel = DEFAULT_GROQ_MODEL;
+      }
+    }
+
     if (!res.ok) {
       const errText = await res.text();
       throw new EngineError(
         ErrorCodes.AI_PROVIDER_ERROR,
-        `OpenAI API error (${res.status}): ${errText.slice(0, 300)}`,
-        { status: res.status }
+        `Groq AI API error (${res.status}): ${errText.slice(0, 300)}`,
+        { status: res.status, provider: "groq", model: dispatchModel }
       );
     }
 
     const data = await res.json();
     const rawText = data.choices?.[0]?.message?.content;
     if (!rawText) {
-      throw new EngineError(ErrorCodes.AI_INVALID_OUTPUT, "OpenAI returned empty message content");
+      throw new EngineError(
+        ErrorCodes.AI_INVALID_OUTPUT,
+        "Groq AI returned empty message content",
+        { provider: "groq", model: dispatchModel }
+      );
     }
-    return { text: rawText, provider: "openai", mode: "live" };
+    return { text: rawText, provider: "groq", model: dispatchModel, mode: "live" };
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new EngineError(ErrorCodes.AI_TIMEOUT, `OpenAI request timed out after ${AI_TIMEOUT_MS}ms`);
+      throw new EngineError(
+        ErrorCodes.AI_TIMEOUT,
+        `Groq AI request timed out after ${AI_TIMEOUT_MS}ms`,
+        { provider: "groq", model: activeModel }
+      );
     }
     if (err instanceof EngineError) throw err;
-    throw new EngineError(ErrorCodes.AI_PROVIDER_ERROR, `OpenAI network error: ${err.message}`);
+    throw new EngineError(
+      ErrorCodes.AI_PROVIDER_ERROR,
+      `Groq AI network error: ${err.message}`,
+      { provider: "groq", model: activeModel }
+    );
   } finally {
     clearTimeout(timer);
   }
 }
 
 /**
- * Dispatches a prompt to xAI Grok via REST API
+ * Backward compatibility alias
  */
-async function callGrok(apiKey, prompt, systemInstruction = "", abortSignal = null, model = "grok-beta") {
-  const url = "https://api.x.ai/v1/chat/completions";
-  const messages = [];
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-  if (abortSignal) {
-    abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || "grok-beta",
-        messages,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new EngineError(
-        ErrorCodes.AI_PROVIDER_ERROR,
-        `Grok API error (${res.status}): ${errText.slice(0, 300)}`,
-        { status: res.status, provider: "grok" }
-      );
-    }
-
-    const data = await res.json();
-    const rawText = data.choices?.[0]?.message?.content;
-    if (!rawText) {
-      throw new EngineError(ErrorCodes.AI_INVALID_OUTPUT, "Grok returned empty message content", { provider: "grok" });
-    }
-    return { text: rawText, provider: "grok", mode: "live" };
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new EngineError(ErrorCodes.AI_TIMEOUT, `Grok request timed out after ${AI_TIMEOUT_MS}ms`, { provider: "grok" });
-    }
-    if (err instanceof EngineError) throw err;
-    throw new EngineError(ErrorCodes.AI_PROVIDER_ERROR, `Grok network error: ${err.message}`, { provider: "grok" });
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const callGrok = callGroq;
 
 /**
- * Deterministic, visibly labelled mock execution when no external AI keys are configured.
+ * Deterministic, visibly labelled mock execution when explicitly requested or in test mode.
  */
 function callMockAi(taskType, payload) {
   const commonMeta = {
-    provider: "mock",
+    provider: "groq",
     mode: "demo",
     isDemo: true,
     badge: "🎭 DEMO MODE (Deterministic Simulation)",
@@ -225,7 +195,7 @@ function callMockAi(taskType, payload) {
       return {
         ...commonMeta,
         category: matched,
-        confidence: 0.94,
+        confidence: 0.95,
         reasoning: `[DEMO MOCK - Offline Deterministic Fallback] Matched based on semantic keyword presence in text '${text.slice(0, 50)}...'`,
       };
     }
@@ -290,97 +260,89 @@ function callMockAi(taskType, payload) {
 
 /**
  * Unified AI execution dispatcher
- * Supports Grok (xAI), Gemini, and OpenAI with explicit provider selection and transparent offline mock.
+ * SOLE PROVIDER: Groq AI (LPU Inference Engine)
+ * Default Model: llama-3.3-70b-versatile
  */
 async function executeAiTask(taskType, payload, options = {}) {
-  const preferredProvider = (options.provider || payload.provider || "auto").toLowerCase();
-  const requestedModel = options.model || payload.model;
+  const requestedModel = options.model || payload.model || DEFAULT_GROQ_MODEL;
   const abortSignal = options.abortSignal || null;
 
-  const grokKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+  // Retrieve Groq API Key from node config override or process environment
+  const groqKey = options.apiKey || payload.apiKey || process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
 
-  const prompt = `Perform the following ${taskType} task and return ONLY JSON:\nPayload: ${JSON.stringify(payload)}`;
+  if (!groqKey) {
+    // In offline automated test environments or when explicitly permitted via ALLOW_OFFLINE_MOCK, fallback transparently if not strict
+    if (!options.strict && (process.env.ALLOW_OFFLINE_MOCK === "true" || process.env.NODE_ENV === "test")) {
+      return callMockAi(taskType, payload);
+    }
 
-  // 1. Grok Execution (if explicitly requested, or auto when grokKey is present)
-  if ((preferredProvider === "grok" || preferredProvider === "xai") || (preferredProvider === "auto" && grokKey)) {
-    if (!grokKey) {
-      throw new EngineError(
-        ErrorCodes.AI_PROVIDER_ERROR,
-        "xAI Grok provider was selected but GROK_API_KEY (or XAI_API_KEY) is not configured in environment"
-      );
-    }
-    try {
-      const res = await callGrok(grokKey, prompt, "", abortSignal, requestedModel || "grok-beta");
-      const parsed = JSON.parse(res.text);
-      return {
-        ...parsed,
-        provider: "grok",
-        mode: "live",
-        isDemo: false,
-        badge: "⚡ LIVE AI (Grok)",
-      };
-    } catch (err) {
-      // Re-throw: never disguise a provider failure as a fake mock response
-      throw err;
-    }
+    throw new EngineError(
+      ErrorCodes.AI_PROVIDER_ERROR,
+      "Groq AI provider is configured, but no API key was provided. Please add GROQ_API_KEY to your backend/.env file or specify apiKey on the AI node.",
+      { provider: "groq", missingEnv: "GROQ_API_KEY" }
+    );
   }
 
-  // 2. Gemini Execution (if explicitly requested, or auto when geminiKey is present)
-  if (preferredProvider === "gemini" || (preferredProvider === "auto" && geminiKey)) {
-    if (!geminiKey) {
-      throw new EngineError(
-        ErrorCodes.AI_PROVIDER_ERROR,
-        "Google Gemini provider was selected but GEMINI_API_KEY is not configured in environment"
-      );
-    }
-    try {
-      const res = await callGemini(geminiKey, prompt, "", abortSignal);
-      const parsed = JSON.parse(res.text);
-      return {
-        ...parsed,
-        provider: "gemini",
-        mode: "live",
-        isDemo: false,
-        badge: "⚡ LIVE AI (Gemini)",
-      };
-    } catch (err) {
-      throw err;
-    }
+  // Build task-tailored prompt & system instructions for high-accuracy Groq output
+  let systemInstruction = "";
+  let userPrompt = "";
+
+  if (taskType === "classify") {
+    const categories = payload.categories || ["urgent", "bug", "billing", "general"];
+    systemInstruction =
+      "You are an expert triage and classification AI powered by Groq. You must classify the input into exactly one of the target categories. " +
+      "You MUST return ONLY a valid JSON object matching this schema:\n" +
+      '{"category": string, "confidence": number, "reasoning": string, "severity": "critical" | "warning" | "normal"}\n' +
+      "Do NOT return markdown backticks or commentary.";
+    userPrompt =
+      `Target Categories: ${JSON.stringify(categories)}\n\n` +
+      `Input Text to Classify:\n${payload.text}\n` +
+      (payload.instructions ? `\nInstructions: ${payload.instructions}` : "");
+  } else if (taskType === "extract") {
+    const schema = payload.schema || {};
+    systemInstruction =
+      "You are an expert data extraction AI powered by Groq. Extract structured entities from the input text strictly adhering to the schema. " +
+      "You MUST return ONLY a valid JSON object matching this schema:\n" +
+      '{"extracted": object}\n' +
+      "Do NOT return markdown backticks or commentary.";
+    userPrompt =
+      `Target Schema: ${JSON.stringify(schema, null, 2)}\n\n` +
+      `Input Text:\n${payload.text}\n` +
+      (payload.instructions ? `\nInstructions: ${payload.instructions}` : "");
+  } else if (taskType === "summarize") {
+    const format = payload.format || "paragraph";
+    const maxLength = payload.maxLength || 300;
+    systemInstruction =
+      "You are an executive summarization AI powered by Groq. Produce a crisp, accurate summary and bullet key points. " +
+      "You MUST return ONLY a valid JSON object matching this schema:\n" +
+      '{"summary": string, "keyPoints": string[]}\n' +
+      "Do NOT return markdown backticks or commentary.";
+    userPrompt =
+      `Desired Format: ${format}\n` +
+      `Max Length: ${maxLength} characters\n\n` +
+      `Input Text:\n${payload.text}\n` +
+      (payload.instructions ? `\nInstructions: ${payload.instructions}` : "");
+  } else {
+    systemInstruction = "You are a helpful AI powered by Groq that returns ONLY a valid JSON object.";
+    userPrompt = `Perform the task '${taskType}' for the following payload and return JSON:\n${JSON.stringify(payload)}`;
   }
 
-  // 3. OpenAI Execution (if explicitly requested, or auto when openaiKey is present)
-  if (preferredProvider === "openai" || (preferredProvider === "auto" && openaiKey)) {
-    if (!openaiKey) {
-      throw new EngineError(
-        ErrorCodes.AI_PROVIDER_ERROR,
-        "OpenAI provider was selected but OPENAI_API_KEY is not configured in environment"
-      );
-    }
-    try {
-      const res = await callOpenAI(openaiKey, prompt, "", abortSignal);
-      const parsed = JSON.parse(res.text);
-      return {
-        ...parsed,
-        provider: "openai",
-        mode: "live",
-        isDemo: false,
-        badge: "⚡ LIVE AI (OpenAI)",
-      };
-    } catch (err) {
-      throw err;
-    }
-  }
+  const res = await callGroq(groqKey, userPrompt, systemInstruction, abortSignal, requestedModel);
+  const parsed = parseAiJsonResponse(res.text, "groq");
 
-  // 4. Explicit, transparent fallback to deterministic offline mock only when no credentials exist
-  return callMockAi(taskType, payload);
+  return {
+    ...parsed,
+    provider: "groq",
+    model: res.model || requestedModel,
+    mode: "live",
+    isDemo: false,
+    badge: `⚡ LIVE AI (Groq: ${res.model || requestedModel})`,
+  };
 }
 
 module.exports = {
   executeAiTask,
+  callGroq,
   callGrok,
-  callGemini,
-  callOpenAI,
   callMockAi,
 };

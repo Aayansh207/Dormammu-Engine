@@ -11,6 +11,8 @@ const { executeWorkflow, WorkflowRunStatus, TaskRunStatus } = require("./src/eng
 const { ErrorCodes } = require("./src/engine/contracts/errors");
 const { createExecutionContext } = require("./src/engine/contracts/context");
 
+process.env.ALLOW_OFFLINE_MOCK = "true";
+
 let passed = 0;
 let failed = 0;
 
@@ -503,22 +505,25 @@ async function runWorkflowEngineTests() {
     assert.ok(res._aiExecution && typeof res._aiExecution === "object");
   });
 
-  await test("ai.provider: supports xAI Grok provider abstraction and validates credentials", async () => {
-    const { callGrok, executeAiTask } = require("./src/engine/providers/ai.provider");
-    assert.strictEqual(typeof callGrok, "function");
+  await test("ai.provider: supports Groq AI provider abstraction and validates credentials", async () => {
+    const { callGroq, executeAiTask } = require("./src/engine/providers/ai.provider");
+    assert.strictEqual(typeof callGroq, "function");
 
-    // When Grok is explicitly requested without GROK_API_KEY or XAI_API_KEY, strictly rejects
+    // When Groq is explicitly requested without GROQ_API_KEY, strictly rejects
+    const prevGroq = process.env.GROQ_API_KEY;
     const prevGrok = process.env.GROK_API_KEY;
     const prevXai = process.env.XAI_API_KEY;
+    delete process.env.GROQ_API_KEY;
     delete process.env.GROK_API_KEY;
     delete process.env.XAI_API_KEY;
 
     try {
       await assert.rejects(
-        async () => executeAiTask("classify", { text: "server down", categories: ["urgent", "general"] }, { provider: "grok" }),
+        async () => executeAiTask("classify", { text: "server down", categories: ["urgent", "general"] }, { provider: "groq", strict: true }),
         (err) => err.code === ErrorCodes.AI_PROVIDER_ERROR
       );
     } finally {
+      if (prevGroq) process.env.GROQ_API_KEY = prevGroq;
       if (prevGrok) process.env.GROK_API_KEY = prevGrok;
       if (prevXai) process.env.XAI_API_KEY = prevXai;
     }
