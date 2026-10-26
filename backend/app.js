@@ -33,7 +33,7 @@ if (env.FRONTEND_URL) {
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+    // Allow requests with no origin 
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith(".vercel.app") || env.NODE_ENV !== "production") {
       return callback(null, true);
     }
