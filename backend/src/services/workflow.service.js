@@ -8,6 +8,7 @@ const { executeWorkflow } = require("../engine/scheduler/dag.scheduler");
 const { defaultRegistry } = require("../engine/registry/node.registry");
 const { ErrorCodes } = require("../engine/contracts/errors");
 const { defaultSseService } = require("./sse.service");
+const { defaultCronScheduler } = require("./cron.service");
 
 /**
  * Recursively sanitizes payloads to ensure sensitive credentials, tokens, and secrets
@@ -158,6 +159,9 @@ class WorkflowService {
         validation,
       };
     });
+
+    // Automatically sync schedule if definition contains trigger.cron
+    defaultCronScheduler.syncWorkflowDefinition(result.id, userId, initialDefinition);
 
     return result;
   }
@@ -337,6 +341,9 @@ class WorkflowService {
       };
     });
 
+    // Automatically sync updated schedule if definition contains or removes trigger.cron
+    defaultCronScheduler.syncWorkflowDefinition(result.id, userId, definition);
+
     return result;
   }
 
@@ -365,6 +372,9 @@ class WorkflowService {
     await prisma.workflow.delete({
       where: { id: workflowId },
     });
+
+    // Unregister schedule if registered
+    defaultCronScheduler.unregisterSchedule(workflowId);
 
     return { success: true, message: "Workflow deleted successfully" };
   }

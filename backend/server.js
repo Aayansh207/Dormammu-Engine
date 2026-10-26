@@ -3,6 +3,7 @@ const env = require("./env");
 const prisma = require("./src/config/db");
 
 const nodeService = require("./src/services/node.service");
+const { defaultCronScheduler } = require("./src/services/cron.service");
 
 const server = app.listen(env.PORT, async () => {
   console.log(`Server is running on port ${env.PORT}`);
@@ -11,6 +12,14 @@ const server = app.listen(env.PORT, async () => {
     console.log(`✅ Synchronized ${syncRes.upserted} node definitions with PostgreSQL.`);
   } catch (err) {
     console.warn("⚠️  Could not sync node definitions on startup:", err.message);
+  }
+
+  try {
+    defaultCronScheduler.start();
+    const cronSync = await defaultCronScheduler.syncFromDatabase();
+    console.log(`🕒 Cron Scheduler started. Active scheduled workflows: ${cronSync.registered}.`);
+  } catch (err) {
+    console.warn("⚠️  Could not initialize Cron Scheduler on startup:", err.message);
   }
 });
 
@@ -33,6 +42,7 @@ async function gracefulShutdown(signal) {
 
   server.close(async () => {
     try {
+      defaultCronScheduler.stop();
       await prisma.$disconnect();
       console.log("Database disconnected. Server stopped.");
       process.exit(0);

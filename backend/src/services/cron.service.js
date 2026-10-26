@@ -4,7 +4,6 @@
  */
 
 const prisma = require("../config/db");
-const workflowService = require("../services/workflow.service");
 const { isValidCronExpression } = require("../engine/registry/nodes/trigger.cron");
 
 /**
@@ -178,6 +177,7 @@ class CronSchedulerService {
         cronExpression: schedule.cronExpression,
       };
 
+      const workflowService = require("../services/workflow.service");
       const result = await workflowService.executeWorkflowRun(schedule.ownerId, workflowId, {
         triggerData,
       });
@@ -190,6 +190,93 @@ class CronSchedulerService {
     } finally {
       schedule.running = false;
     }
+  }
+
+  /**
+   * Scans PostgreSQL for all active workflows containing a `trigger.cron` node
+   * and registers them in the active schedule pool.
+   */
+  async syncFromDatabase() {
+    try {
+      const workflows = await prisma.workflow.findMany({
+        include: {
+          versions: {
+            orderBy: { version: "desc" },
+            take: 1,
+          },
+        },
+      });
+
+      let registeredCount = 0;
+      const seenIds = new Set();
+
+      for (const wf of workflows) {
+        const latestVersion = wf.versions[0];
+        if (!latestVersion?.definitionJson) continue;
+
+        const def = latestVersion.definitionJson;
+        const cronNode = (def.nodes || []).find((n) => n.type === "trigger.cron");
+
+        if (cronNode) {
+          const config = cronNode.config || {};
+          const cronExpr = config.cronExpression || "0 * * * *";
+          const timezone = config.timezone || "UTC";
+          const enabled = config.enabled !== false;
+
+          seenIds.add(wf.id);
+          this.registerSchedule(wf.id, {
+            ownerId: wf.ownerId,
+            cronExpression: cronExpr,
+            timezone,
+            enabled,
+          });
+          registeredCount++;
+        }
+      }
+
+      // Cleanup any schedules that no longer have a cron trigger in DB
+      for (const existingId of this._schedules.keys()) {
+        if (!seenIds.has(existingId)) {
+          this.unregisterSchedule(existingId);
+        }
+      }
+
+      return { registered: registeredCount };
+    } catch (err) {
+      console.warn("[CronScheduler] Could not synchronize schedules from DB:", err.message);
+      return { registered: 0, error: err.message };
+    }
+  }
+
+  /**
+   * Synchronizes a single workflow's cron schedule based on its definition.
+   * @param {string} workflowId
+   * @param {string} ownerId
+   * @param {Object} definition
+   */
+  syncWorkflowDefinition(workflowId, ownerId, definition) {
+    if (!definition || !Array.isArray(definition.nodes)) {
+      this.unregisterSchedule(workflowId);
+      return;
+    }
+
+    const cronNode = definition.nodes.find((n) => n.type === "trigger.cron");
+    if (!cronNode) {
+      this.unregisterSchedule(workflowId);
+      return;
+    }
+
+    const config = cronNode.config || {};
+    const cronExpr = config.cronExpression || "0 * * * *";
+    const timezone = config.timezone || "UTC";
+    const enabled = config.enabled !== false;
+
+    this.registerSchedule(workflowId, {
+      ownerId,
+      cronExpression: cronExpr,
+      timezone,
+      enabled,
+    });
   }
 
   /**
