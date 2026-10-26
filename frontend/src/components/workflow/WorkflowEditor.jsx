@@ -15,25 +15,31 @@ import {
   Wand2,
   Sparkles,
   Zap,
-  Activity,
   Radio,
-  GitCompare,
   History,
 } from "lucide-react";
+
 import { api } from "../../services/api";
 import NodePalette from "./NodePalette";
 import NodeCard from "./NodeCard";
-import EdgePath, { calculatePortPosition, generateBezierPath } from "./EdgePath";
+import EdgePath, {
+  calculatePortPosition,
+  generateBezierPath,
+} from "./EdgePath";
 import NodeInspector from "./NodeInspector";
 import ValidationDrawer from "./ValidationDrawer";
 import RunExecutionModal from "./RunExecutionModal";
 import WebhookTestingModal from "./WebhookTestingModal";
-import ExecutionPanel from "./ExecutionPanel";
+import PastRunsDrawer from "./PastRunsDrawer";
 import QuickAddPopover from "./QuickAddPopover";
 import { calculateAutoLayout } from "./autoLayout";
 
-export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
-  // Core Workflow State
+export default function WorkflowEditor({
+  workflowId,
+  onBack,
+  onOpenReport,
+}) {
+  // Core workflow state
   const [workflow, setWorkflow] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -47,24 +53,31 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
   const [catalogue, setCatalogue] = useState([]);
   const [catalogueMap, setCatalogueMap] = useState({});
 
-  // Canvas Viewport (Pan & Zoom)
+  // Canvas viewport
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 80, y: 60 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
 
-  // Selection & UI Panels
-  const [selectedElement, setSelectedElement] = useState(null); // { id, type: 'node' | 'edge' }
+  // Selection and panels
+  const [selectedElement, setSelectedElement] = useState(null);
   const [isPaletteOpen, setIsPaletteOpen] = useState(true);
-  const [isValidationDrawerOpen, setIsValidationDrawerOpen] = useState(false);
+  const [isValidationDrawerOpen, setIsValidationDrawerOpen] =
+    useState(false);
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
   const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
-  const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
-  const [recentRuns, setRecentRuns] = useState([]);
-  const [activeRunId, setActiveRunId] = useState(null);
-  const sseUnsubRef = useRef(null);
+  const [isPastRunsDrawerOpen, setIsPastRunsDrawerOpen] = useState(false);
 
-  // Quick Add Popover State
+  const [recentRuns, setRecentRuns] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [activeRunId, setActiveRunId] = useState(null);
+
+  const sseUnsubRef = useRef(null);
+  const mountedRef = useRef(false);
+  const validationTimerRef = useRef(null);
+  const saveMessageTimerRef = useRef(null);
+
+  // Quick Add popover
   const [quickAdd, setQuickAdd] = useState({
     isOpen: false,
     screenX: 0,
@@ -74,177 +87,313 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
     autoConnectSource: null,
   });
 
-  // Validation State
-  const [validationResult, setValidationResult] = useState({ valid: true, errors: [], warnings: [] });
+  // Validation
+  const [validationResult, setValidationResult] = useState({
+    valid: true,
+    errors: [],
+    warnings: [],
+  });
   const [isValidating, setIsValidating] = useState(false);
 
-  // Node Dragging State
+  // Node dragging
   const [draggingNodeId, setDraggingNodeId] = useState(null);
-  const dragStartOffsetRef = useRef({ x: 0, y: 0 });
+  const dragStartOffsetRef = useRef({
+    mouseX: 0,
+    mouseY: 0,
+    nodeX: 0,
+    nodeY: 0,
+  });
 
-  // Connection Dragging State (Port to Port)
-  const [connectingSource, setConnectingSource] = useState(null); // { nodeId, portName }
+  // Connection dragging
+  const [connectingSource, setConnectingSource] = useState(null);
   const [connectingMousePos, setConnectingMousePos] = useState(null);
 
-  // Execution State
+  // Execution
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState(null);
 
   const canvasRef = useRef(null);
 
-  // Keep live reference for handlers to prevent recreating callbacks on every state change
-  const stateRef = useRef({ workflowName, nodes, edges, workflowId, isDirty, selectedElement });
-  stateRef.current = { workflowName, nodes, edges, workflowId, isDirty, selectedElement };
+  // Stable live state reference for event handlers
+  const stateRef = useRef(null);
 
-  // Stable construct current standard workflow JSON object
-  const getWorkflowJson = useCallback((customNodes = null, customEdges = null) => {
-    return {
+  stateRef.current = {
+    workflowName,
+    nodes,
+    edges,
+    workflowId,
+    isDirty,
+    selectedElement,
+    scale,
+    pan,
+  };
+
+  // Build workflow definition
+  const getWorkflowJson = useCallback(
+    (customNodes = null, customEdges = null) => ({
       schemaVersion: 1,
       name: stateRef.current.workflowName,
-      nodes: customNodes || stateRef.current.nodes,
-      edges: customEdges || stateRef.current.edges,
-    };
+      nodes: customNodes ?? stateRef.current.nodes,
+      edges: customEdges ?? stateRef.current.edges,
+    }),
+    []
+  );
+
+  // Cleanup helpers
+  const clearSSESubscription = useCallback(() => {
+    if (sseUnsubRef.current) {
+      try {
+        sseUnsubRef.current();
+      } catch (err) {
+        console.warn("Failed to close run event subscription:", err);
+      }
+
+      sseUnsubRef.current = null;
+    }
   }, []);
 
-  // Validation debounce timer ref
-  const validationTimerRef = useRef(null);
-
-  // Validate definition with debouncing to prevent flooding backend API
-  const validateDefinition = useCallback((customDef = null, delay = 200) => {
-    if (validationTimerRef.current) {
-      clearTimeout(validationTimerRef.current);
-    }
-
-    const runValidation = async () => {
-      setIsValidating(true);
-      try {
-        const def = customDef || getWorkflowJson();
-        const res = await api.validateRawWorkflow(def);
-        if (res && res.data) {
-          setValidationResult(res.data);
-        }
-      } catch (err) {
-        console.error("Validation error:", err);
-      } finally {
-        setIsValidating(false);
+  // Validate workflow definition
+  const validateDefinition = useCallback(
+    (customDef = null, delay = 200) => {
+      if (validationTimerRef.current) {
+        clearTimeout(validationTimerRef.current);
+        validationTimerRef.current = null;
       }
-    };
 
-    if (delay === 0) {
-      runValidation();
-    } else {
-      validationTimerRef.current = setTimeout(runValidation, delay);
-    }
-  }, [getWorkflowJson]);
+      const runValidation = async () => {
+        setIsValidating(true);
 
-  // Save workflow definition to backend
+        try {
+          const definition = customDef || getWorkflowJson();
+          const res = await api.validateRawWorkflow(definition);
+
+          if (res?.data) {
+            setValidationResult(res.data);
+          }
+        } catch (err) {
+          console.error("Validation error:", err);
+        } finally {
+          setIsValidating(false);
+        }
+      };
+
+      if (delay === 0) {
+        void runValidation();
+      } else {
+        validationTimerRef.current = setTimeout(() => {
+          validationTimerRef.current = null;
+          void runValidation();
+        }, delay);
+      }
+    },
+    [getWorkflowJson]
+  );
+
+  // Save workflow definition
   const handleSave = useCallback(async () => {
     const currentId = stateRef.current.workflowId;
-    if (!currentId) return;
+
+    if (!currentId) {
+      return false;
+    }
+
+    if (isSaving) {
+      return false;
+    }
 
     setIsSaving(true);
     setSaveSuccessMsg("");
 
     try {
       const definition = getWorkflowJson();
+
       const res = await api.updateWorkflow(currentId, {
         name: stateRef.current.workflowName,
         definition,
       });
 
-      if (res && res.data) {
-        setWorkflow(res.data);
-        setWorkflowVersion(res.data.version);
-        setIsDirty(false);
-        setSaveSuccessMsg(`Saved as v${res.data.version}`);
-        setTimeout(() => setSaveSuccessMsg(""), 3000);
-
-        if (res.data.validation) {
-          setValidationResult(res.data.validation);
-        }
+      if (!res?.data) {
+        throw new Error("The server returned an empty save response.");
       }
+
+      setWorkflow(res.data);
+      setWorkflowVersion(res.data.version ?? 1);
+      setIsDirty(false);
+
+      setSaveSuccessMsg(
+        `Saved as v${res.data.version ?? 1}`
+      );
+
+      if (saveMessageTimerRef.current) {
+        clearTimeout(saveMessageTimerRef.current);
+      }
+
+      saveMessageTimerRef.current = setTimeout(() => {
+        setSaveSuccessMsg("");
+        saveMessageTimerRef.current = null;
+      }, 3000);
+
+      if (res.data.validation) {
+        setValidationResult(res.data.validation);
+      }
+
+      return true;
     } catch (err) {
       console.error("Failed to save workflow:", err);
-      alert(`Save failed: ${err.message}`);
+      alert(`Save failed: ${err.message || "Unknown error"}`);
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [getWorkflowJson]);
+  }, [getWorkflowJson, isSaving]);
 
-  // Delete node and attached edges
-  const handleDeleteNode = useCallback((nodeId) => {
-    setNodes((prevNodes) => {
-      const nextNodes = prevNodes.filter((n) => n.id !== nodeId);
-      setEdges((prevEdges) => {
-        const nextEdges = prevEdges.filter((e) => e.source !== nodeId && e.target !== nodeId);
-        validateDefinition(getWorkflowJson(nextNodes, nextEdges));
-        return nextEdges;
-      });
-      return nextNodes;
-    });
-    setSelectedElement((prev) => (prev?.id === nodeId ? null : prev));
-    setIsDirty(true);
-  }, [getWorkflowJson, validateDefinition]);
+  // Delete node and connected edges
+  const handleDeleteNode = useCallback(
+    (nodeId) => {
+      const nextNodes = stateRef.current.nodes.filter(
+        (node) => node.id !== nodeId
+      );
+
+      const nextEdges = stateRef.current.edges.filter(
+        (edge) =>
+          edge.source !== nodeId && edge.target !== nodeId
+      );
+
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+
+      setSelectedElement((prev) =>
+        prev?.id === nodeId ? null : prev
+      );
+
+      setIsDirty(true);
+
+      validateDefinition(
+        {
+          ...getWorkflowJson(nextNodes, nextEdges),
+          nodes: nextNodes,
+          edges: nextEdges,
+        }
+      );
+    },
+    [getWorkflowJson, validateDefinition]
+  );
 
   // Delete edge
-  const handleDeleteEdge = useCallback((edgeId) => {
-    setEdges((prevEdges) => {
-      const nextEdges = prevEdges.filter((e) => e.id !== edgeId);
+  const handleDeleteEdge = useCallback(
+    (edgeId) => {
+      const nextEdges = stateRef.current.edges.filter(
+        (edge) => edge.id !== edgeId
+      );
+
+      setEdges(nextEdges);
+
+      setSelectedElement((prev) =>
+        prev?.id === edgeId ? null : prev
+      );
+
+      setIsDirty(true);
+
       validateDefinition(getWorkflowJson(null, nextEdges));
-      return nextEdges;
-    });
-    setSelectedElement((prev) => (prev?.id === edgeId ? null : prev));
-    setIsDirty(true);
-  }, [getWorkflowJson, validateDefinition]);
+    },
+    [getWorkflowJson, validateDefinition]
+  );
 
-  // 1. Load Catalogue ONCE on mount
+  // Load node catalogue
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
 
-    api.getNodeCatalogue()
-      .then((catRes) => {
-        if (mounted && catRes?.data) {
-          setCatalogue(catRes.data);
-          const map = {};
-          for (const item of catRes.data) {
-            map[item.type] = item;
-          }
-          setCatalogueMap(map);
+    async function loadCatalogue() {
+      try {
+        const response = await api.getNodeCatalogue();
+
+        if (cancelled || !response?.data) {
+          return;
         }
-      })
-      .catch((err) => console.error("Failed to load node catalogue:", err));
+
+        setCatalogue(response.data);
+
+        const map = {};
+
+        for (const item of response.data) {
+          map[item.type] = item;
+        }
+
+        setCatalogueMap(map);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load node catalogue:", err);
+        }
+      }
+    }
+
+    void loadCatalogue();
 
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, []);
 
-  // Fetch recent runs for this workflow
+  // Fetch execution history
   const fetchRecentRuns = useCallback(async (wfId) => {
-    if (!wfId) return;
+    if (!wfId) {
+      setRecentRuns([]);
+      return;
+    }
+
+    setIsLoadingHistory(true);
+
     try {
-      const res = await api.listWorkflowRuns(wfId);
-      if (res && res.data) {
-        setRecentRuns(Array.isArray(res.data) ? res.data : []);
+      const response = await api.listWorkflowRuns(wfId);
+
+      if (response?.data) {
+        setRecentRuns(
+          Array.isArray(response.data) ? response.data : []
+        );
+      } else {
+        setRecentRuns([]);
       }
     } catch (err) {
       console.warn("Failed to fetch recent runs:", err);
+    } finally {
+      setIsLoadingHistory(false);
     }
   }, []);
 
-  // Durable run loader (supports browser refresh recovery via ?runId=)
-  const loadRunById = useCallback(async (runId) => {
-    if (!runId) return;
-    try {
-      const res = await api.getRunDetails(runId);
-      if (res && res.data) {
-        const runData = res.data;
-        // Verify this run belongs to the active workflow
-        if (runData.workflowId && workflowId && runData.workflowId !== workflowId) {
-          console.warn("Run does not belong to the current workflow. Clearing runId param.");
+  // Load an existing execution report
+  const loadRunById = useCallback(
+    async (runId) => {
+      if (!runId) {
+        return;
+      }
+
+      try {
+        const response = await api.getRunDetails(runId);
+
+        if (!response?.data) {
+          return;
+        }
+
+        const runData = response.data;
+
+        if (
+          runData.workflowId &&
+          workflowId &&
+          String(runData.workflowId) !== String(workflowId)
+        ) {
+          console.warn(
+            "Run does not belong to the current workflow."
+          );
+
           const url = new URL(window.location.href);
           url.searchParams.delete("runId");
-          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+
+          window.history.replaceState(
+            {},
+            "",
+            url.pathname + url.search + url.hash
+          );
+
           return;
         }
 
@@ -252,175 +401,270 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
           ...runData,
           id: runData.id || runData.runId || runId,
           runId: runData.runId || runData.id || runId,
-          finalOutput: runData.finalOutput !== undefined ? runData.finalOutput : runData.output,
-          tasks: runData.tasks || (runData.taskRuns ? Object.fromEntries(runData.taskRuns.map((t) => [t.nodeId, t])) : {}),
+          finalOutput:
+            runData.finalOutput !== undefined
+              ? runData.finalOutput
+              : runData.output,
+          tasks:
+            runData.tasks ||
+            (Array.isArray(runData.taskRuns)
+              ? Object.fromEntries(
+                runData.taskRuns.map((task) => [
+                  task.nodeId,
+                  task,
+                ])
+              )
+              : {}),
         };
+
         setRunResult(normalized);
         setActiveRunId(normalized.runId);
-        setIsExecutionPanelOpen(true);
-      }
-    } catch (err) {
-      console.warn("Could not load execution run details:", err.message);
-      // Clean up invalid or unauthorized runId from URL to prevent repetitive forbidden errors
-      try {
+
+        if (
+          normalized.status === "RUNNING" ||
+          normalized.status === "QUEUED"
+        ) {
+          startLiveRunTracking(normalized.runId);
+        }
+      } catch (err) {
+        console.warn(
+          "Could not load execution run details:",
+          err.message
+        );
+
         const url = new URL(window.location.href);
+
         if (url.searchParams.has("runId")) {
           url.searchParams.delete("runId");
-          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
-        }
-      } catch {
-        // Ignore URL parsing errors
-      }
-    }
-  }, [workflowId]);
 
-  // 2. Load Workflow Definition and Initial Runs
+          window.history.replaceState(
+            {},
+            "",
+            url.pathname + url.search + url.hash
+          );
+        }
+      }
+    },
+    [workflowId]
+  );
+
+  // Load workflow and history
   useEffect(() => {
-    if (!workflowId) return;
-    let mounted = true;
+    if (!workflowId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    clearSSESubscription();
+
+    setWorkflow(null);
+    setNodes([]);
+    setEdges([]);
+    setWorkflowName("Untitled Workflow");
+    setWorkflowVersion(1);
+    setSelectedElement(null);
+    setRunResult(null);
+    setActiveRunId(null);
+    setRecentRuns([]);
+    setIsDirty(false);
+    setIsLoadingHistory(true);
 
     async function loadWorkflow() {
       try {
-        const wfRes = await api.getWorkflow(workflowId);
-        if (mounted && wfRes?.data) {
-          const wf = wfRes.data;
-          setWorkflow(wf);
-          setWorkflowName(wf.name || "Untitled Workflow");
-          setWorkflowVersion(wf.version || 1);
+        const response = await api.getWorkflow(workflowId);
 
-          const def = wf.definition || { nodes: [], edges: [] };
-          setNodes(def.nodes || []);
-          setEdges(def.edges || []);
-          setIsDirty(false);
-
-          // Initial validation check once with 0ms delay
-          validateDefinition(def, 0);
+        if (cancelled || !response?.data) {
+          return;
         }
+
+        const wf = response.data;
+        const definition = wf.definition || {
+          nodes: [],
+          edges: [],
+        };
+
+        setWorkflow(wf);
+        setWorkflowName(wf.name || "Untitled Workflow");
+        setWorkflowVersion(wf.version || 1);
+        setNodes(definition.nodes || []);
+        setEdges(definition.edges || []);
+        setIsDirty(false);
+
+        validateDefinition(definition, 0);
       } catch (err) {
-        console.error("Failed to load workflow editor:", err);
+        if (!cancelled) {
+          console.error(
+            "Failed to load workflow editor:",
+            err
+          );
+        }
       }
     }
 
-    loadWorkflow();
-    fetchRecentRuns(workflowId);
+    void loadWorkflow();
+    void fetchRecentRuns(workflowId);
 
-    // Auto-recover run state if URL contains ?runId=
-    const urlParams = new URLSearchParams(window.location.search);
-    const qRunId = urlParams.get("runId");
-    if (qRunId) {
-      loadRunById(qRunId);
+    const urlParams = new URLSearchParams(
+      window.location.search
+    );
+    const queryRunId = urlParams.get("runId");
+
+    if (queryRunId) {
+      void loadRunById(queryRunId);
     }
 
     return () => {
-      mounted = false;
+      cancelled = true;
+
       if (validationTimerRef.current) {
         clearTimeout(validationTimerRef.current);
+        validationTimerRef.current = null;
       }
-      if (sseUnsubRef.current) {
-        sseUnsubRef.current();
-        sseUnsubRef.current = null;
-      }
-      // Clean runId from URL when navigating away from this workflow
-      try {
-        const url = new URL(window.location.href);
-        if (url.searchParams.has("runId")) {
-          url.searchParams.delete("runId");
-          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
-        }
-      } catch {
-        // Ignore URL parsing errors
-      }
+
+      clearSSESubscription();
     };
-  }, [workflowId, validateDefinition, fetchRecentRuns, loadRunById]);
+  }, [
+    workflowId,
+    validateDefinition,
+    fetchRecentRuns,
+    loadRunById,
+    clearSSESubscription,
+  ]);
 
-  // Add a node to the canvas with optional auto-connect
-  const handleAddNode = useCallback((catalogueNode, customPos = null, autoConnectSource = null) => {
-    let index = stateRef.current.nodes.length + 1;
-    let newId = `node_${String(index).padStart(2, "0")}`;
-    while (stateRef.current.nodes.some((n) => n.id === newId)) {
-      index++;
-      newId = `node_${String(index).padStart(2, "0")}`;
-    }
-
-    let posX, posY;
-    if (customPos) {
-      posX = customPos.x;
-      posY = customPos.y;
-    } else {
-      const container = canvasRef.current;
-      const viewWidth = container ? container.clientWidth : 800;
-      const viewHeight = container ? container.clientHeight : 600;
-
-      posX = Math.round((-pan.x + viewWidth / 2 - 120) / scale);
-      posY = Math.round((-pan.y + viewHeight / 2 - 60) / scale);
-    }
-
-    // Initial config defaults from schema
-    const initialConfig = {};
-    if (catalogueNode.configSchema) {
-      for (const [k, s] of Object.entries(catalogueNode.configSchema)) {
-        if (s.default !== undefined) {
-          initialConfig[k] = s.default;
-        }
+  // Add node
+  const handleAddNode = useCallback(
+    (catalogueNode, customPos = null, autoConnectSource = null) => {
+      if (!catalogueNode) {
+        return;
       }
-    }
 
-    const newNode = {
-      id: newId,
-      type: catalogueNode.type,
-      version: catalogueNode.version || 1,
-      name: catalogueNode.label || newId,
-      position: { x: posX, y: posY },
-      config: initialConfig,
-    };
+      let index = stateRef.current.nodes.length + 1;
+      let newId = `node_${String(index).padStart(2, "0")}`;
 
-    setNodes((prevNodes) => {
-      const nextNodes = [...prevNodes, newNode];
+      while (
+        stateRef.current.nodes.some((node) => node.id === newId)
+      ) {
+        index++;
+        newId = `node_${String(index).padStart(2, "0")}`;
+      }
 
-      setEdges((prevEdges) => {
-        let nextEdges = [...prevEdges];
+      let posX;
+      let posY;
 
-        // If autoConnectSource is passed, wire it to the first compatible input of the new node
-        if (autoConnectSource && autoConnectSource.nodeId) {
-          const inputKeys = Object.keys(catalogueNode.inputs || {});
-          const targetPort = inputKeys.includes("input") ? "input" : inputKeys[0];
-          if (targetPort) {
-            let edgeIndex = nextEdges.length + 1;
-            let newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
-            while (nextEdges.some((e) => e.id === newEdgeId)) {
-              edgeIndex++;
-              newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
-            }
+      if (customPos) {
+        posX = customPos.x;
+        posY = customPos.y;
+      } else {
+        const container = canvasRef.current;
+        const viewWidth = container?.clientWidth || 800;
+        const viewHeight = container?.clientHeight || 600;
 
-            nextEdges.push({
-              id: newEdgeId,
-              source: autoConnectSource.nodeId,
-              sourcePort: autoConnectSource.portName,
-              target: newId,
-              targetPort: targetPort,
-            });
+        posX = Math.round(
+          (-pan.x + viewWidth / 2 - 120) / scale
+        );
+
+        posY = Math.round(
+          (-pan.y + viewHeight / 2 - 60) / scale
+        );
+      }
+
+      const initialConfig = {};
+
+      if (catalogueNode.configSchema) {
+        for (const [key, schema] of Object.entries(
+          catalogueNode.configSchema
+        )) {
+          if (schema.default !== undefined) {
+            initialConfig[key] = schema.default;
           }
         }
+      }
 
-        validateDefinition({ ...getWorkflowJson(), nodes: nextNodes, edges: nextEdges });
-        return nextEdges;
+      const newNode = {
+        id: newId,
+        type: catalogueNode.type,
+        version: catalogueNode.version || 1,
+        name: catalogueNode.label || newId,
+        position: {
+          x: posX,
+          y: posY,
+        },
+        config: initialConfig,
+      };
+
+      const currentNodes = stateRef.current.nodes;
+      const currentEdges = stateRef.current.edges;
+
+      const nextNodes = [...currentNodes, newNode];
+      let nextEdges = [...currentEdges];
+
+      if (autoConnectSource?.nodeId) {
+        const inputKeys = Object.keys(
+          catalogueNode.inputs || {}
+        );
+
+        const targetPort = inputKeys.includes("input")
+          ? "input"
+          : inputKeys[0];
+
+        if (targetPort) {
+          let edgeIndex = nextEdges.length + 1;
+          let edgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+
+          while (nextEdges.some((edge) => edge.id === edgeId)) {
+            edgeIndex++;
+            edgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+          }
+
+          nextEdges.push({
+            id: edgeId,
+            source: autoConnectSource.nodeId,
+            sourcePort: autoConnectSource.portName,
+            target: newId,
+            targetPort,
+          });
+        }
+      }
+
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      setSelectedElement({
+        id: newId,
+        type: "node",
       });
+      setIsDirty(true);
 
-      return nextNodes;
-    });
+      validateDefinition(
+        {
+          ...getWorkflowJson(nextNodes, nextEdges),
+          nodes: nextNodes,
+          edges: nextEdges,
+        }
+      );
+    },
+    [
+      getWorkflowJson,
+      validateDefinition,
+      pan.x,
+      pan.y,
+      scale,
+    ]
+  );
 
-    setSelectedElement({ id: newId, type: "node" });
-    setIsDirty(true);
-  }, [getWorkflowJson, validateDefinition, pan.x, pan.y, scale]);
-
-  // Open Quick Add Popover from toolbar button or Space shortcut
+  // Open Quick Add from toolbar
   const handleOpenQuickAddFromToolbar = useCallback(() => {
     const container = canvasRef.current;
-    const viewWidth = container ? container.clientWidth : 800;
-    const viewHeight = container ? container.clientHeight : 600;
+    const viewWidth = container?.clientWidth || 800;
+    const viewHeight = container?.clientHeight || 600;
 
-    const canvasX = Math.round((-pan.x + viewWidth / 2 - 120) / scale);
-    const canvasY = Math.round((-pan.y + viewHeight / 2 - 60) / scale);
+    const canvasX = Math.round(
+      (-pan.x + viewWidth / 2 - 120) / scale
+    );
+
+    const canvasY = Math.round(
+      (-pan.y + viewHeight / 2 - 60) / scale
+    );
 
     setQuickAdd({
       isOpen: true,
@@ -432,456 +676,865 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
     });
   }, [pan.x, pan.y, scale]);
 
-  // Quick Connect from NodeCard "+ Next" button
-  const handleQuickConnect = useCallback((sourceNodeId, sourcePortName, event) => {
-    const srcNode = stateRef.current.nodes.find((n) => n.id === sourceNodeId);
-    const canvasX = srcNode ? srcNode.position.x + 360 : 300;
-    const canvasY = srcNode ? srcNode.position.y : 200;
+  // Quick connect from a node
+  const handleQuickConnect = useCallback(
+    (sourceNodeId, sourcePortName, event) => {
+      const sourceNode = stateRef.current.nodes.find(
+        (node) => node.id === sourceNodeId
+      );
 
-    setQuickAdd({
-      isOpen: true,
-      screenX: event ? event.clientX + 10 : window.innerWidth / 2,
-      screenY: event ? event.clientY : window.innerHeight / 2,
-      canvasX,
-      canvasY,
-      autoConnectSource: { nodeId: sourceNodeId, portName: sourcePortName },
-    });
-  }, []);
+      const canvasX = sourceNode
+        ? sourceNode.position.x + 360
+        : 300;
 
-  // 1-Click Tidy Graph Auto Layout
+      const canvasY = sourceNode
+        ? sourceNode.position.y
+        : 200;
+
+      setQuickAdd({
+        isOpen: true,
+        screenX: event
+          ? event.clientX + 10
+          : window.innerWidth / 2,
+        screenY: event
+          ? event.clientY
+          : window.innerHeight / 2,
+        canvasX,
+        canvasY,
+        autoConnectSource: {
+          nodeId: sourceNodeId,
+          portName: sourcePortName,
+        },
+      });
+    },
+    []
+  );
+
+  // Auto layout
   const handleAutoLayout = useCallback(() => {
-    const tidied = calculateAutoLayout(stateRef.current.nodes, stateRef.current.edges);
+    const tidied = calculateAutoLayout(
+      stateRef.current.nodes,
+      stateRef.current.edges
+    );
+
     setNodes(tidied);
     setIsDirty(true);
-    validateDefinition({ ...getWorkflowJson(), nodes: tidied });
+
+    validateDefinition({
+      ...getWorkflowJson(tidied),
+      nodes: tidied,
+    });
   }, [getWorkflowJson, validateDefinition]);
 
-  // Keyboard Shortcuts (Delete, Save, Esc, QuickAdd, AutoLayout)
+  // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ctrl+S / Cmd+S
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
+    const handleKeyDown = (event) => {
+      const target = event.target;
+
+      const isEditable =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(
+            target.tagName
+          ));
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "s"
+      ) {
+        event.preventDefault();
+        void handleSave();
         return;
       }
 
-      // Space or / to open Quick Add (unless typing in input)
-      if (e.key === " " || e.key === "/") {
-        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-        e.preventDefault();
+      if (isEditable) {
+        return;
+      }
+
+      if (event.code === "Space" || event.key === "/") {
+        event.preventDefault();
         handleOpenQuickAddFromToolbar();
         return;
       }
 
-      // 't' or 'T' for auto layout (unless typing in input)
-      if ((e.key === "t" || e.key === "T") && !e.ctrlKey && !e.metaKey) {
-        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-        e.preventDefault();
+      if (
+        (event.key === "t" || event.key === "T") &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
         handleAutoLayout();
         return;
       }
 
-      // Delete or Backspace to delete selected element
-      if ((e.key === "Delete" || e.key === "Backspace") && stateRef.current.selectedElement) {
-        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-        const sel = stateRef.current.selectedElement;
-        if (sel.type === "node") {
-          handleDeleteNode(sel.id);
-        } else if (sel.type === "edge") {
-          handleDeleteEdge(sel.id);
+      if (
+        event.key === "Delete" ||
+        event.key === "Backspace"
+      ) {
+        const selected = stateRef.current.selectedElement;
+
+        if (!selected) {
+          return;
         }
+
+        event.preventDefault();
+
+        if (selected.type === "node") {
+          handleDeleteNode(selected.id);
+        } else if (selected.type === "edge") {
+          handleDeleteEdge(selected.id);
+        }
+
         return;
       }
 
-      // Escape to clear selection or cancel connecting
-      if (e.key === "Escape") {
+      if (event.key === "Escape") {
         setSelectedElement(null);
         setConnectingSource(null);
         setConnectingMousePos(null);
-        setQuickAdd((prev) => ({ ...prev, isOpen: false, autoConnectSource: null }));
+
+        setQuickAdd((prev) => ({
+          ...prev,
+          isOpen: false,
+          autoConnectSource: null,
+        }));
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSave, handleDeleteNode, handleDeleteEdge, handleOpenQuickAddFromToolbar, handleAutoLayout]);
 
-  // Drag and drop onto canvas from NodePalette
-  const handleCanvasDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    handleSave,
+    handleDeleteNode,
+    handleDeleteEdge,
+    handleOpenQuickAddFromToolbar,
+    handleAutoLayout,
+  ]);
+
+  // Release drag/pan on window mouseup
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setDraggingNodeId(null);
+      setIsPanning(false);
+    };
+
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+
+    return () => {
+      window.removeEventListener(
+        "mouseup",
+        handleGlobalMouseUp
+      );
+    };
+  }, []);
+
+  // Global cleanup
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+
+      if (validationTimerRef.current) {
+        clearTimeout(validationTimerRef.current);
+      }
+
+      if (saveMessageTimerRef.current) {
+        clearTimeout(saveMessageTimerRef.current);
+      }
+
+      clearSSESubscription();
+    };
+  }, [clearSSESubscription]);
+
+  // Drag-and-drop node onto canvas
+  const handleCanvasDragOver = (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
   };
 
-  const handleCanvasDrop = (e) => {
-    e.preventDefault();
-    const rawData = e.dataTransfer.getData("application/dormammu-node");
-    if (!rawData) return;
+  const handleCanvasDrop = (event) => {
+    event.preventDefault();
+
+    const rawData = event.dataTransfer.getData(
+      "application/dormammu-node"
+    );
+
+    if (!rawData) {
+      return;
+    }
 
     try {
       const nodeMeta = JSON.parse(rawData);
       const container = canvasRef.current;
-      if (!container) return;
+
+      if (!container) {
+        return;
+      }
 
       const rect = container.getBoundingClientRect();
-      const dropX = Math.round((e.clientX - rect.left - pan.x) / scale - 120);
-      const dropY = Math.round((e.clientY - rect.top - pan.y) / scale - 30);
 
-      handleAddNode(nodeMeta, { x: dropX, y: dropY });
-    } catch (err) {
-      console.error("Failed to parse dropped node metadata:", err);
-    }
-  };
+      const dropX = Math.round(
+        (event.clientX - rect.left - pan.x) / scale - 120
+      );
 
-  // Double click canvas to quick add node at cursor
-  const handleCanvasDoubleClick = (e) => {
-    if (e.target === canvasRef.current || e.target.tagName === "svg" || e.target.classList.contains("workflow-canvas-grid")) {
-      const container = canvasRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const canvasX = Math.round((e.clientX - rect.left - pan.x) / scale - 120);
-      const canvasY = Math.round((e.clientY - rect.top - pan.y) / scale - 30);
+      const dropY = Math.round(
+        (event.clientY - rect.top - pan.y) / scale - 30
+      );
 
-      setQuickAdd({
-        isOpen: true,
-        screenX: e.clientX,
-        screenY: e.clientY,
-        canvasX,
-        canvasY,
-        autoConnectSource: null,
+      handleAddNode(nodeMeta, {
+        x: dropX,
+        y: dropY,
       });
+    } catch (err) {
+      console.error(
+        "Failed to parse dropped node metadata:",
+        err
+      );
     }
   };
 
-  // Update existing node
+  // Double-click canvas to add node
+  const handleCanvasDoubleClick = (event) => {
+    const target = event.target;
+
+    if (
+      target !== canvasRef.current &&
+      target.tagName !== "svg" &&
+      !target.classList.contains("workflow-canvas-grid")
+    ) {
+      return;
+    }
+
+    const container = canvasRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+
+    const canvasX = Math.round(
+      (event.clientX - rect.left - pan.x) / scale - 120
+    );
+
+    const canvasY = Math.round(
+      (event.clientY - rect.top - pan.y) / scale - 30
+    );
+
+    setQuickAdd({
+      isOpen: true,
+      screenX: event.clientX,
+      screenY: event.clientY,
+      canvasX,
+      canvasY,
+      autoConnectSource: null,
+    });
+  };
+
+  // Update node
   const handleUpdateNode = (updatedNode) => {
-    const nextNodes = nodes.map((n) => (n.id === updatedNode.id ? updatedNode : n));
+    const nextNodes = stateRef.current.nodes.map((node) =>
+      node.id === updatedNode.id ? updatedNode : node
+    );
+
     setNodes(nextNodes);
     setIsDirty(true);
-    validateDefinition({ ...getWorkflowJson(), nodes: nextNodes });
+
+    validateDefinition({
+      ...getWorkflowJson(nextNodes),
+      nodes: nextNodes,
+    });
   };
 
-  // Start dragging a node
-  const handleStartDragNode = (nodeId, e) => {
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node) return;
+  // Start node dragging
+  const handleStartDragNode = (nodeId, event) => {
+    const node = stateRef.current.nodes.find(
+      (item) => item.id === nodeId
+    );
 
-    setSelectedElement({ id: nodeId, type: "node" });
+    if (!node) {
+      return;
+    }
+
+    setSelectedElement({
+      id: nodeId,
+      type: "node",
+    });
+
     setDraggingNodeId(nodeId);
 
     dragStartOffsetRef.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
+      mouseX: event.clientX,
+      mouseY: event.clientY,
       nodeX: node.position.x,
       nodeY: node.position.y,
     };
   };
 
-  // Start port connection drag or click
-  const handleStartConnection = (nodeId, portName, e) => {
-    setConnectingSource({ nodeId, portName });
+  // Start connection
+  const handleStartConnection = (
+    nodeId,
+    portName,
+    event
+  ) => {
+    setConnectingSource({
+      nodeId,
+      portName,
+    });
 
-    if (canvasRef.current && e) {
+    if (canvasRef.current && event) {
       const rect = canvasRef.current.getBoundingClientRect();
+
       setConnectingMousePos({
-        x: (e.clientX - rect.left - pan.x) / scale,
-        y: (e.clientY - rect.top - pan.y) / scale,
+        x:
+          (event.clientX - rect.left - pan.x) / scale,
+        y:
+          (event.clientY - rect.top - pan.y) / scale,
       });
     }
   };
 
-  // Complete connection on target port
-  const handleCompleteConnection = (targetNodeId, targetPortName) => {
-    if (!connectingSource) return;
+  // Complete connection
+  const handleCompleteConnection = (
+    targetNodeId,
+    targetPortName
+  ) => {
+    const source = connectingSource;
 
-    const sourceNodeId = connectingSource.nodeId;
-    const sourcePortName = connectingSource.portName;
+    if (!source) {
+      return;
+    }
 
-    // Reject self-loop
+    const sourceNodeId = source.nodeId;
+    const sourcePortName = source.portName;
+
     if (sourceNodeId === targetNodeId) {
       setConnectingSource(null);
       setConnectingMousePos(null);
       return;
     }
 
-    // Check duplicate
-    const exists = edges.some(
-      (e) =>
-        e.source === sourceNodeId &&
-        e.sourcePort === sourcePortName &&
-        e.target === targetNodeId &&
-        e.targetPort === targetPortName
+    const currentEdges = stateRef.current.edges;
+
+    const exists = currentEdges.some(
+      (edge) =>
+        edge.source === sourceNodeId &&
+        edge.sourcePort === sourcePortName &&
+        edge.target === targetNodeId &&
+        edge.targetPort === targetPortName
     );
 
     if (!exists) {
-      const targetNode = nodes.find((n) => n.id === targetNodeId);
-      const targetMeta = targetNode ? catalogueMap[targetNode.type] : null;
-      const targetPortDef = targetMeta?.inputs?.[targetPortName];
-      const allowsMultiple = Boolean(targetPortDef?.allowMultiple);
+      const targetNode = stateRef.current.nodes.find(
+        (node) => node.id === targetNodeId
+      );
 
-      // If target port is single-input, replace existing incoming edge to avoid invalid graph state
-      let cleanEdges = edges;
-      if (!allowsMultiple) {
-        cleanEdges = edges.filter(
-          (e) => !(e.target === targetNodeId && e.targetPort === targetPortName)
+      const targetMetadata = targetNode
+        ? catalogueMap[targetNode.type]
+        : null;
+
+      const targetPortDefinition =
+        targetMetadata?.inputs?.[targetPortName];
+
+      const allowsMultiple = Boolean(
+        targetPortDefinition?.allowMultiple
+      );
+
+      const cleanEdges = allowsMultiple
+        ? currentEdges
+        : currentEdges.filter(
+          (edge) =>
+            !(
+              edge.target === targetNodeId &&
+              edge.targetPort === targetPortName
+            )
         );
-      }
 
       let edgeIndex = cleanEdges.length + 1;
-      let newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
-      while (cleanEdges.some((e) => e.id === newEdgeId)) {
+      let edgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+
+      while (cleanEdges.some((edge) => edge.id === edgeId)) {
         edgeIndex++;
-        newEdgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
+        edgeId = `edge_${String(edgeIndex).padStart(2, "0")}`;
       }
 
-      const newEdge = {
-        id: newEdgeId,
-        source: sourceNodeId,
-        sourcePort: sourcePortName,
-        target: targetNodeId,
-        targetPort: targetPortName,
-      };
+      const nextEdges = [
+        ...cleanEdges,
+        {
+          id: edgeId,
+          source: sourceNodeId,
+          sourcePort: sourcePortName,
+          target: targetNodeId,
+          targetPort: targetPortName,
+        },
+      ];
 
-      const nextEdges = [...cleanEdges, newEdge];
       setEdges(nextEdges);
       setIsDirty(true);
-      validateDefinition({ ...getWorkflowJson(), edges: nextEdges });
+
+      validateDefinition({
+        ...getWorkflowJson(null, nextEdges),
+        edges: nextEdges,
+      });
     }
 
     setConnectingSource(null);
     setConnectingMousePos(null);
   };
 
-  // Mouse move handler on canvas
-  const handleCanvasMouseMove = (e) => {
+  // Canvas mouse movement
+  const handleCanvasMouseMove = (event) => {
     if (draggingNodeId) {
-      const dx = (e.clientX - dragStartOffsetRef.current.mouseX) / scale;
-      const dy = (e.clientY - dragStartOffsetRef.current.mouseY) / scale;
+      const dx =
+        (event.clientX -
+          dragStartOffsetRef.current.mouseX) /
+        scale;
 
-      const newX = Math.round(dragStartOffsetRef.current.nodeX + dx);
-      const newY = Math.round(dragStartOffsetRef.current.nodeY + dy);
+      const dy =
+        (event.clientY -
+          dragStartOffsetRef.current.mouseY) /
+        scale;
 
-      setNodes((prev) =>
-        prev.map((n) => (n.id === draggingNodeId ? { ...n, position: { x: newX, y: newY } } : n))
+      const newX = Math.round(
+        dragStartOffsetRef.current.nodeX + dx
       );
+
+      const newY = Math.round(
+        dragStartOffsetRef.current.nodeY + dy
+      );
+
+      setNodes((previous) =>
+        previous.map((node) =>
+          node.id === draggingNodeId
+            ? {
+              ...node,
+              position: {
+                x: newX,
+                y: newY,
+              },
+            }
+            : node
+        )
+      );
+
       setIsDirty(true);
     } else if (isPanning) {
-      const dx = e.clientX - panStartRef.current.x;
-      const dy = e.clientY - panStartRef.current.y;
-      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
-      panStartRef.current = { x: e.clientX, y: e.clientY };
+      const dx =
+        event.clientX - panStartRef.current.x;
+
+      const dy =
+        event.clientY - panStartRef.current.y;
+
+      setPan((previous) => ({
+        x: previous.x + dx,
+        y: previous.y + dy,
+      }));
+
+      panStartRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      };
     } else if (connectingSource && canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect();
+      const rect =
+        canvasRef.current.getBoundingClientRect();
+
       setConnectingMousePos({
-        x: (e.clientX - rect.left - pan.x) / scale,
-        y: (e.clientY - rect.top - pan.y) / scale,
+        x:
+          (event.clientX - rect.left - pan.x) /
+          scale,
+        y:
+          (event.clientY - rect.top - pan.y) /
+          scale,
       });
     }
   };
 
-  const handleCanvasMouseUp = (e) => {
+  // Canvas mouse release
+  const handleCanvasMouseUp = (event) => {
     if (draggingNodeId) {
       setDraggingNodeId(null);
     }
+
     if (isPanning) {
       setIsPanning(false);
     }
 
     if (connectingSource) {
-      // If user released on open canvas, open QuickAdd popover with auto-connect
       if (connectingMousePos && canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const canvasX = Math.round(connectingMousePos.x - 120);
-        const canvasY = Math.round(connectingMousePos.y - 30);
+        const rect =
+          canvasRef.current.getBoundingClientRect();
+
+        const canvasX = Math.round(
+          connectingMousePos.x - 120
+        );
+
+        const canvasY = Math.round(
+          connectingMousePos.y - 30
+        );
 
         setQuickAdd({
           isOpen: true,
-          screenX: e ? e.clientX : rect.left + connectingMousePos.x * scale + pan.x,
-          screenY: e ? e.clientY : rect.top + connectingMousePos.y * scale + pan.y,
+          screenX: event
+            ? event.clientX
+            : rect.left +
+            connectingMousePos.x * scale +
+            pan.x,
+          screenY: event
+            ? event.clientY
+            : rect.top +
+            connectingMousePos.y * scale +
+            pan.y,
           canvasX,
           canvasY,
           autoConnectSource: connectingSource,
         });
       }
+
       setConnectingSource(null);
       setConnectingMousePos(null);
     }
   };
 
-  const handleCanvasMouseDown = (e) => {
-    if (e.target === canvasRef.current || e.target.tagName === "svg" || e.target.classList.contains("workflow-canvas-grid")) {
+  // Canvas mouse down
+  const handleCanvasMouseDown = (event) => {
+    const target = event.target;
+
+    if (
+      target === canvasRef.current ||
+      target.tagName === "svg" ||
+      target.classList.contains("workflow-canvas-grid")
+    ) {
       setSelectedElement(null);
       setIsPanning(true);
-      panStartRef.current = { x: e.clientX, y: e.clientY };
+
+      panStartRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      };
     }
   };
 
-  // Zoom handlers
-  const handleWheel = (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      setScale((prev) => Math.min(Math.max(prev * zoomFactor, 0.4), 2.2));
+  // Zoom
+  const handleWheel = (event) => {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+
+      const zoomFactor =
+        event.deltaY < 0 ? 1.08 : 0.92;
+
+      setScale((previous) =>
+        Math.min(
+          Math.max(previous * zoomFactor, 0.4),
+          2.2
+        )
+      );
     }
   };
 
-  // Live SSE Run Tracker
-  const startLiveRunTracking = useCallback((targetRunId) => {
-    if (!targetRunId) return;
-    if (sseUnsubRef.current) {
-      sseUnsubRef.current();
-      sseUnsubRef.current = null;
-    }
-
-    const unsub = api.subscribeToRunEvents(
-      targetRunId,
-      (event) => {
-        if (!event || !event.type) return;
-
-        setRunResult((prev) => {
-          if (!prev) return prev;
-          const currentTasks = { ...(prev.tasks || {}) };
-
-          if (event.type === "task:running" && event.nodeId) {
-            currentTasks[event.nodeId] = {
-              ...(currentTasks[event.nodeId] || {}),
-              nodeId: event.nodeId,
-              status: "RUNNING",
-              startedAt: event.timestamp || new Date().toISOString(),
-            };
-            return { ...prev, status: "RUNNING", tasks: currentTasks };
-          }
-
-          if (event.type === "task:succeeded" && event.nodeId) {
-            currentTasks[event.nodeId] = {
-              ...(currentTasks[event.nodeId] || {}),
-              nodeId: event.nodeId,
-              status: "SUCCEEDED",
-              outputs: event.output,
-              output: event.output,
-              durationMs: event.durationMs,
-              completedAt: event.timestamp || new Date().toISOString(),
-            };
-            return { ...prev, tasks: currentTasks };
-          }
-
-          if (event.type === "task:failed" && event.nodeId) {
-            currentTasks[event.nodeId] = {
-              ...(currentTasks[event.nodeId] || {}),
-              nodeId: event.nodeId,
-              status: "FAILED",
-              error: event.error,
-              durationMs: event.durationMs,
-              completedAt: event.timestamp || new Date().toISOString(),
-            };
-            return { ...prev, tasks: currentTasks };
-          }
-
-          if (event.type === "task:skipped" && event.nodeId) {
-            currentTasks[event.nodeId] = {
-              ...(currentTasks[event.nodeId] || {}),
-              nodeId: event.nodeId,
-              status: "SKIPPED",
-            };
-            return { ...prev, tasks: currentTasks };
-          }
-
-          if (event.type === "workflow:completed") {
-            fetchRecentRuns(workflowId);
-            return {
-              ...prev,
-              status: "SUCCEEDED",
-              durationMs: event.durationMs || prev.durationMs,
-              finalOutput: event.output !== undefined ? event.output : prev.finalOutput,
-              output: event.output !== undefined ? event.output : prev.output,
-              tasks: currentTasks,
-            };
-          }
-
-          if (event.type === "workflow:failed") {
-            fetchRecentRuns(workflowId);
-            return {
-              ...prev,
-              status: "FAILED",
-              error: event.error || prev.error,
-              durationMs: event.durationMs || prev.durationMs,
-              tasks: currentTasks,
-            };
-          }
-
-          return prev;
-        });
-      },
-      (err) => {
-        console.warn("SSE stream closed or completed:", err);
+  // Subscribe to live execution events
+  const startLiveRunTracking = useCallback(
+    (targetRunId) => {
+      if (!targetRunId) {
+        return;
       }
-    );
 
-    sseUnsubRef.current = unsub;
-  }, [workflowId, fetchRecentRuns]);
+      clearSSESubscription();
 
-  // Run execution
+      const unsubscribe = api.subscribeToRunEvents(
+        targetRunId,
+        (event) => {
+          if (!event?.type) {
+            return;
+          }
+
+          setRunResult((previous) => {
+            if (!previous) {
+              return previous;
+            }
+
+            const currentTasks = {
+              ...(previous.tasks || {}),
+            };
+
+            if (
+              event.type === "task:running" &&
+              event.nodeId
+            ) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                status: "RUNNING",
+                startedAt:
+                  event.timestamp ||
+                  new Date().toISOString(),
+              };
+
+              return {
+                ...previous,
+                status: "RUNNING",
+                tasks: currentTasks,
+              };
+            }
+
+            if (
+              event.type === "task:succeeded" &&
+              event.nodeId
+            ) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                status: "SUCCEEDED",
+                outputs: event.output,
+                output: event.output,
+                durationMs: event.durationMs,
+                completedAt:
+                  event.timestamp ||
+                  new Date().toISOString(),
+              };
+
+              return {
+                ...previous,
+                tasks: currentTasks,
+              };
+            }
+
+            if (
+              event.type === "task:failed" &&
+              event.nodeId
+            ) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                status: "FAILED",
+                error: event.error,
+                durationMs: event.durationMs,
+                completedAt:
+                  event.timestamp ||
+                  new Date().toISOString(),
+              };
+
+              return {
+                ...previous,
+                tasks: currentTasks,
+              };
+            }
+
+            if (
+              event.type === "task:skipped" &&
+              event.nodeId
+            ) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                status: "SKIPPED",
+              };
+
+              return {
+                ...previous,
+                tasks: currentTasks,
+              };
+            }
+
+            if (event.type === "workflow:completed") {
+              void fetchRecentRuns(workflowId);
+
+              return {
+                ...previous,
+                status: "SUCCEEDED",
+                durationMs:
+                  event.durationMs ??
+                  previous.durationMs,
+                finalOutput:
+                  event.output !== undefined
+                    ? event.output
+                    : previous.finalOutput,
+                output:
+                  event.output !== undefined
+                    ? event.output
+                    : previous.output,
+                tasks: currentTasks,
+              };
+            }
+
+            if (event.type === "workflow:failed") {
+              void fetchRecentRuns(workflowId);
+
+              return {
+                ...previous,
+                status: "FAILED",
+                error: event.error || previous.error,
+                durationMs:
+                  event.durationMs ??
+                  previous.durationMs,
+                tasks: currentTasks,
+              };
+            }
+
+            return previous;
+          });
+        },
+        (err) => {
+          console.warn(
+            "SSE stream closed or completed:",
+            err
+          );
+        }
+      );
+
+      sseUnsubRef.current =
+        typeof unsubscribe === "function"
+          ? unsubscribe
+          : null;
+    },
+    [
+      workflowId,
+      fetchRecentRuns,
+      clearSSESubscription,
+    ]
+  );
+
+  // Execute workflow
   const handleExecuteRun = async (triggerData) => {
     setIsRunning(true);
+
     try {
-      if (isDirty) {
-        await handleSave();
+      // Save changes before executing.
+      if (stateRef.current.isDirty) {
+        const saved = await handleSave();
+
+        if (!saved) {
+          throw new Error(
+            "Workflow could not be saved. Execution was cancelled."
+          );
+        }
       }
 
-      const res = await api.executeWorkflow(workflowId, { triggerData });
-      if (res && res.data) {
-        const runData = res.data;
-        const normalized = {
-          ...runData,
-          id: runData.id || runData.runId,
-          runId: runData.runId || runData.id,
-          finalOutput: runData.finalOutput !== undefined ? runData.finalOutput : runData.output,
-          tasks: runData.tasks || (runData.taskRuns ? Object.fromEntries(runData.taskRuns.map((t) => [t.nodeId, t])) : {}),
-        };
-        setRunResult(normalized);
-        setActiveRunId(normalized.runId);
-        window.history.replaceState({}, "", `${window.location.pathname}?runId=${normalized.runId}`);
-        fetchRecentRuns(workflowId);
-        setIsExecutionPanelOpen(true);
+      const response = await api.executeWorkflow(
+        workflowId,
+        { triggerData }
+      );
 
-        if (normalized.status === "RUNNING" || normalized.status === "QUEUED") {
-          startLiveRunTracking(normalized.runId);
-        }
+      if (!response?.data) {
+        throw new Error(
+          "The server returned an empty execution response."
+        );
+      }
+
+      const runData = response.data;
+
+      const normalized = {
+        ...runData,
+        id: runData.id || runData.runId,
+        runId: runData.runId || runData.id,
+        finalOutput:
+          runData.finalOutput !== undefined
+            ? runData.finalOutput
+            : runData.output,
+        tasks:
+          runData.tasks ||
+          (Array.isArray(runData.taskRuns)
+            ? Object.fromEntries(
+              runData.taskRuns.map((task) => [
+                task.nodeId,
+                task,
+              ])
+            )
+            : {}),
+      };
+
+      setRunResult(normalized);
+      setActiveRunId(normalized.runId);
+
+      if (normalized.runId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("runId", normalized.runId);
+
+        window.history.replaceState(
+          {},
+          "",
+          url.pathname + url.search + url.hash
+        );
+      }
+
+      void fetchRecentRuns(workflowId);
+
+      if (
+        normalized.runId &&
+        (
+          normalized.status === "RUNNING" ||
+          normalized.status === "QUEUED"
+        )
+      ) {
+        startLiveRunTracking(normalized.runId);
       }
     } catch (err) {
       console.error("Execution failed:", err);
+
       setRunResult({
         status: "FAILED",
-        error: { message: err.message },
+        error: {
+          message: err.message || "Execution failed",
+        },
         finalOutput: null,
+        tasks: {},
       });
-      setIsExecutionPanelOpen(true);
     } finally {
       setIsRunning(false);
     }
   };
 
+  // Open execution report
   const handleOpenRunFromModal = (run) => {
     const runId = run?.id || run?.runId;
+
     if (runId) {
-      loadRunById(runId);
-      window.history.replaceState({}, "", `${window.location.pathname}?runId=${runId}`);
+      if (onOpenReport) {
+        onOpenReport(runId);
+      } else {
+        window.location.href = `/runs/${runId}`;
+      }
     } else if (run) {
       setRunResult(run);
-      setIsExecutionPanelOpen(true);
+      setIsPastRunsDrawerOpen(true);
     }
+
     setIsWebhookModalOpen(false);
   };
 
-  const selectedNode = selectedElement?.type === "node" ? nodes.find((n) => n.id === selectedElement.id) : null;
-  const selectedMetadata = selectedNode ? catalogueMap[selectedNode.type] : null;
+  // Selected node
+  const selectedNode =
+    selectedElement?.type === "node"
+      ? nodes.find(
+        (node) => node.id === selectedElement.id
+      )
+      : null;
+
+  const selectedMetadata = selectedNode
+    ? catalogueMap[selectedNode.type]
+    : null;
 
   return (
-    <div style={{ width: "100%", height: "calc(100vh - 65px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-main)", position: "relative" }}>
+    <div
+      style={{
+        width: "100%",
+        height: "calc(100vh - 65px)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "var(--bg-main)",
+        position: "relative",
+      }}
+    >
       {/* Top Action & Status Bar */}
       <div
         style={{
           height: "56px",
+          flexShrink: 0,
           borderBottom: "1px solid var(--border-subtle)",
           background: "var(--bg-card)",
           backdropFilter: "blur(20px)",
@@ -891,10 +1544,19 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
           justifyContent: "space-between",
           padding: "0 16px",
           zIndex: 25,
+          gap: "12px",
         }}
       >
-        {/* Left: Back & Title & Quick Tools */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        {/* Left: Back, title and quick tools */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
           <button
             onClick={onBack}
             title="Back to workflows"
@@ -910,31 +1572,40 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               cursor: "pointer",
               fontSize: "0.82rem",
               fontWeight: "600",
+              flexShrink: 0,
             }}
           >
             <ArrowLeft size={14} />
             Workflows
           </button>
 
-          {/* Toggle Palette */}
           <button
-            onClick={() => setIsPaletteOpen(!isPaletteOpen)}
+            onClick={() =>
+              setIsPaletteOpen((previous) => !previous)
+            }
             title="Toggle Node Catalogue"
             style={{
               padding: "6px 10px",
-              background: isPaletteOpen ? "var(--brand-light)" : "var(--bg-secondary)",
-              border: `1px solid ${isPaletteOpen ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              background: isPaletteOpen
+                ? "var(--brand-light)"
+                : "var(--bg-secondary)",
+              border: `1px solid ${isPaletteOpen
+                  ? "var(--brand-border)"
+                  : "var(--border-subtle)"
+                }`,
               borderRadius: "var(--radius-sm)",
-              color: isPaletteOpen ? "var(--brand)" : "var(--text-secondary)",
+              color: isPaletteOpen
+                ? "var(--brand)"
+                : "var(--text-secondary)",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
+              flexShrink: 0,
             }}
           >
             <SidebarIcon size={16} />
           </button>
 
-          {/* Fast "+ Add Node" Tool */}
           <button
             onClick={handleOpenQuickAddFromToolbar}
             title="Add Node (Space or /)"
@@ -951,13 +1622,13 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               fontSize: "0.82rem",
               fontWeight: "700",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <Plus size={14} />
             Add Node
           </button>
 
-          {/* Auto Align / Tidy Tool */}
           <button
             onClick={handleAutoLayout}
             title="Auto Align Graph (T)"
@@ -973,33 +1644,53 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               gap: "5px",
               fontSize: "0.82rem",
               fontWeight: "600",
+              flexShrink: 0,
             }}
           >
             <Wand2 size={14} color="var(--brand)" />
             Tidy
           </button>
 
-          <div style={{ width: "1px", height: "18px", background: "var(--border-subtle)", margin: "0 4px" }} />
+          <div
+            style={{
+              width: "1px",
+              height: "18px",
+              background: "var(--border-subtle)",
+              margin: "0 4px",
+              flexShrink: 0,
+            }}
+          />
 
-          {/* Workflow Name & Version */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* Workflow name and version */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              minWidth: 0,
+              overflow: "hidden",
+            }}
+          >
             <input
               type="text"
               value={workflowName}
-              onChange={(e) => {
-                setWorkflowName(e.target.value);
+              onChange={(event) => {
+                setWorkflowName(event.target.value);
                 setIsDirty(true);
               }}
+              aria-label="Workflow name"
               style={{
                 background: "transparent",
                 border: "none",
-                borderBottom: "1px dashed var(--border-medium)",
+                borderBottom:
+                  "1px dashed var(--border-medium)",
                 color: "var(--text-primary)",
                 fontSize: "1.02rem",
                 fontWeight: "700",
                 outline: "none",
                 padding: "2px 4px",
                 width: "200px",
+                minWidth: 0,
               }}
             />
 
@@ -1012,49 +1703,89 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                 background: "var(--brand-light)",
                 color: "var(--brand)",
                 border: "1px solid var(--brand-border)",
+                flexShrink: 0,
               }}
             >
               v{workflowVersion}
             </span>
 
-            {nodes.filter((n) => n.type === "trigger.manual").length >= 2 && (
-              <span
-                title={`${nodes.filter((n) => n.type === "trigger.manual").length} manual triggers configured in graph`}
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: "700",
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  background: "rgba(57, 174, 169, 0.15)",
-                  color: "var(--brand)",
-                  border: "1px solid var(--brand-border)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                <Zap size={11} /> {nodes.filter((n) => n.type === "trigger.manual").length} Triggers
-              </span>
-            )}
+            {nodes.filter(
+              (node) => node.type === "trigger.manual"
+            ).length >= 2 && (
+                <span
+                  title={`${nodes.filter(
+                    (node) =>
+                      node.type === "trigger.manual"
+                  ).length
+                    } manual triggers configured in graph`}
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: "700",
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    background: "rgba(57, 174, 169, 0.15)",
+                    color: "var(--brand)",
+                    border: "1px solid var(--brand-border)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Zap size={11} />
+                  {
+                    nodes.filter(
+                      (node) =>
+                        node.type === "trigger.manual"
+                    ).length
+                  }{" "}
+                  Triggers
+                </span>
+              )}
 
             {isDirty && (
-              <span style={{ fontSize: "0.72rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "4px" }}>
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  color: "#f59e0b",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 • Unsaved
               </span>
             )}
+
             {saveSuccessMsg && (
-              <span style={{ fontSize: "0.75rem", color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
-                <Check size={13} /> {saveSuccessMsg}
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  color: "#10b981",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Check size={13} />
+                {saveSuccessMsg}
               </span>
             )}
           </div>
         </div>
 
-        {/* Right: Validation Pill, Save & Run Actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          {/* Validation Status Pill */}
+        {/* Right: Validation, save and run */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            flexShrink: 0,
+          }}
+        >
           <button
-            onClick={() => setIsValidationDrawerOpen(!isValidationDrawerOpen)}
+            onClick={() =>
+              setIsValidationDrawerOpen((previous) => !previous)
+            }
             style={{
               padding: "6px 12px",
               borderRadius: "20px",
@@ -1063,81 +1794,118 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              background: validationResult.valid ? "rgba(16, 185, 129, 0.15)" : "rgba(244, 63, 94, 0.15)",
-              color: validationResult.valid ? "#10b981" : "#f43f5e",
-              border: `1px solid ${validationResult.valid ? "rgba(16, 185, 129, 0.3)" : "rgba(244, 63, 94, 0.4)"}`,
+              background: validationResult.valid
+                ? "rgba(16, 185, 129, 0.15)"
+                : "rgba(244, 63, 94, 0.15)",
+              color: validationResult.valid
+                ? "#10b981"
+                : "#f43f5e",
+              border: `1px solid ${validationResult.valid
+                  ? "rgba(16, 185, 129, 0.3)"
+                  : "rgba(244, 63, 94, 0.4)"
+                }`,
               cursor: "pointer",
+              whiteSpace: "nowrap",
             }}
           >
             {isValidating ? (
-              <Loader2 size={13} className="animate-spin" />
+              <Loader2
+                size={13}
+                className="animate-spin"
+              />
             ) : validationResult.valid ? (
               <CheckCircle2 size={14} />
             ) : (
               <AlertCircle size={14} />
             )}
+
             <span>
               {isValidating
                 ? "Validating..."
                 : validationResult.valid
-                ? "Ready to Run"
-                : `${validationResult.errors.length} Issue${validationResult.errors.length > 1 ? "s" : ""}`}
+                  ? "Ready to Run"
+                  : `${validationResult.errors.length} Issue${validationResult.errors.length !== 1
+                    ? "s"
+                    : ""
+                  }`}
             </span>
           </button>
 
-          {/* Webhook Testing Tool */}
           <button
             onClick={() => setIsWebhookModalOpen(true)}
             title="Open Webhook Testing Panel"
             style={{
               padding: "6px 12px",
-              background: isWebhookModalOpen ? "rgba(56, 189, 248, 0.18)" : "var(--bg-secondary)",
-              border: `1px solid ${isWebhookModalOpen ? "#38bdf8" : "var(--border-subtle)"}`,
+              background: isWebhookModalOpen
+                ? "rgba(56, 189, 248, 0.18)"
+                : "var(--bg-secondary)",
+              border: `1px solid ${isWebhookModalOpen
+                  ? "#38bdf8"
+                  : "var(--border-subtle)"
+                }`,
               borderRadius: "var(--radius-sm)",
-              color: isWebhookModalOpen ? "#38bdf8" : "var(--text-primary)",
+              color: isWebhookModalOpen
+                ? "#38bdf8"
+                : "var(--text-primary)",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
               fontSize: "0.82rem",
               fontWeight: "600",
-              transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <Radio size={14} color="#38bdf8" />
-            <span>Webhook</span>
+            Webhook
           </button>
 
-
-          {/* Execution Timeline & Results Drawer */}
           <button
-            onClick={() => setIsExecutionPanelOpen(!isExecutionPanelOpen)}
-            title="Toggle Execution Timeline & Result Inspector"
+            onClick={() =>
+              setIsPastRunsDrawerOpen((previous) => !previous)
+            }
+            title="View Past Runs and Execution Reports"
             style={{
               padding: "6px 12px",
-              background: isExecutionPanelOpen || runResult ? "rgba(57, 174, 169, 0.15)" : "var(--bg-secondary)",
-              border: `1px solid ${isExecutionPanelOpen || runResult ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              background: isPastRunsDrawerOpen
+                ? "rgba(57, 174, 169, 0.15)"
+                : "var(--bg-secondary)",
+              border: `1px solid ${isPastRunsDrawerOpen
+                  ? "var(--brand-border)"
+                  : "var(--border-subtle)"
+                }`,
               borderRadius: "var(--radius-sm)",
-              color: isExecutionPanelOpen || runResult ? "var(--brand)" : "var(--text-secondary)",
+              color: isPastRunsDrawerOpen
+                ? "var(--brand)"
+                : "var(--text-secondary)",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
               fontSize: "0.82rem",
               fontWeight: "600",
-              transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
-            <Activity size={14} color={runResult ? "#10b981" : "currentColor"} />
-            <span>Execution</span>
+            <History
+              size={14}
+              color={
+                recentRuns.length > 0
+                  ? "var(--brand)"
+                  : "currentColor"
+              }
+            />
+
+            <span>Past Runs</span>
+
             {recentRuns.length > 0 && (
               <span
                 style={{
                   fontSize: "0.68rem",
                   padding: "1px 6px",
                   borderRadius: "10px",
-                  background: "var(--bg-main)",
-                  color: "var(--text-muted)",
+                  background: "rgba(57, 174, 169, 0.15)",
+                  color: "var(--brand)",
                   fontWeight: "700",
                 }}
               >
@@ -1146,31 +1914,46 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
             )}
           </button>
 
-          {/* Save Button */}
           <button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={isSaving}
             style={{
               padding: "7px 14px",
-              background: isDirty ? "var(--brand)" : "var(--bg-secondary)",
-              border: `1px solid ${isDirty ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              background: isDirty
+                ? "var(--brand)"
+                : "var(--bg-secondary)",
+              border: `1px solid ${isDirty
+                  ? "var(--brand-border)"
+                  : "var(--border-subtle)"
+                }`,
               borderRadius: "var(--radius-sm)",
-              color: isDirty ? "#ffffff" : "var(--text-secondary)",
+              color: isDirty
+                ? "#ffffff"
+                : "var(--text-secondary)",
               fontSize: "0.85rem",
               fontWeight: "600",
               cursor: isSaving ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              boxShadow: isDirty ? "0 0 14px var(--brand-glow)" : "none",
-              transition: "all 0.2s ease",
+              boxShadow: isDirty
+                ? "0 0 14px var(--brand-glow)"
+                : "none",
+              flexShrink: 0,
             }}
           >
-            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {isSaving ? (
+              <Loader2
+                size={14}
+                className="animate-spin"
+              />
+            ) : (
+              <Save size={14} />
+            )}
+
             {isSaving ? "Saving..." : "Save"}
           </button>
 
-          {/* Run Button */}
           <button
             onClick={() => setIsRunModalOpen(true)}
             className="btn btn-primary"
@@ -1178,7 +1961,8 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               padding: "7px 18px",
               fontSize: "0.88rem",
               height: "36px",
-              borderRadius: "var(--radius-full)"
+              borderRadius: "var(--radius-full)",
+              flexShrink: 0,
             }}
           >
             <Play size={14} fill="#ffffff" />
@@ -1187,36 +1971,57 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
         </div>
       </div>
 
-      {/* Main Workspace Area (Sidebar + Canvas + Inspector) */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
-        {/* Node Category Sidebar */}
+      {/* Main workspace */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
         <NodePalette
           catalogue={catalogue}
-          onAddNode={(nodeMeta, customPos) => handleAddNode(nodeMeta, customPos)}
+          onAddNode={(nodeMeta, customPos) =>
+            handleAddNode(nodeMeta, customPos)
+          }
           isOpen={isPaletteOpen}
-          onToggle={() => setIsPaletteOpen(!isPaletteOpen)}
+          onToggle={() =>
+            setIsPaletteOpen((previous) => !previous)
+          }
         />
 
-        {/* Center Canvas */}
+        {/* Canvas */}
         <div
           ref={canvasRef}
           onWheel={handleWheel}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
+          onMouseLeave={() => {
+            if (draggingNodeId) {
+              setDraggingNodeId(null);
+            }
+
+            if (isPanning) {
+              setIsPanning(false);
+            }
+          }}
           onDoubleClick={handleCanvasDoubleClick}
           onDragOver={handleCanvasDragOver}
           onDrop={handleCanvasDrop}
           className="workflow-canvas-grid"
           style={{
             flex: 1,
+            minWidth: 0,
             height: "100%",
             position: "relative",
             overflow: "hidden",
             cursor: isPanning ? "grabbing" : "default",
           }}
         >
-          {/* Floating Connecting Mode Banner */}
+          {/* Connection mode banner */}
           {connectingSource && (
             <div
               style={{
@@ -1236,13 +2041,29 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                 fontSize: "0.82rem",
                 fontWeight: "600",
                 color: "var(--text-primary)",
+                maxWidth: "90%",
               }}
             >
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--brand)" }} />
+              <div
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: "var(--brand)",
+                  flexShrink: 0,
+                }}
+              />
+
               <span>
-                Connecting from <strong style={{ color: "var(--brand)" }}>{connectingSource.nodeId} · {connectingSource.portName}</strong>
-                {" → Click an input port on any node (or release on canvas to pick a new node)"}
+                Connecting from{" "}
+                <strong style={{ color: "var(--brand)" }}>
+                  {connectingSource.nodeId} ·{" "}
+                  {connectingSource.portName}
+                </strong>{" "}
+                → Click an input port on any node (or release on
+                canvas to pick a new node)
               </span>
+
               <button
                 onClick={() => {
                   setConnectingSource(null);
@@ -1257,6 +2078,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                   padding: "3px 10px",
                   fontSize: "0.72rem",
                   fontWeight: "700",
+                  flexShrink: 0,
                 }}
               >
                 Cancel (Esc)
@@ -1264,7 +2086,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
             </div>
           )}
 
-          {/* Canvas Quick-Start Guide (shown when nodes <= 1) */}
+          {/* Quick-start guide */}
           {nodes.length <= 1 && (
             <div
               style={{
@@ -1285,66 +2107,108 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                 gap: "10px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
                 <Sparkles size={16} color="var(--brand)" />
-                <span style={{ fontSize: "0.88rem", fontWeight: "700", color: "var(--text-primary)" }}>
+
+                <span
+                  style={{
+                    fontSize: "0.88rem",
+                    fontWeight: "700",
+                    color: "var(--text-primary)",
+                  }}
+                >
                   Quick Start Guide
                 </span>
               </div>
-              <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4, margin: 0 }}>
-                Double-click anywhere to add nodes, or drag from the green output port to connect nodes together.
+
+              <p
+                style={{
+                  fontSize: "0.78rem",
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.4,
+                  margin: 0,
+                }}
+              >
+                Double-click anywhere to add nodes, or drag
+                from the green output port to connect nodes
+                together.
               </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                <button
-                  onClick={() => {
-                    const cat = catalogueMap["math.multiply"];
-                    if (cat) {
-                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
-                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
-                      const y = nodes[0] ? nodes[0].position.y : 180;
-                      handleAddNode(cat, { x, y }, src);
-                    }
-                  }}
-                  className="btn btn-secondary"
-                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
-                >
-                  + Add Math Multiply
-                </button>
-                <button
-                  onClick={() => {
-                    const cat = catalogueMap["json.parse"];
-                    if (cat) {
-                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
-                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
-                      const y = nodes[0] ? nodes[0].position.y : 180;
-                      handleAddNode(cat, { x, y }, src);
-                    }
-                  }}
-                  className="btn btn-secondary"
-                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
-                >
-                  + Add JSON Parser
-                </button>
-                <button
-                  onClick={() => {
-                    const cat = catalogueMap["output.return"];
-                    if (cat) {
-                      const src = nodes[0] ? { nodeId: nodes[0].id, portName: "output" } : null;
-                      const x = nodes[0] ? nodes[0].position.x + 320 : 400;
-                      const y = nodes[0] ? nodes[0].position.y : 180;
-                      handleAddNode(cat, { x, y }, src);
-                    }
-                  }}
-                  className="btn btn-secondary"
-                  style={{ padding: "5px 12px", fontSize: "0.75rem", borderRadius: "12px", fontWeight: "600" }}
-                >
-                  + Add Return Output
-                </button>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  marginTop: "4px",
+                }}
+              >
+                {[
+                  {
+                    type: "math.multiply",
+                    label: "+ Add Math Multiply",
+                  },
+                  {
+                    type: "json.parse",
+                    label: "+ Add JSON Parser",
+                  },
+                  {
+                    type: "output.return",
+                    label: "+ Add Return Output",
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.type}
+                    onClick={() => {
+                      const catalogueNode =
+                        catalogueMap[item.type];
+
+                      if (!catalogueNode) {
+                        return;
+                      }
+
+                      const source = nodes[0]
+                        ? {
+                          nodeId: nodes[0].id,
+                          portName: "output",
+                        }
+                        : null;
+
+                      const x = nodes[0]
+                        ? nodes[0].position.x + 320
+                        : 400;
+
+                      const y = nodes[0]
+                        ? nodes[0].position.y
+                        : 180;
+
+                      handleAddNode(
+                        catalogueNode,
+                        { x, y },
+                        source
+                      );
+                    }}
+                    className="btn btn-secondary"
+                    style={{
+                      padding: "5px 12px",
+                      fontSize: "0.75rem",
+                      borderRadius: "12px",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Zoom / Viewport Controls Floating Overlay */}
+          {/* Viewport controls */}
           <div
             style={{
               position: "absolute",
@@ -1365,43 +2229,97 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
             }}
           >
             <button
-              onClick={() => setScale((s) => Math.min(s * 1.15, 2.2))}
+              onClick={() =>
+                setScale((previous) =>
+                  Math.min(previous * 1.15, 2.2)
+                )
+              }
               title="Zoom In"
-              style={{ padding: "6px", background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", borderRadius: "6px" }}
+              style={{
+                padding: "6px",
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                borderRadius: "6px",
+              }}
             >
               <ZoomIn size={16} />
             </button>
-            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", minWidth: "38px", textAlign: "center" }}>
+
+            <span
+              style={{
+                fontSize: "0.72rem",
+                color: "var(--text-muted)",
+                minWidth: "38px",
+                textAlign: "center",
+              }}
+            >
               {Math.round(scale * 100)}%
             </span>
+
             <button
-              onClick={() => setScale((s) => Math.max(s * 0.85, 0.4))}
+              onClick={() =>
+                setScale((previous) =>
+                  Math.max(previous * 0.85, 0.4)
+                )
+              }
               title="Zoom Out"
-              style={{ padding: "6px", background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", borderRadius: "6px" }}
+              style={{
+                padding: "6px",
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                borderRadius: "6px",
+              }}
             >
               <ZoomOut size={16} />
             </button>
-            <div style={{ width: "1px", height: "14px", background: "var(--border-subtle)" }} />
+
+            <div
+              style={{
+                width: "1px",
+                height: "14px",
+                background: "var(--border-subtle)",
+              }}
+            />
+
             <button
               onClick={handleAutoLayout}
               title="Tidy Graph (T)"
-              style={{ padding: "6px", background: "none", border: "none", color: "var(--brand)", cursor: "pointer", borderRadius: "6px" }}
+              style={{
+                padding: "6px",
+                background: "none",
+                border: "none",
+                color: "var(--brand)",
+                cursor: "pointer",
+                borderRadius: "6px",
+              }}
             >
               <Wand2 size={16} />
             </button>
+
             <button
               onClick={() => {
                 setScale(1);
                 setPan({ x: 80, y: 60 });
               }}
               title="Reset View"
-              style={{ padding: "6px", background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", borderRadius: "6px" }}
+              style={{
+                padding: "6px",
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                borderRadius: "6px",
+              }}
             >
               <Maximize2 size={16} />
             </button>
           </div>
 
-          {/* Transform Container */}
+          {/* Transformed canvas contents */}
           <div
             style={{
               position: "absolute",
@@ -1414,7 +2332,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
               pointerEvents: "none",
             }}
           >
-            {/* SVG Layer for Connections */}
+            {/* Connection SVG layer */}
             <svg
               style={{
                 position: "absolute",
@@ -1426,36 +2344,74 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                 overflow: "visible",
               }}
             >
-              {/* Render Existing Edges */}
               {edges.map((edge) => {
-                const srcNode = nodes.find((n) => n.id === edge.source);
-                const tgtNode = nodes.find((n) => n.id === edge.target);
-                const isEdgeSelected = selectedElement?.type === "edge" && selectedElement.id === edge.id;
+                const sourceNode = nodes.find(
+                  (node) => node.id === edge.source
+                );
+
+                const targetNode = nodes.find(
+                  (node) => node.id === edge.target
+                );
+
+                const isEdgeSelected =
+                  selectedElement?.type === "edge" &&
+                  selectedElement.id === edge.id;
 
                 const isEdgeInCycle = (edgeItem, cycle) => {
-                  if (!cycle || !Array.isArray(cycle) || cycle.length < 2) return false;
-                  for (let i = 0; i < cycle.length - 1; i++) {
-                    if (cycle[i] === edgeItem.source && cycle[i + 1] === edgeItem.target) {
+                  if (
+                    !Array.isArray(cycle) ||
+                    cycle.length < 2
+                  ) {
+                    return false;
+                  }
+
+                  for (
+                    let index = 0;
+                    index < cycle.length - 1;
+                    index++
+                  ) {
+                    if (
+                      cycle[index] === edgeItem.source &&
+                      cycle[index + 1] === edgeItem.target
+                    ) {
                       return true;
                     }
                   }
+
                   return false;
                 };
 
-                const edgeHasError = validationResult.errors.some(
-                  (e) => e.edgeId === edge.id || (e.code === "CYCLE_DETECTED" && isEdgeInCycle(edge, e.cycle))
-                );
+                const edgeHasError =
+                  validationResult.errors.some(
+                    (error) =>
+                      error.edgeId === edge.id ||
+                      (error.code === "CYCLE_DETECTED" &&
+                        isEdgeInCycle(edge, error.cycle))
+                  );
 
                 return (
                   <EdgePath
                     key={edge.id}
                     edge={edge}
-                    sourceNode={srcNode}
-                    targetNode={tgtNode}
-                    sourceMetadata={srcNode ? catalogueMap[srcNode.type] : null}
-                    targetMetadata={tgtNode ? catalogueMap[tgtNode.type] : null}
+                    sourceNode={sourceNode}
+                    targetNode={targetNode}
+                    sourceMetadata={
+                      sourceNode
+                        ? catalogueMap[sourceNode.type]
+                        : null
+                    }
+                    targetMetadata={
+                      targetNode
+                        ? catalogueMap[targetNode.type]
+                        : null
+                    }
                     isSelected={isEdgeSelected}
-                    onSelect={(id) => setSelectedElement({ id, type: "edge" })}
+                    onSelect={(id) =>
+                      setSelectedElement({
+                        id,
+                        type: "edge",
+                      })
+                    }
                     onDelete={handleDeleteEdge}
                     hasError={edgeHasError}
                     isRunning={isRunning}
@@ -1464,13 +2420,35 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                 );
               })}
 
-              {/* In-Progress Interactive Connection Curve */}
-              {connectingSource && connectingMousePos && (
+              {/* Active connection */}
+              {connectingSource && connectingMousePos &&
                 (() => {
-                  const srcNode = nodes.find((n) => n.id === connectingSource.nodeId);
-                  const srcMeta = srcNode ? catalogueMap[srcNode.type] : null;
-                  const start = calculatePortPosition(srcNode, connectingSource.portName, "output", srcMeta);
-                  const path = generateBezierPath(start.x, start.y, connectingMousePos.x, connectingMousePos.y);
+                  const sourceNode = nodes.find(
+                    (node) =>
+                      node.id === connectingSource.nodeId
+                  );
+
+                  const sourceMetadata = sourceNode
+                    ? catalogueMap[sourceNode.type]
+                    : null;
+
+                  if (!sourceNode) {
+                    return null;
+                  }
+
+                  const start = calculatePortPosition(
+                    sourceNode,
+                    connectingSource.portName,
+                    "output",
+                    sourceMetadata
+                  );
+
+                  const path = generateBezierPath(
+                    start.x,
+                    start.y,
+                    connectingMousePos.x,
+                    connectingMousePos.y
+                  );
 
                   return (
                     <path
@@ -1479,36 +2457,52 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
                       stroke="var(--brand)"
                       strokeWidth="2.5"
                       strokeDasharray="6, 6"
-                      style={{ pointerEvents: "none" }}
+                      style={{
+                        pointerEvents: "none",
+                      }}
                     />
                   );
-                })()
-              )}
+                })()}
             </svg>
 
-            {/* Render Nodes Layer */}
+            {/* Node layer */}
             <div style={{ pointerEvents: "auto" }}>
               {nodes.map((node) => {
-                const isNodeSelected = selectedElement?.type === "node" && selectedElement.id === node.id;
-                const meta = catalogueMap[node.type];
-                const task = runResult?.tasks ? runResult.tasks[node.id] : null;
+                const isNodeSelected =
+                  selectedElement?.type === "node" &&
+                  selectedElement.id === node.id;
+
+                const metadata = catalogueMap[node.type];
+
+                const task = runResult?.tasks
+                  ? runResult.tasks[node.id]
+                  : null;
 
                 return (
                   <NodeCard
                     key={node.id}
                     node={node}
-                    metadata={meta}
+                    metadata={metadata}
                     isSelected={isNodeSelected}
-                    onSelect={(id) => setSelectedElement({ id, type: "node" })}
+                    onSelect={(id) =>
+                      setSelectedElement({
+                        id,
+                        type: "node",
+                      })
+                    }
                     onDelete={handleDeleteNode}
                     onStartDrag={handleStartDragNode}
                     onStartConnection={handleStartConnection}
-                    onCompleteConnection={handleCompleteConnection}
+                    onCompleteConnection={
+                      handleCompleteConnection
+                    }
                     onQuickConnect={handleQuickConnect}
                     errors={validationResult.errors}
                     executionTask={task}
                     isConnecting={Boolean(connectingSource)}
-                    connectingSourceNodeId={connectingSource?.nodeId}
+                    connectingSourceNodeId={
+                      connectingSource?.nodeId
+                    }
                   />
                 );
               })}
@@ -1516,7 +2510,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
           </div>
         </div>
 
-        {/* Right Inspector Drawer */}
+        {/* Node inspector */}
         {selectedNode && (
           <NodeInspector
             selectedNode={selectedNode}
@@ -1525,31 +2519,53 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
             onDeleteNode={handleDeleteNode}
             onClose={() => setSelectedElement(null)}
             errors={validationResult.errors}
-            executionTask={runResult?.tasks ? runResult.tasks[selectedNode.id] : null}
+            executionTask={
+              runResult?.tasks
+                ? runResult.tasks[selectedNode.id]
+                : null
+            }
           />
         )}
       </div>
 
-      {/* Quick Add Node Popover */}
+      {/* Quick Add popover */}
       <QuickAddPopover
         isOpen={quickAdd.isOpen}
-        onClose={() => setQuickAdd((prev) => ({ ...prev, isOpen: false, autoConnectSource: null }))}
+        onClose={() =>
+          setQuickAdd((previous) => ({
+            ...previous,
+            isOpen: false,
+            autoConnectSource: null,
+          }))
+        }
         position={quickAdd}
         catalogue={catalogue}
         autoConnectSource={quickAdd.autoConnectSource}
-        onSelectNode={(nodeMeta, customPos, autoConnectSource) => {
-          handleAddNode(nodeMeta, customPos, autoConnectSource);
+        onSelectNode={(
+          nodeMeta,
+          customPos,
+          autoConnectSource
+        ) => {
+          handleAddNode(
+            nodeMeta,
+            customPos,
+            autoConnectSource
+          );
         }}
       />
 
-      {/* Validation Flyout Drawer */}
+      {/* Validation drawer */}
       <ValidationDrawer
         isOpen={isValidationDrawerOpen}
         onClose={() => setIsValidationDrawerOpen(false)}
         validationResult={validationResult}
         onSelectElement={(id, type) => {
           setSelectedElement({ id, type });
-          const targetNode = nodes.find((n) => n.id === id);
+
+          const targetNode = nodes.find(
+            (node) => node.id === id
+          );
+
           if (targetNode) {
             setPan({
               x: -targetNode.position.x * scale + 200,
@@ -1559,7 +2575,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
         }}
       />
 
-      {/* Run Execution Modal */}
+      {/* Execution modal */}
       <RunExecutionModal
         isOpen={isRunModalOpen}
         onClose={() => setIsRunModalOpen(false)}
@@ -1575,7 +2591,7 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
         runResult={runResult}
       />
 
-      {/* Webhook Testing Modal */}
+      {/* Webhook testing modal */}
       <WebhookTestingModal
         isOpen={isWebhookModalOpen}
         onClose={() => setIsWebhookModalOpen(false)}
@@ -1585,34 +2601,16 @@ export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
         onOpenReport={onOpenReport}
       />
 
-
-      {/* Dedicated Execution Timeline & Node Result Inspector */}
-      <ExecutionPanel
-        isOpen={isExecutionPanelOpen}
-        onClose={() => setIsExecutionPanelOpen(false)}
-        run={runResult}
+      {/* Past runs drawer */}
+      <PastRunsDrawer
+        isOpen={isPastRunsDrawerOpen}
+        onClose={() => setIsPastRunsDrawerOpen(false)}
+        workflowId={workflowId}
+        workflowName={workflowName}
         recentRuns={recentRuns}
-        workflow={{
-          ...workflow,
-          name: workflowName,
-          version: workflowVersion,
-          nodes,
-          edges,
-        }}
-        onSelectRun={(runId) => {
-          loadRunById(runId);
-          window.history.replaceState({}, "", `${window.location.pathname}?runId=${runId}`);
-        }}
-        onSelectNode={(nodeId) => {
-          setSelectedElement({ id: nodeId, type: "node" });
-          const targetNode = nodes.find((n) => n.id === nodeId);
-          if (targetNode) {
-            setPan({
-              x: -targetNode.position.x * scale + 240,
-              y: -targetNode.position.y * scale + 200,
-            });
-          }
-        }}
+        isLoadingHistory={isLoadingHistory}
+        onRefresh={() => fetchRecentRuns(workflowId)}
+        onOpenReport={onOpenReport}
       />
     </div>
   );

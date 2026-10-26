@@ -438,77 +438,170 @@ export default function WebhookTestingModal({
                   </button>
 
                   {responseState.data?.runId && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          if (onOpenReport) {
-                            onOpenReport(responseState.data.runId);
-                          } else {
-                            window.location.href = `/runs/${responseState.data.runId}`;
-                          }
-                        }}
-                        style={{
-                          background: "linear-gradient(135deg, #39AEA9, #479994)",
-                          border: "none",
-                          borderRadius: "6px",
-                          padding: "5px 12px",
-                          color: "#ffffff",
-                          cursor: "pointer",
-                          fontSize: "0.76rem",
-                          fontWeight: "700",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          boxShadow: "0 2px 8px rgba(57, 174, 169, 0.35)",
-                        }}
-                      >
-                        <ExternalLink size={13} />
-                        View Full Execution Report
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenRun?.(responseState.data.runId);
-                        }}
-                        className="btn btn-secondary"
-                        style={{
-                          padding: "5px 10px",
-                          fontSize: "0.74rem",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "4px",
-                        }}
-                      >
-                        Canvas Inspector
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        if (onOpenReport) {
+                          onOpenReport(responseState.data.runId);
+                        } else {
+                          window.location.href = `/runs/${responseState.data.runId}`;
+                        }
+                      }}
+                      style={{
+                        background: "linear-gradient(135deg, #39AEA9, #479994)",
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "6px 14px",
+                        color: "#ffffff",
+                        cursor: "pointer",
+                        fontSize: "0.78rem",
+                        fontWeight: "700",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        boxShadow: "0 2px 8px rgba(57, 174, 169, 0.35)",
+                      }}
+                    >
+                      <ExternalLink size={13} />
+                      View Full Execution Report
+                    </button>
                   )}
                 </div>
               </div>
 
+              {/* Complete Report URL Bar */}
+              {(responseState.data?.viewReportUrl || responseState.data?.reportPageUrl || responseState.data?.reportUrl) && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "8px 12px",
+                    background: "rgba(0, 0, 0, 0.25)",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-subtle)",
+                    fontSize: "0.75rem",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
+                    <span style={{ color: "var(--text-muted)", fontWeight: "600" }}>Report URL:</span>
+                    <a
+                      href={responseState.data.viewReportUrl || responseState.data.reportPageUrl || responseState.data.reportUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: "var(--brand)",
+                        textDecoration: "underline",
+                        fontFamily: "var(--font-mono)",
+                        wordBreak: "break-all",
+                      }}
+                    >
+                      {responseState.data.viewReportUrl || responseState.data.reportPageUrl || responseState.data.reportUrl}
+                    </a>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const urlToCopy = responseState.data.viewReportUrl || responseState.data.reportPageUrl || responseState.data.reportUrl;
+                      navigator.clipboard.writeText(urlToCopy);
+                      setCopiedUrl(true);
+                      setTimeout(() => setCopiedUrl(false), 2000);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: copiedUrl ? "#10b981" : "var(--brand)",
+                      cursor: "pointer",
+                      fontSize: "0.72rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: 0,
+                    }}
+                  >
+                    {copiedUrl ? <Check size={11} /> : <Copy size={11} />}
+                    {copiedUrl ? "Copied" : "Copy Link"}
+                  </button>
+                </div>
+              )}
+
+              {/* Final Output Panel */}
+              {responseState.data?.finalOutput !== undefined && responseState.data?.finalOutput !== null && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "0.74rem", fontWeight: "700", color: "#10b981", textTransform: "uppercase" }}>
+                      Final Workflow Output
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(responseState.data.finalOutput, null, 2));
+                        setCopiedResponse(true);
+                        setTimeout(() => setCopiedResponse(false), 2000);
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: copiedResponse ? "#10b981" : "var(--text-muted)",
+                        cursor: "pointer",
+                        fontSize: "0.7rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <Copy size={11} /> Copy Output
+                    </button>
+                  </div>
+                  <pre
+                    style={{
+                      background: "var(--bg-input)",
+                      padding: "10px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(16, 185, 129, 0.25)",
+                      fontSize: "0.78rem",
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--text-primary)",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                      margin: 0,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {JSON.stringify(responseState.data.finalOutput, null, 2)}
+                  </pre>
+                </div>
+              )}
+
               {/* Formatted Response Body */}
-              <pre
-                style={{
-                  background: "var(--bg-input)",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid var(--border-subtle)",
-                  fontSize: "0.78rem",
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--text-primary)",
-                  maxHeight: "180px",
-                  overflowY: "auto",
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                }}
-              >
-                {JSON.stringify(responseState.data, null, 2)}
-              </pre>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <span style={{ fontSize: "0.7rem", fontWeight: "700", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                  Full HTTP Response Payload
+                </span>
+                <pre
+                  style={{
+                    background: "var(--bg-input)",
+                    padding: "10px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-subtle)",
+                    fontSize: "0.75rem",
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--text-primary)",
+                    maxHeight: "150px",
+                    overflowY: "auto",
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {JSON.stringify(responseState.data, null, 2)}
+                </pre>
+              </div>
             </div>
           )}
         </div>

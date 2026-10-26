@@ -136,7 +136,11 @@ class WebhookController {
         method: reqMethod,
       };
 
-      // 7. Execute through common execution pipeline (supports sync and async modes)
+      const host = (typeof req.get === "function" ? req.get("host") : (req.headers && req.headers.host)) || "localhost:5001";
+      const protocol = (req.headers && req.headers["x-forwarded-proto"]) || req.protocol || "http";
+      const apiBase = `${protocol}://${host}`;
+      const frontendBase = process.env.FRONTEND_URL || (host.includes(":5001") ? `${protocol}://${host.replace(":5001", ":5173")}` : apiBase);
+
       const isAsync = req.query.async === "true" || req.headers["x-execution-mode"] === "async";
 
       if (isAsync) {
@@ -166,9 +170,10 @@ class WebhookController {
           success: true,
           runId: initialRun.id,
           status: "RUNNING",
-          resultUrl: `/api/runs/${initialRun.id}`,
-          reportUrl: `/api/runs/${initialRun.id}/report`,
-          reportPageUrl: `/runs/${initialRun.id}`,
+          message: "Workflow accepted and executing in background",
+          resultUrl: `${apiBase}/api/runs/${initialRun.id}`,
+          reportUrl: `${apiBase}/api/runs/${initialRun.id}/report`,
+          reportPageUrl: `${frontendBase}/runs/${initialRun.id}`,
         });
       }
 
@@ -185,14 +190,30 @@ class WebhookController {
       });
 
       const httpStatus = runResult.status === "SUCCEEDED" ? 200 : 422;
+      const finalOutput = runResult.finalOutput !== undefined ? runResult.finalOutput : (runResult.output !== undefined ? runResult.output : null);
+      const reportNodes = Array.isArray(runResult.report?.nodes) ? runResult.report.nodes : [];
+      const summary = {
+        totalNodes: reportNodes.length || Object.keys(runResult.nodeResults || {}).length,
+        succeededNodes: reportNodes.filter((n) => n.status === "SUCCEEDED").length,
+        failedNodes: reportNodes.filter((n) => n.status === "FAILED").length,
+        skippedNodes: reportNodes.filter((n) => n.status === "SKIPPED" || n.status === "BLOCKED").length,
+      };
 
       return res.status(httpStatus).json({
         success: runResult.status === "SUCCEEDED",
         runId: runResult.runId,
         status: runResult.status,
-        resultUrl: `/api/runs/${runResult.runId}`,
-        reportUrl: `/api/runs/${runResult.runId}/report`,
-        reportPageUrl: `/runs/${runResult.runId}`,
+        durationMs: runResult.durationMs,
+        startedAt: runResult.startedAt,
+        finishedAt: runResult.finishedAt,
+        finalOutput,
+        output: finalOutput,
+        summary,
+        resultUrl: `${apiBase}/api/runs/${runResult.runId}`,
+        reportUrl: `${apiBase}/api/runs/${runResult.runId}/report`,
+        reportPageUrl: `${frontendBase}/runs/${runResult.runId}`,
+        viewReportUrl: `${frontendBase}/runs/${runResult.runId}`,
+        report: runResult.report,
       });
     } catch (err) {
       next(err);

@@ -170,6 +170,45 @@ export default function ExecutionReportDetail({
 
   const finalOutput = run?.finalOutput !== undefined ? run.finalOutput : (run?.output !== undefined ? run.output : report?.output);
 
+  // Helper to extract node output consistently
+  const getNodeOutput = (node) => {
+    return node?.output !== undefined ? node.output : (node?.outputs !== undefined ? node.outputs : null);
+  };
+
+  // Helper to check if a node is an AI node
+  const isAiNode = (node) => {
+    const out = getNodeOutput(node);
+    return Boolean(
+      node?.nodeType?.startsWith("ai.") ||
+      out?.provider === "groq" ||
+      out?._aiExecution ||
+      out?.category ||
+      out?.leadingHypothesis ||
+      (node?.nodeType && (node.nodeType.includes("groq") || node.nodeType.includes("llm") || node.nodeType.includes("classify")))
+    );
+  };
+
+  // Extract AI Analysis and Service Telemetry if present in final output or node outputs
+  const aiNode = nodes.find(isAiNode);
+  const aiNodeOutput = aiNode ? getNodeOutput(aiNode) : null;
+
+  const aiAnalysis =
+    finalOutput?.aiAnalysis ||
+    (aiNodeOutput?.leadingHypothesis || aiNodeOutput?.category
+      ? {
+          provider: aiNodeOutput.provider || "groq",
+          model: aiNodeOutput.model || "llama-3.3-70b-versatile",
+          severity: aiNodeOutput.severity || (finalOutput?.severity || "warning"),
+          leadingHypothesis: aiNodeOutput.leadingHypothesis || (aiNodeOutput.reasoning || `Classified as ${aiNodeOutput.category}`),
+          confidence: aiNodeOutput.confidence !== undefined ? aiNodeOutput.confidence : 0.95,
+          alternativeExplanations: aiNodeOutput.alternativeExplanations,
+        }
+      : null);
+
+  const serviceTelemetry = finalOutput?.serviceTelemetry;
+  const actionPlan = finalOutput?.actionPlan || aiNodeOutput?.recommendation || aiNodeOutput?.action;
+  const hasAiBriefing = Boolean(finalOutput && (serviceTelemetry || aiAnalysis || finalOutput.aiAnalysis));
+
   // Filtered nodes for Node Inspector
   const filteredNodes = nodes.filter((n) => {
     if (nodeFilter === "succeeded") return n.status === "SUCCEEDED";
@@ -608,7 +647,7 @@ export default function ExecutionReportDetail({
         }}
       >
         {[
-          { id: "output", label: "Final Output", icon: CheckCircle2 },
+          { id: "output", label: hasAiBriefing ? "Final Output & AI Analysis" : "Final Output", icon: hasAiBriefing ? Sparkles : CheckCircle2 },
           { id: "timeline", label: `Timeline (${orderedNodes.length})`, icon: Clock },
           { id: "nodes", label: `Node Inspector (${nodes.length})`, icon: Layers },
           { id: "trigger", label: "Trigger & Input", icon: Zap },
@@ -645,16 +684,320 @@ export default function ExecutionReportDetail({
 
       {/* TAB 1: FINAL OUTPUT */}
       {activeTab === "output" && (
-        <div className="glass-panel" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--border-subtle)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-            <div>
-              <h3 style={{ fontSize: "0.95rem", fontWeight: "700", color: "var(--text-primary)", margin: 0 }}>
-                Persisted Workflow Final Output
-              </h3>
-              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
-                Extracted and durable result produced by terminal return nodes or the DAG's final stage.
-              </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* Structured Operational Incident & AI Intelligence Briefing Card */}
+          {hasAiBriefing && (
+            <div
+              style={{
+                background: "linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%)",
+                border: "1px solid rgba(56, 189, 248, 0.25)",
+                borderRadius: "12px",
+                padding: "18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                  paddingBottom: "12px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                      background:
+                        aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                          ? "rgba(244, 63, 94, 0.2)"
+                          : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                          ? "rgba(245, 158, 11, 0.2)"
+                          : "rgba(56, 189, 248, 0.2)",
+                      border: `1px solid ${
+                        aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                          ? "#f43f5e"
+                          : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                          ? "#f59e0b"
+                          : "#38bdf8"
+                      }`,
+                      color:
+                        aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                          ? "#f43f5e"
+                          : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                          ? "#f59e0b"
+                          : "#38bdf8",
+                      fontSize: "0.78rem",
+                      fontWeight: "800",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    {aiAnalysis?.severity
+                      ? aiAnalysis.severity.toUpperCase()
+                      : finalOutput?.severity
+                      ? String(finalOutput.severity).toUpperCase()
+                      : "INCIDENT REPORT"}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "1rem", fontWeight: "800", color: "#f8fafc" }}>
+                      {finalOutput?.incidentId || finalOutput?.ticketId || "OPERATIONAL BRIEFING"} —{" "}
+                      {finalOutput?.service || (aiNode?.nodeName || "Workflow Engine")}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "2px" }}>
+                      Region: {finalOutput?.region || "global"} • Tier:{" "}
+                      {finalOutput?.customerTier || "standard"} • Generated:{" "}
+                      {formatTimestamp(finalOutput?.reportGeneratedAt || run.finishedAt || run.startedAt)}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.72rem",
+                    color: "#10b981",
+                    background: "rgba(16, 185, 129, 0.12)",
+                    padding: "4px 10px",
+                    borderRadius: "6px",
+                    fontWeight: "700",
+                    border: "1px solid rgba(16, 185, 129, 0.25)",
+                  }}
+                >
+                  {finalOutput?.status || "INVESTIGATION COMPLETE"}
+                </div>
+              </div>
+
+              {/* Metrics Grid */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {/* Derived Operational Metrics */}
+                {(finalOutput?.derivedMetrics || finalOutput?.affectedUsers !== undefined || finalOutput?.errorRate !== undefined) && (
+                  <div
+                    style={{
+                      background: "rgba(0, 0, 0, 0.25)",
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255, 255, 255, 0.05)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: "700",
+                        color: "#38bdf8",
+                        marginBottom: "8px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      📊 Derived Metrics
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "0.78rem" }}>
+                      {(finalOutput?.derivedMetrics?.impactedVolume !== undefined || finalOutput?.affectedUsers !== undefined) && (
+                        <div>
+                          Impacted Users:{" "}
+                          <strong style={{ color: "#f8fafc" }}>
+                            {finalOutput.derivedMetrics?.impactedVolume ?? finalOutput.affectedUsers}
+                          </strong>
+                        </div>
+                      )}
+                      {finalOutput?.errorRate !== undefined && (
+                        <div>
+                          Error Rate:{" "}
+                          <strong style={{ color: "#f8fafc" }}>
+                            {typeof finalOutput.errorRate === "number" && finalOutput.errorRate <= 1
+                              ? `${(finalOutput.errorRate * 100).toFixed(0)}%`
+                              : `${finalOutput.errorRate}%`}
+                          </strong>
+                        </div>
+                      )}
+                      {finalOutput?.revenueAtRisk !== undefined && (
+                        <div>
+                          Financial Risk:{" "}
+                          <strong style={{ color: "#f8fafc" }}>
+                            ${Number(finalOutput.revenueAtRisk).toLocaleString()}
+                          </strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Service Telemetry */}
+                {serviceTelemetry && (
+                  <div
+                    style={{
+                      background: "rgba(0, 0, 0, 0.25)",
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255, 255, 255, 0.05)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: "700",
+                        color: "#a855f7",
+                        marginBottom: "8px",
+                        textTransform: "uppercase",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      <span>📡 Service Telemetry</span>
+                      <span style={{ fontSize: "0.62rem", color: "#94a3b8" }}>Observed</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "0.78rem" }}>
+                      {serviceTelemetry.p99LatencyMs !== undefined && (
+                        <div>
+                          P99 Latency:{" "}
+                          <strong style={{ color: "#f8fafc" }}>
+                            {serviceTelemetry.p99LatencyMs} ms
+                          </strong>
+                        </div>
+                      )}
+                      {serviceTelemetry.activePods !== undefined && (
+                        <div>
+                          Pods:{" "}
+                          <strong style={{ color: "#f8fafc" }}>
+                            {serviceTelemetry.activePods} active (
+                            {serviceTelemetry.unhealthyPods ?? 0} unhealthy)
+                          </strong>
+                        </div>
+                      )}
+                      {serviceTelemetry.providerHealth && (
+                        <div>
+                          Provider Health:{" "}
+                          <strong
+                            style={{
+                              color:
+                                serviceTelemetry.providerHealth === "degraded" || serviceTelemetry.providerHealth === "unhealthy"
+                                  ? "#f43f5e"
+                                  : "#10b981",
+                            }}
+                          >
+                            {serviceTelemetry.providerHealth}
+                          </strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Analysis Hypothesis */}
+                {aiAnalysis && (
+                  <div
+                    style={{
+                      background: "rgba(0, 0, 0, 0.25)",
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255, 255, 255, 0.05)",
+                      gridColumn: "1 / -1",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: "700",
+                        color: "#f59e0b",
+                        marginBottom: "8px",
+                        textTransform: "uppercase",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Sparkles size={13} color="#f59e0b" />
+                        <span>
+                          AI Hypothesis ({aiAnalysis.provider || "Groq"} / {aiAnalysis.model || "llama-3.3-70b-versatile"})
+                        </span>
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          color: "#f59e0b",
+                          background: "rgba(245, 158, 11, 0.15)",
+                          padding: "2px 8px",
+                          borderRadius: "4px",
+                          fontWeight: "700",
+                        }}
+                      >
+                        {typeof aiAnalysis.confidence === "number"
+                          ? `${Math.round(aiAnalysis.confidence <= 1 ? aiAnalysis.confidence * 100 : aiAnalysis.confidence)}% Confidence`
+                          : "95% Confidence"}
+                      </span>
+                    </div>
+                    {aiAnalysis.leadingHypothesis && (
+                      <div style={{ fontSize: "0.82rem", color: "#e2e8f0", lineHeight: 1.5, marginBottom: "8px" }}>
+                        <strong style={{ color: "#f8fafc" }}>Leading Hypothesis:</strong> {aiAnalysis.leadingHypothesis}
+                      </div>
+                    )}
+                    {Array.isArray(aiAnalysis.alternativeExplanations) && aiAnalysis.alternativeExplanations.length > 0 && (
+                      <div style={{ fontSize: "0.74rem", color: "#94a3b8", lineHeight: 1.4 }}>
+                        <strong style={{ color: "#cbd5e1" }}>Alternative Explanations:</strong>{" "}
+                        {aiAnalysis.alternativeExplanations.join(" • ")}
+                      </div>
+                    )}
+                    <div style={{ fontSize: "0.68rem", color: "#64748b", marginTop: "6px", fontStyle: "italic" }}>
+                      ⚠️ Root cause hypothesis generated via LLM inference. Human verification recommended before production action.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Plan */}
+              {actionPlan && (
+                <div
+                  style={{
+                    background: "rgba(0, 0, 0, 0.35)",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    borderLeft: `4px solid ${
+                      aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                        ? "#f43f5e"
+                        : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                        ? "#f59e0b"
+                        : "#38bdf8"
+                    }`,
+                    fontSize: "0.84rem",
+                    fontWeight: "600",
+                    color: "#f8fafc",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <span style={{ color: "#38bdf8", marginRight: "6px", fontWeight: "700" }}>Recommended Action Plan:</span>
+                  {actionPlan}
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Raw / Extracted Final Output Box */}
+          <div className="glass-panel" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <div>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: "700", color: "var(--text-primary)", margin: 0 }}>
+                  Persisted Workflow Final Output
+                </h3>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+                  Extracted and durable result produced by terminal return nodes or the DAG's final stage.
+                </p>
+              </div>
 
             {finalOutput !== undefined && finalOutput !== null && (
               <button
@@ -696,6 +1039,7 @@ export default function ExecutionReportDetail({
             </div>
           )}
         </div>
+      </div>
       )}
 
       {/* TAB 2: EXECUTION TIMELINE */}
@@ -789,6 +1133,25 @@ export default function ExecutionReportDetail({
                         <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
                           ({n.nodeType})
                         </span>
+                        {isAiNode(n) && (
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              fontWeight: "700",
+                              color: "#38bdf8",
+                              background: "rgba(56, 189, 248, 0.12)",
+                              border: "1px solid rgba(56, 189, 248, 0.3)",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "3px",
+                            }}
+                          >
+                            <Sparkles size={10} color="#38bdf8" />
+                            Groq AI
+                          </span>
+                        )}
                         <span
                           style={{
                             fontSize: "0.65rem",
@@ -925,13 +1288,32 @@ export default function ExecutionReportDetail({
                       {isFail && <XCircle size={16} color="#f43f5e" />}
                       {isSkip && <FastForward size={16} color="var(--text-muted)" />}
                       <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "0.85rem", fontWeight: "700", color: "var(--text-primary)" }}>
                             {node.nodeName || node.label || node.nodeId}
                           </span>
                           <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                             {node.nodeType}
                           </span>
+                          {isAiNode(node) && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                fontWeight: "700",
+                                color: "#38bdf8",
+                                background: "rgba(56, 189, 248, 0.12)",
+                                border: "1px solid rgba(56, 189, 248, 0.3)",
+                                padding: "1px 7px",
+                                borderRadius: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                              }}
+                            >
+                              <Sparkles size={11} color="#38bdf8" />
+                              Groq AI
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "2px" }}>
                           ID: <code>{node.nodeId}</code>
@@ -965,6 +1347,91 @@ export default function ExecutionReportDetail({
                   {/* Expanded Inspector Panel */}
                   {isExp && (
                     <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)" }}>
+                      {/* Groq AI Live Intelligence Callout */}
+                      {isAiNode(node) && isSucc && (
+                        <div
+                          style={{
+                            background: "rgba(57, 174, 169, 0.08)",
+                            border: "1px solid rgba(57, 174, 169, 0.3)",
+                            borderRadius: "8px",
+                            padding: "12px 14px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "10px",
+                            marginBottom: "14px",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "700", color: "var(--brand)", fontSize: "0.82rem" }}>
+                              <Sparkles size={15} color="var(--brand)" />
+                              <span>Groq AI Live Intelligence</span>
+                            </div>
+                            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                              Model: {getNodeOutput(node)?.model || "llama-3.3-70b-versatile"}
+                            </span>
+                          </div>
+
+                          {/* Classification Highlights */}
+                          {(getNodeOutput(node)?.category || getNodeOutput(node)?.severity || getNodeOutput(node)?.confidence !== undefined) && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              {getNodeOutput(node)?.category && (
+                                <>
+                                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Assigned Category:</span>
+                                  <span
+                                    style={{
+                                      fontSize: "0.78rem",
+                                      fontWeight: "700",
+                                      color: "var(--text-primary)",
+                                      background: "var(--bg-card)",
+                                      border: "1px solid var(--border-subtle)",
+                                      padding: "2px 8px",
+                                      borderRadius: "4px",
+                                    }}
+                                  >
+                                    {getNodeOutput(node).category}
+                                  </span>
+                                </>
+                              )}
+                              {getNodeOutput(node)?.severity && (
+                                <span
+                                  style={{
+                                    fontSize: "0.7rem",
+                                    fontWeight: "700",
+                                    color: getNodeOutput(node).severity === "critical" ? "#f43f5e" : getNodeOutput(node).severity === "warning" ? "#f59e0b" : "#10b981",
+                                    background: getNodeOutput(node).severity === "critical" ? "rgba(244, 63, 94, 0.15)" : getNodeOutput(node).severity === "warning" ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                                    border: `1px solid ${getNodeOutput(node).severity === "critical" ? "rgba(244, 63, 94, 0.3)" : getNodeOutput(node).severity === "warning" ? "rgba(245, 158, 11, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                                    padding: "2px 7px",
+                                    borderRadius: "4px",
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  {getNodeOutput(node).severity}
+                                </span>
+                              )}
+                              {typeof getNodeOutput(node)?.confidence === "number" && (
+                                <span style={{ fontSize: "0.74rem", color: "#34d399", fontWeight: "700", marginLeft: "auto" }}>
+                                  {Math.round(getNodeOutput(node).confidence <= 1 ? getNodeOutput(node).confidence * 100 : getNodeOutput(node).confidence)}% Confidence
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Reasoning */}
+                          {getNodeOutput(node)?.reasoning && (
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.45, background: "rgba(0, 0, 0, 0.25)", padding: "10px 12px", borderRadius: "6px" }}>
+                              <strong style={{ color: "var(--text-primary)" }}>Reasoning:</strong> {getNodeOutput(node).reasoning}
+                            </div>
+                          )}
+
+                          {/* Hypothesis */}
+                          {getNodeOutput(node)?.leadingHypothesis && (
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.45, background: "rgba(0, 0, 0, 0.25)", padding: "10px 12px", borderRadius: "6px" }}>
+                              <strong style={{ color: "var(--text-primary)" }}>Hypothesis:</strong> {getNodeOutput(node).leadingHypothesis}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Sub-tab switcher: Output vs Input vs Error */}
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                         <div style={{ display: "flex", gap: "6px" }}>

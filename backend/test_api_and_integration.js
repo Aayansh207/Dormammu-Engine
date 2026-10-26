@@ -291,11 +291,15 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseBody.success, true);
       assert.strictEqual(responseBody.status, "SUCCEEDED");
       assert.ok(responseBody.runId);
-      assert.strictEqual(responseBody.resultUrl, `/api/runs/${responseBody.runId}`);
-      assert.strictEqual(responseBody.reportUrl, `/api/runs/${responseBody.runId}/report`);
-      assert.strictEqual(responseBody.reportPageUrl, `/runs/${responseBody.runId}`);
-      assert.strictEqual(responseBody.output, undefined); // Small response: no full output leak
-      assert.strictEqual(responseBody.nodeResults, undefined); // Small response: no task breakdown leak
+      assert.ok(responseBody.resultUrl.includes(`/api/runs/${responseBody.runId}`));
+      assert.ok(responseBody.reportUrl.includes(`/api/runs/${responseBody.runId}/report`));
+      assert.ok(responseBody.reportPageUrl.includes(`/runs/${responseBody.runId}`));
+      assert.ok(responseBody.resultUrl.startsWith("http")); // Complete URL
+      assert.ok(responseBody.reportUrl.startsWith("http")); // Complete URL
+      assert.ok(responseBody.reportPageUrl.startsWith("http")); // Complete URL
+      assert.deepStrictEqual(responseBody.finalOutput, { event: "stripe_charge", amount: 9900 });
+      assert.strictEqual(responseBody.summary.totalNodes, 2);
+      assert.strictEqual(responseBody.summary.succeededNodes, 2);
 
       // Verify persistence in PostgreSQL: single WorkflowRun with complete report, 0 TaskRun rows
       const persistedRun = await prisma.workflowRun.findUnique({
@@ -345,9 +349,12 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseBody.success, true);
       assert.strictEqual(responseBody.status, "RUNNING");
       assert.ok(responseBody.runId);
-      assert.strictEqual(responseBody.resultUrl, `/api/runs/${responseBody.runId}`);
-      assert.strictEqual(responseBody.reportUrl, `/api/runs/${responseBody.runId}/report`);
-      assert.strictEqual(responseBody.reportPageUrl, `/runs/${responseBody.runId}`);
+      assert.ok(responseBody.resultUrl.includes(`/api/runs/${responseBody.runId}`));
+      assert.ok(responseBody.reportUrl.includes(`/api/runs/${responseBody.runId}/report`));
+      assert.ok(responseBody.reportPageUrl.includes(`/runs/${responseBody.runId}`));
+      assert.ok(responseBody.resultUrl.startsWith("http"));
+      assert.ok(responseBody.reportUrl.startsWith("http"));
+      assert.ok(responseBody.reportPageUrl.startsWith("http"));
 
       // Verify run is immediately findable in PostgreSQL in RUNNING state
       const initialRun = await prisma.workflowRun.findUnique({
