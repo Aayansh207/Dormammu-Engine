@@ -201,18 +201,16 @@ class WebhookController {
 
       return res.status(httpStatus).json({
         success: runResult.status === "SUCCEEDED",
+        resultUrl: `${apiBase}/api/runs/${runResult.runId}`,
+        reportUrl: `${apiBase}/api/runs/${runResult.runId}/report`,
+        reportPageUrl: `${frontendBase}/runs/${runResult.runId}`,
         runId: runResult.runId,
         status: runResult.status,
         durationMs: runResult.durationMs,
         startedAt: runResult.startedAt,
         finishedAt: runResult.finishedAt,
         finalOutput,
-        output: finalOutput,
         summary,
-        resultUrl: `${apiBase}/api/runs/${runResult.runId}`,
-        reportUrl: `${apiBase}/api/runs/${runResult.runId}/report`,
-        reportPageUrl: `${frontendBase}/runs/${runResult.runId}`,
-        viewReportUrl: `${frontendBase}/runs/${runResult.runId}`,
         report: runResult.report,
       });
     } catch (err) {

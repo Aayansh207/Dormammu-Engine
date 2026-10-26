@@ -91,7 +91,6 @@ erDiagram
     User ||--o{ Workflow : "owns"
     Workflow ||--o{ WorkflowVersion : "versions"
     WorkflowVersion ||--o{ WorkflowRun : "executes"
-    WorkflowRun ||--o{ TaskRun : "records"
 
     User {
         string id PK
@@ -139,18 +138,6 @@ erDiagram
         datetime finishedAt
     }
 
-    TaskRun {
-        string id PK
-        string workflowRunId FK
-        string nodeId
-        string status
-        int attempts
-        json input
-        json output
-        json error
-        datetime startedAt
-        datetime finishedAt
-    }
 
     NodeDefinition {
         string id PK
@@ -183,7 +170,7 @@ Before any workflow can be saved or executed, it passes through [workflow.valida
   - Resolves inputs from upstream node outputs or fallback configs.
   - Skips nodes downstream of inactive conditional branches.
   - Broadcasts live events (`task:running`, `task:succeeded`, `task:failed`, `workflow:completed`) over SSE.
-  - Stores atomic task-level logs in `TaskRun` and generates the final aggregated `report` in `WorkflowRun`.
+  - Records full task-level execution traces directly in the aggregated, durable `report` in `WorkflowRun`.
 
 ---
 

@@ -196,13 +196,13 @@ export default function ExecutionReportDetail({
     finalOutput?.aiAnalysis ||
     (aiNodeOutput?.leadingHypothesis || aiNodeOutput?.category
       ? {
-          provider: aiNodeOutput.provider || "groq",
-          model: aiNodeOutput.model || "llama-3.3-70b-versatile",
-          severity: aiNodeOutput.severity || (finalOutput?.severity || "warning"),
-          leadingHypothesis: aiNodeOutput.leadingHypothesis || (aiNodeOutput.reasoning || `Classified as ${aiNodeOutput.category}`),
-          confidence: aiNodeOutput.confidence !== undefined ? aiNodeOutput.confidence : 0.95,
-          alternativeExplanations: aiNodeOutput.alternativeExplanations,
-        }
+        provider: aiNodeOutput.provider || "groq",
+        model: aiNodeOutput.model || "llama-3.3-70b-versatile",
+        severity: aiNodeOutput.severity || (finalOutput?.severity || "warning"),
+        leadingHypothesis: aiNodeOutput.leadingHypothesis || (aiNodeOutput.reasoning || `Classified as ${aiNodeOutput.category}`),
+        confidence: aiNodeOutput.confidence !== undefined ? aiNodeOutput.confidence : 0.95,
+        alternativeExplanations: aiNodeOutput.alternativeExplanations,
+      }
       : null);
 
   const serviceTelemetry = finalOutput?.serviceTelemetry;
@@ -338,13 +338,12 @@ export default function ExecutionReportDetail({
         style={{
           padding: "20px 24px",
           borderRadius: "14px",
-          border: `1px solid ${
-            isSucceeded
-              ? "rgba(16, 185, 129, 0.35)"
-              : isFailed
+          border: `1px solid ${isSucceeded
+            ? "rgba(16, 185, 129, 0.35)"
+            : isFailed
               ? "rgba(244, 63, 94, 0.35)"
               : "rgba(57, 174, 169, 0.35)"
-          }`,
+            }`,
           background: "var(--bg-secondary)",
           marginBottom: "18px",
           boxShadow: "0 6px 25px rgba(0,0,0,0.25)",
@@ -368,19 +367,6 @@ export default function ExecutionReportDetail({
                 }}
               >
                 v{run.version || report?.version || 1}
-              </span>
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  padding: "2px 8px",
-                  borderRadius: "6px",
-                  background: "rgba(57, 174, 169, 0.15)",
-                  border: "1px solid var(--brand)",
-                  color: "var(--brand)",
-                  fontWeight: "700",
-                }}
-              >
-                Report v{report?.schemaVersion || "1.0.0"}
               </span>
             </div>
 
@@ -433,16 +419,15 @@ export default function ExecutionReportDetail({
                 background: isSucceeded
                   ? "rgba(16, 185, 129, 0.15)"
                   : isFailed
-                  ? "rgba(244, 63, 94, 0.15)"
-                  : "rgba(57, 174, 169, 0.15)",
+                    ? "rgba(244, 63, 94, 0.15)"
+                    : "rgba(57, 174, 169, 0.15)",
                 color: isSucceeded ? "#10b981" : isFailed ? "#f43f5e" : "var(--brand)",
-                border: `1px solid ${
-                  isSucceeded
-                    ? "rgba(16, 185, 129, 0.35)"
-                    : isFailed
+                border: `1px solid ${isSucceeded
+                  ? "rgba(16, 185, 129, 0.35)"
+                  : isFailed
                     ? "rgba(244, 63, 94, 0.35)"
                     : "rgba(57, 174, 169, 0.35)"
-                }`,
+                  }`,
               }}
             >
               {isSucceeded && <CheckCircle2 size={18} />}
@@ -614,27 +599,6 @@ export default function ExecutionReportDetail({
             Inactive branch paths
           </div>
         </div>
-
-        {/* DB Writes Architecture */}
-        <div
-          className="glass-panel"
-          style={{
-            padding: "12px 16px",
-            borderRadius: "10px",
-            border: "1px solid var(--border-subtle)",
-            background: "var(--bg-card)",
-          }}
-        >
-          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
-            <ShieldCheck size={13} color="#10b981" /> DB Writes
-          </div>
-          <div style={{ fontSize: "1.05rem", fontWeight: "800", color: "#10b981", marginTop: "4px" }}>
-            0 TaskRuns
-          </div>
-          <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "2px" }}>
-            1 Atomic Report Persisted
-          </div>
-        </div>
       </div>
 
       {/* Tabs Navigation */}
@@ -720,21 +684,20 @@ export default function ExecutionReportDetail({
                         aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
                           ? "rgba(244, 63, 94, 0.2)"
                           : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
-                          ? "rgba(245, 158, 11, 0.2)"
-                          : "rgba(56, 189, 248, 0.2)",
-                      border: `1px solid ${
-                        aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
-                          ? "#f43f5e"
-                          : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                            ? "rgba(245, 158, 11, 0.2)"
+                            : "rgba(56, 189, 248, 0.2)",
+                      border: `1px solid ${aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                        ? "#f43f5e"
+                        : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
                           ? "#f59e0b"
                           : "#38bdf8"
-                      }`,
+                        }`,
                       color:
                         aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
                           ? "#f43f5e"
                           : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
-                          ? "#f59e0b"
-                          : "#38bdf8",
+                            ? "#f59e0b"
+                            : "#38bdf8",
                       fontSize: "0.78rem",
                       fontWeight: "800",
                       letterSpacing: "0.5px",
@@ -743,8 +706,8 @@ export default function ExecutionReportDetail({
                     {aiAnalysis?.severity
                       ? aiAnalysis.severity.toUpperCase()
                       : finalOutput?.severity
-                      ? String(finalOutput.severity).toUpperCase()
-                      : "INCIDENT REPORT"}
+                        ? String(finalOutput.severity).toUpperCase()
+                        : "INCIDENT REPORT"}
                   </div>
                   <div>
                     <div style={{ fontSize: "1rem", fontWeight: "800", color: "#f8fafc" }}>
@@ -757,19 +720,6 @@ export default function ExecutionReportDetail({
                       {formatTimestamp(finalOutput?.reportGeneratedAt || run.finishedAt || run.startedAt)}
                     </div>
                   </div>
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.72rem",
-                    color: "#10b981",
-                    background: "rgba(16, 185, 129, 0.12)",
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    fontWeight: "700",
-                    border: "1px solid rgba(16, 185, 129, 0.25)",
-                  }}
-                >
-                  {finalOutput?.status || "INVESTIGATION COMPLETE"}
                 </div>
               </div>
 
@@ -953,9 +903,6 @@ export default function ExecutionReportDetail({
                         {aiAnalysis.alternativeExplanations.join(" • ")}
                       </div>
                     )}
-                    <div style={{ fontSize: "0.68rem", color: "#64748b", marginTop: "6px", fontStyle: "italic" }}>
-                      ⚠️ Root cause hypothesis generated via LLM inference. Human verification recommended before production action.
-                    </div>
                   </div>
                 )}
               </div>
@@ -967,13 +914,12 @@ export default function ExecutionReportDetail({
                     background: "rgba(0, 0, 0, 0.35)",
                     padding: "12px 16px",
                     borderRadius: "8px",
-                    borderLeft: `4px solid ${
-                      aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
-                        ? "#f43f5e"
-                        : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
+                    borderLeft: `4px solid ${aiAnalysis?.severity === "critical" || finalOutput?.severity === "critical"
+                      ? "#f43f5e"
+                      : aiAnalysis?.severity === "warning" || finalOutput?.severity === "warning"
                         ? "#f59e0b"
                         : "#38bdf8"
-                    }`,
+                      }`,
                     fontSize: "0.84rem",
                     fontWeight: "600",
                     color: "#f8fafc",
@@ -999,47 +945,47 @@ export default function ExecutionReportDetail({
                 </p>
               </div>
 
-            {finalOutput !== undefined && finalOutput !== null && (
-              <button
-                type="button"
-                onClick={() => handleCopy(finalOutput, "finalOutput")}
-                className="btn btn-secondary"
-                style={{ padding: "6px 12px", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+              {finalOutput !== undefined && finalOutput !== null && (
+                <button
+                  type="button"
+                  onClick={() => handleCopy(finalOutput, "finalOutput")}
+                  className="btn btn-secondary"
+                  style={{ padding: "6px 12px", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  {copiedField === "finalOutput" ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                  {copiedField === "finalOutput" ? "Copied" : "Copy Output"}
+                </button>
+              )}
+            </div>
+
+            {finalOutput !== undefined && finalOutput !== null ? (
+              <pre
+                style={{
+                  background: "var(--bg-input)",
+                  padding: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-subtle)",
+                  fontSize: "0.82rem",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-primary)",
+                  maxHeight: "500px",
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  margin: 0,
+                }}
               >
-                {copiedField === "finalOutput" ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
-                {copiedField === "finalOutput" ? "Copied" : "Copy Output"}
-              </button>
+                {JSON.stringify(finalOutput, null, 2)}
+              </pre>
+            ) : (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: "0.84rem" }}>
+                {isFailed
+                  ? "This workflow run encountered an error prior to producing a final output value."
+                  : "No final return value was produced for this execution run."}
+              </div>
             )}
           </div>
-
-          {finalOutput !== undefined && finalOutput !== null ? (
-            <pre
-              style={{
-                background: "var(--bg-input)",
-                padding: "16px",
-                borderRadius: "8px",
-                border: "1px solid var(--border-subtle)",
-                fontSize: "0.82rem",
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-primary)",
-                maxHeight: "500px",
-                overflowY: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-                margin: 0,
-              }}
-            >
-              {JSON.stringify(finalOutput, null, 2)}
-            </pre>
-          ) : (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: "0.84rem" }}>
-              {isFailed
-                ? "This workflow run encountered an error prior to producing a final output value."
-                : "No final return value was produced for this execution run."}
-            </div>
-          )}
         </div>
-      </div>
       )}
 
       {/* TAB 2: EXECUTION TIMELINE */}
@@ -1103,13 +1049,13 @@ export default function ExecutionReportDetail({
                       background: nodeSucceeded
                         ? "#10b981"
                         : nodeFailed
-                        ? "#f43f5e"
-                        : "var(--text-muted)",
+                          ? "#f43f5e"
+                          : "var(--text-muted)",
                       boxShadow: nodeSucceeded
                         ? "0 0 6px #10b981"
                         : nodeFailed
-                        ? "0 0 6px #f43f5e"
-                        : "none",
+                          ? "0 0 6px #f43f5e"
+                          : "none",
                     }}
                   />
                   <div
@@ -1161,8 +1107,8 @@ export default function ExecutionReportDetail({
                             background: nodeSucceeded
                               ? "rgba(16, 185, 129, 0.12)"
                               : nodeFailed
-                              ? "rgba(244, 63, 94, 0.12)"
-                              : "rgba(255, 255, 255, 0.06)",
+                                ? "rgba(244, 63, 94, 0.12)"
+                                : "rgba(255, 255, 255, 0.06)",
                             color: nodeSucceeded ? "#10b981" : nodeFailed ? "#f43f5e" : "var(--text-muted)",
                           }}
                         >
@@ -1259,13 +1205,12 @@ export default function ExecutionReportDetail({
                   className="glass-panel"
                   style={{
                     borderRadius: "10px",
-                    border: `1px solid ${
-                      isFail
-                        ? "rgba(244, 63, 94, 0.35)"
-                        : isExp
+                    border: `1px solid ${isFail
+                      ? "rgba(244, 63, 94, 0.35)"
+                      : isExp
                         ? "var(--brand)"
                         : "var(--border-subtle)"
-                    }`,
+                      }`,
                     overflow: "hidden",
                     background: "var(--bg-secondary)",
                   }}
@@ -1334,8 +1279,8 @@ export default function ExecutionReportDetail({
                           background: isSucc
                             ? "rgba(16, 185, 129, 0.12)"
                             : isFail
-                            ? "rgba(244, 63, 94, 0.12)"
-                            : "rgba(255, 255, 255, 0.05)",
+                              ? "rgba(244, 63, 94, 0.12)"
+                              : "rgba(255, 255, 255, 0.05)",
                           color: isSucc ? "#10b981" : isFail ? "#f43f5e" : "var(--text-muted)",
                         }}
                       >
