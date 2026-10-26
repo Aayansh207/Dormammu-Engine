@@ -829,6 +829,153 @@ const STARTER_TEMPLATES = [
       ],
     },
   },
+  {
+    id: "cron_health_check",
+    name: "Scheduled Health Check & Sweeper",
+    description: "Recurring 15-minute CRON pipeline that monitors engine health, generates trace UUIDs, and produces AI summaries",
+    icon: Clock,
+    color: "#38bdf8",
+    definition: {
+      schemaVersion: 1,
+      name: "Scheduled Health Check & Sweeper",
+      samplePayload: {
+        service: "api-gateway",
+        cluster: "prod-us-east-1",
+        threshold: 99.5
+      },
+      nodes: [
+        {
+          id: "cron_trigger_01",
+          type: "trigger.cron",
+          version: 1,
+          name: "Every 15 Minutes Schedule",
+          position: { x: 80, y: 200 },
+          config: {
+            cronExpression: "*/15 * * * *",
+            timezone: "UTC",
+            enabled: true
+          }
+        },
+        {
+          id: "generate_run_id",
+          type: "utility.uuid",
+          version: 1,
+          name: "Generate Trace UUID",
+          position: { x: 360, y: 140 },
+          config: {}
+        },
+        {
+          id: "assemble_health_packet",
+          type: "data.object",
+          version: 1,
+          name: "Assemble Health Telemetry",
+          position: { x: 660, y: 200 },
+          config: {
+            inheritInput: true,
+            fields: [
+              { key: "traceId", fromPort: "value" },
+              { key: "scheduledAt", fromInput: true },
+              { key: "service", value: "dormammu-core-engine" },
+              { key: "status", value: "OPERATIONAL" },
+              { key: "healthyNodes", value: 36 }
+            ]
+          }
+        },
+        {
+          id: "format_log_entry",
+          type: "text.template",
+          version: 1,
+          name: "Format Audit Log",
+          position: { x: 960, y: 160 },
+          config: {
+            template: "🕒 CRON HEALTH BEAT: [{{scheduledAt}}] Trace: {{traceId}} | Service: {{service}} | Status: {{status}} (All {{healthyNodes}} nodes responsive)"
+          }
+        },
+        {
+          id: "ai_summary",
+          type: "ai.summarize",
+          version: 1,
+          name: "AI Executive Briefing",
+          position: { x: 960, y: 300 },
+          config: {
+            provider: "groq",
+            model: "llama-3.3-70b-versatile",
+            maxLength: 80,
+            instructions: "Generate a concise 1-sentence executive health check sign-off confirming service uptime"
+          }
+        },
+        {
+          id: "merge_audit_packet",
+          type: "flow.merge",
+          version: 1,
+          name: "Merge Health Reports",
+          position: { x: 1260, y: 220 },
+          config: {
+            mode: "first_available"
+          }
+        },
+        {
+          id: "cron_return_output",
+          type: "output.return",
+          version: 1,
+          name: "Final Scheduled Report",
+          position: { x: 1520, y: 220 },
+          config: {}
+        }
+      ],
+      edges: [
+        {
+          id: "e_cron_to_packet",
+          source: "cron_trigger_01",
+          sourcePort: "output",
+          target: "assemble_health_packet",
+          targetPort: "input"
+        },
+        {
+          id: "e_uuid_to_packet",
+          source: "generate_run_id",
+          sourcePort: "uuid",
+          target: "assemble_health_packet",
+          targetPort: "value"
+        },
+        {
+          id: "e_packet_to_template",
+          source: "assemble_health_packet",
+          sourcePort: "output",
+          target: "format_log_entry",
+          targetPort: "input"
+        },
+        {
+          id: "e_packet_to_ai",
+          source: "assemble_health_packet",
+          sourcePort: "output",
+          target: "ai_summary",
+          targetPort: "text"
+        },
+        {
+          id: "e_template_to_merge",
+          source: "format_log_entry",
+          sourcePort: "output",
+          target: "merge_audit_packet",
+          targetPort: "a"
+        },
+        {
+          id: "e_ai_to_merge",
+          source: "ai_summary",
+          sourcePort: "output",
+          target: "merge_audit_packet",
+          targetPort: "b"
+        },
+        {
+          id: "e_merge_to_return",
+          source: "merge_audit_packet",
+          sourcePort: "output",
+          target: "cron_return_output",
+          targetPort: "input"
+        }
+      ]
+    }
+  },
 ];
 
 export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
