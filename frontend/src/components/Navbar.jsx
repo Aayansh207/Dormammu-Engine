@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Sparkles,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
@@ -264,6 +265,29 @@ export default function Navbar({
             }}
           >
             Workflows
+          </button>
+
+          <button 
+            onClick={() => handleNavClick("runs")}
+            style={{
+              background: activeView === "runs" || activeView === "run-report" ? "var(--bg-chip)" : "transparent",
+              border: "none",
+              borderRadius: "var(--radius-full)",
+              color: activeView === "runs" || activeView === "run-report" ? "var(--text-primary)" : "var(--text-secondary)",
+              fontWeight: activeView === "runs" || activeView === "run-report" ? "600" : "500",
+              fontSize: "0.88rem",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              padding: "7px 14px"
+            }}
+            onMouseEnter={(e) => {
+              if (activeView !== "runs" && activeView !== "run-report") e.currentTarget.style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              if (activeView !== "runs" && activeView !== "run-report") e.currentTarget.style.color = "var(--text-secondary)";
+            }}
+          >
+            Execution Reports
           </button>
 
           <a 
@@ -577,6 +601,28 @@ export default function Navbar({
                 >
                   <Layers size={18} />
                   <span>Workflows &amp; Canvas</span>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick("runs")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    width: "100%",
+                    padding: "11px 14px",
+                    background: activeView === "runs" || activeView === "run-report" ? "var(--brand-light)" : "transparent",
+                    border: "1px solid " + (activeView === "runs" || activeView === "run-report" ? "var(--brand-border)" : "transparent"),
+                    borderRadius: "var(--radius-md)",
+                    color: activeView === "runs" || activeView === "run-report" ? "var(--brand)" : "var(--text-primary)",
+                    fontWeight: activeView === "runs" || activeView === "run-report" ? "600" : "500",
+                    fontSize: "0.92rem",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <FileText size={18} />
+                  <span>Execution Reports</span>
                 </button>
 
                 <button

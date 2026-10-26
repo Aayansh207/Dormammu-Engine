@@ -136,7 +136,43 @@ class WebhookController {
         method: reqMethod,
       };
 
-      // 7. Execute through common execution pipeline
+      // 7. Execute through common execution pipeline (supports sync and async modes)
+      const isAsync = req.query.async === "true" || req.headers["x-execution-mode"] === "async";
+
+      if (isAsync) {
+        // Durably initialize the run record in RUNNING state
+        const initialRun = await workflowService.createInitialRun(workflow.ownerId, workflow.id, {
+          versionId: versionRecord.id,
+          triggerData,
+          triggerType: "WEBHOOK",
+        });
+
+        // Trigger execution asynchronously without waiting
+        workflowService.executeWorkflowRun(workflow.ownerId, workflow.id, {
+          versionId: versionRecord.id,
+          triggerData,
+          triggerType: "WEBHOOK",
+          triggerMetadata: {
+            method: reqMethod,
+            remoteIp: req.ip || req.connection?.remoteAddress,
+            userAgent: req.headers["user-agent"],
+          },
+          existingRunId: initialRun.id,
+        }).catch((err) => {
+          console.error(`Async execution error for run ${initialRun.id}:`, err);
+        });
+
+        return res.status(202).json({
+          success: true,
+          runId: initialRun.id,
+          status: "RUNNING",
+          resultUrl: `/api/runs/${initialRun.id}`,
+          reportUrl: `/api/runs/${initialRun.id}/report`,
+          reportPageUrl: `/runs/${initialRun.id}`,
+        });
+      }
+
+      // Synchronous execution (default)
       const runResult = await workflowService.executeWorkflowRun(workflow.ownerId, workflow.id, {
         versionId: versionRecord.id,
         triggerData,
@@ -155,6 +191,8 @@ class WebhookController {
         runId: runResult.runId,
         status: runResult.status,
         resultUrl: `/api/runs/${runResult.runId}`,
+        reportUrl: `/api/runs/${runResult.runId}/report`,
+        reportPageUrl: `/runs/${runResult.runId}`,
       });
     } catch (err) {
       next(err);

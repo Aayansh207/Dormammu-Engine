@@ -378,12 +378,56 @@ class WorkflowService {
   }
 
   /**
+   * Durably initializes an execution run record in PostgreSQL in RUNNING state.
+   * Useful for asynchronous triggers that acknowledge receipt immediately.
+   * @param {string} userId
+   * @param {string} workflowId
+   * @param {Object} [options={}]
+   */
+  async createInitialRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = "MANUAL" } = {}) {
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      include: {
+        versions: {
+          orderBy: { version: "desc" },
+          ...(versionId ? { where: { id: versionId } } : { take: 1 }),
+        },
+      },
+    });
+
+    if (!workflow) {
+      const err = new Error("Workflow not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const versionRecord = workflow.versions[0];
+    if (!versionRecord) {
+      const err = new Error("No saved version found for this workflow");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const sanitizedInput = sanitizePayload(triggerData) || {};
+    return prisma.workflowRun.create({
+      data: {
+        workflowId: workflow.id,
+        workflowVersionId: versionRecord.id,
+        status: "RUNNING",
+        triggerType,
+        input: sanitizedInput,
+        startedAt: new Date(),
+      },
+    });
+  }
+
+  /**
    * Executes a workflow version and records complete run and task state in PostgreSQL.
    * @param {string} userId
    * @param {string} workflowId
-   * @param {Object} [options={}] - { versionId, triggerData }
+   * @param {Object} [options={}] - { versionId, triggerData, triggerType, triggerMetadata, existingRunId }
    */
-  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {} } = {}) {
+  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {}, existingRunId = null } = {}) {
     const workflow = await prisma.workflow.findUnique({
       where: { id: workflowId },
       include: {
@@ -432,17 +476,23 @@ class WorkflowService {
     const startedAt = new Date().toISOString();
     const sanitizedInput = sanitizePayload(triggerData) || {};
 
-    // 2. Create durable WorkflowRun record in RUNNING state
-    const runRecord = await prisma.workflowRun.create({
-      data: {
-        workflowId: workflow.id,
-        workflowVersionId: versionRecord.id,
-        status: "RUNNING",
-        triggerType: resolvedTriggerType,
-        input: sanitizedInput,
-        startedAt: new Date(startedAt),
-      },
-    });
+    // 2. Obtain or create durable WorkflowRun record in RUNNING state
+    let runRecord = null;
+    if (existingRunId) {
+      runRecord = await prisma.workflowRun.findUnique({ where: { id: existingRunId } });
+    }
+    if (!runRecord) {
+      runRecord = await prisma.workflowRun.create({
+        data: {
+          workflowId: workflow.id,
+          workflowVersionId: versionRecord.id,
+          status: "RUNNING",
+          triggerType: resolvedTriggerType,
+          input: sanitizedInput,
+          startedAt: new Date(startedAt),
+        },
+      });
+    }
 
     // 3. Callback for live SSE event streaming ONLY (no per-task database writes!)
     const onTaskStateChange = (runId, taskRecord) => {
@@ -814,6 +864,14 @@ class WorkflowService {
       ...(options.status ? { status: options.status } : {}),
       ...(options.triggerType ? { triggerType: options.triggerType } : {}),
     };
+
+    if (options.search && typeof options.search === "string" && options.search.trim()) {
+      const q = options.search.trim();
+      where.OR = [
+        { id: { contains: q, mode: "insensitive" } },
+        { workflowVersion: { workflow: { name: { contains: q, mode: "insensitive" } } } },
+      ];
+    }
 
     const [total, runs] = await Promise.all([
       prisma.workflowRun.count({ where }),

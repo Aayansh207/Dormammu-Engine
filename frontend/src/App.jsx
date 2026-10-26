@@ -5,17 +5,59 @@ import AuthModal from "./components/AuthModal";
 import ProfilePage from "./components/ProfilePage";
 import WorkflowList from "./components/workflow/WorkflowList";
 import WorkflowEditor from "./components/workflow/WorkflowEditor";
+import ExecutionReportsList from "./components/workflow/ExecutionReportsList";
+import ExecutionReportDetail from "./components/workflow/ExecutionReportDetail";
 import { api, BACKEND_URL } from "./services/api";
 
 export default function App() {
   const [user, setUser] = useState(api.currentUser);
-  const [activeView, setActiveView] = useState("home"); // "home" | "workflows" | "workflow-editor" | "profile"
+  const [activeView, setActiveView] = useState("home"); // "home" | "workflows" | "workflow-editor" | "runs" | "run-report" | "profile"
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(null);
+  const [selectedRunId, setSelectedRunId] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState("login");
   const [authModalError, setAuthModalError] = useState(null);
   const [authModalSuccess, setAuthModalSuccess] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
+
+  const resolveRoute = () => {
+    const pathname = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get("view");
+    const runIdParam = params.get("runId");
+
+    if (pathname.startsWith("/runs/")) {
+      const runId = pathname.slice(6).split("/")[0].trim();
+      if (runId) {
+        return { view: "run-report", runId, workflowId: null };
+      }
+    }
+    if (pathname === "/runs") {
+      if (runIdParam) {
+        return { view: "run-report", runId: runIdParam, workflowId: null };
+      }
+      return { view: "runs", runId: null, workflowId: null };
+    }
+    if (pathname.startsWith("/workflows/")) {
+      const wfId = pathname.slice(11).split("/")[0].trim();
+      if (wfId) {
+        return { view: "workflow-editor", runId: null, workflowId: wfId };
+      }
+    }
+    if (pathname === "/workflows") {
+      return { view: "workflows", runId: null, workflowId: null };
+    }
+    if (pathname === "/profile") {
+      return { view: "profile", runId: null, workflowId: null };
+    }
+    if (viewParam) {
+      if (viewParam === "run-report" && runIdParam) {
+        return { view: "run-report", runId: runIdParam, workflowId: null };
+      }
+      return { view: viewParam, runId: runIdParam || null, workflowId: null };
+    }
+    return { view: "home", runId: null, workflowId: null };
+  };
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/health/db`)
@@ -33,16 +75,25 @@ export default function App() {
     };
     window.addEventListener("auth:expired", handleAuthExpired);
 
+    // Initial Path Route Resolution
+    const initialRoute = resolveRoute();
+    setActiveView(initialRoute.view);
+    if (initialRoute.runId) setSelectedRunId(initialRoute.runId);
+    if (initialRoute.workflowId) setSelectedWorkflowId(initialRoute.workflowId);
+
+    const handlePopState = () => {
+      const route = resolveRoute();
+      setActiveView(route.view);
+      setSelectedRunId(route.runId);
+      if (route.workflowId) setSelectedWorkflowId(route.workflowId);
+    };
+    window.addEventListener("popstate", handlePopState);
+
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
     const errorParam = params.get("error");
     const verifiedParam = params.get("verified");
-    const viewParam = params.get("view");
-
-    if (viewParam) {
-      setActiveView(viewParam);
-    }
 
     if (errorParam) {
       setAuthModalTab("login");
@@ -58,7 +109,7 @@ export default function App() {
           if (res?.data) {
             api.setSession(token, refreshToken, res.data);
             setUser(res.data);
-            setActiveView("workflows");
+            handleNavigateView("workflows");
             setAuthModalOpen(false);
           }
         })
@@ -86,7 +137,7 @@ export default function App() {
           if (res?.accessToken && res?.refreshToken) {
             api.setSession(res.accessToken, res.refreshToken, res.user);
             setUser(res.user);
-            setActiveView("workflows");
+            handleNavigateView("workflows");
             setAuthModalOpen(false);
           } else {
             setAuthModalTab("login");
@@ -113,6 +164,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener("auth:expired", handleAuthExpired);
+      window.removeEventListener("popstate", handlePopState);
     };
   }, []);
 
@@ -125,16 +177,24 @@ export default function App() {
 
   const handleAuthSuccess = (userData) => {
     setUser(userData);
-    setActiveView("workflows");
+    handleNavigateView("workflows");
   };
 
   const handleLogout = async () => {
     await api.logout();
     setUser(null);
     setSelectedWorkflowId(null);
-    setActiveView("home");
+    setSelectedRunId(null);
+    handleNavigateView("home");
+  };
+
+  const handleNavigateView = (view) => {
+    setSelectedWorkflowId(null);
+    setSelectedRunId(null);
+    setActiveView(view);
+    const path = view === "home" ? "/" : `/${view}`;
     try {
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.pushState({}, "", path);
     } catch {
       // ignore
     }
@@ -142,18 +202,40 @@ export default function App() {
 
   const handleOpenWorkflow = (id) => {
     setSelectedWorkflowId(id);
+    setSelectedRunId(null);
     setActiveView("workflow-editor");
+    try {
+      window.history.pushState({}, "", `/workflows/${id}`);
+    } catch {
+      // ignore
+    }
   };
 
   const handleBackToWorkflows = () => {
     setSelectedWorkflowId(null);
     setActiveView("workflows");
     try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has("runId")) {
-        url.searchParams.delete("runId");
-        window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ""));
-      }
+      window.history.pushState({}, "", "/workflows");
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleOpenReport = (runId) => {
+    setSelectedRunId(runId);
+    setActiveView("run-report");
+    try {
+      window.history.pushState({}, "", `/runs/${runId}`);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleBackToReports = () => {
+    setSelectedRunId(null);
+    setActiveView("runs");
+    try {
+      window.history.pushState({}, "", "/runs");
     } catch {
       // ignore
     }
@@ -167,7 +249,7 @@ export default function App() {
         <Navbar 
           user={user}
           activeView={activeView}
-          setActiveView={setActiveView}
+          setActiveView={handleNavigateView}
           onOpenAuth={handleOpenAuth}
           onLogout={handleLogout}
           backendHealth={backendHealth}
@@ -179,14 +261,14 @@ export default function App() {
           <Hero 
             user={user}
             onOpenAuth={handleOpenAuth}
-            onNavigateProfile={() => setActiveView("workflows")}
+            onNavigateProfile={() => handleNavigateView("workflows")}
           />
         ) : activeView === "profile" ? (
           <ProfilePage 
             user={user}
             onUserUpdated={(updated) => setUser(updated)}
             onLogout={handleLogout}
-            onNavigateView={setActiveView}
+            onNavigateView={handleNavigateView}
           />
         ) : activeView === "workflows" ? (
           <WorkflowList
@@ -198,6 +280,21 @@ export default function App() {
           <WorkflowEditor
             workflowId={selectedWorkflowId}
             onBack={handleBackToWorkflows}
+            onOpenReport={handleOpenReport}
+          />
+        ) : activeView === "runs" ? (
+          <ExecutionReportsList
+            user={user}
+            onOpenReport={handleOpenReport}
+            onNavigateWorkflows={() => handleNavigateView("workflows")}
+            onOpenAuth={handleOpenAuth}
+          />
+        ) : activeView === "run-report" ? (
+          <ExecutionReportDetail
+            runId={selectedRunId}
+            onBack={handleBackToReports}
+            onOpenWorkflow={handleOpenWorkflow}
+            onOpenAuth={handleOpenAuth}
           />
         ) : null}
       </main>

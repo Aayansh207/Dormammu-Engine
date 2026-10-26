@@ -292,6 +292,8 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseBody.status, "SUCCEEDED");
       assert.ok(responseBody.runId);
       assert.strictEqual(responseBody.resultUrl, `/api/runs/${responseBody.runId}`);
+      assert.strictEqual(responseBody.reportUrl, `/api/runs/${responseBody.runId}/report`);
+      assert.strictEqual(responseBody.reportPageUrl, `/runs/${responseBody.runId}`);
       assert.strictEqual(responseBody.output, undefined); // Small response: no full output leak
       assert.strictEqual(responseBody.nodeResults, undefined); // Small response: no task breakdown leak
 
@@ -312,6 +314,47 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(runReport.status, "SUCCEEDED");
       assert.deepStrictEqual(runReport.output, { event: "stripe_charge", amount: 9900 });
       assert.strictEqual(runReport.taskRuns.length, 2);
+    });
+
+    await test("Webhook: accepts async webhook execution with 202 and returns report URLs immediately", async () => {
+      let responseStatus = 0;
+      let responseBody = null;
+      const mockReq = {
+        params: { workflowId: webhookWf.id },
+        method: "POST",
+        headers: { "x-webhook-token": "secret-token-123" },
+        body: { event: "async_job", jobId: 42 },
+        query: { async: "true" },
+      };
+      const mockRes = {
+        status: (s) => {
+          responseStatus = s;
+          return {
+            json: (b) => {
+              responseBody = b;
+            },
+          };
+        },
+      };
+
+      await webhookController.handleWebhook(mockReq, mockRes, (err) => {
+        if (err) throw err;
+      });
+
+      assert.strictEqual(responseStatus, 202);
+      assert.strictEqual(responseBody.success, true);
+      assert.strictEqual(responseBody.status, "RUNNING");
+      assert.ok(responseBody.runId);
+      assert.strictEqual(responseBody.resultUrl, `/api/runs/${responseBody.runId}`);
+      assert.strictEqual(responseBody.reportUrl, `/api/runs/${responseBody.runId}/report`);
+      assert.strictEqual(responseBody.reportPageUrl, `/runs/${responseBody.runId}`);
+
+      // Verify run is immediately findable in PostgreSQL in RUNNING state
+      const initialRun = await prisma.workflowRun.findUnique({
+        where: { id: responseBody.runId },
+      });
+      assert.ok(initialRun);
+      assert.strictEqual(initialRun.triggerType, "WEBHOOK");
     });
 
     await test("Webhook: rejects unauthorized request with 401 when token is invalid or missing", async () => {

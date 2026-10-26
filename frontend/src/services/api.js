@@ -308,6 +308,14 @@ class ApiService {
     });
   }
 
+  async listAllRuns({ page = 1, limit = 20, status = "", triggerType = "", search = "" } = {}) {
+    let url = `/runs?page=${page}&limit=${limit}`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+    if (triggerType) url += `&triggerType=${encodeURIComponent(triggerType)}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    return this.request(url, { method: "GET" });
+  }
+
   async getRunDetails(runId) {
     return this.request(`/runs/${runId}`, {
       method: "GET",
@@ -339,12 +347,12 @@ class ApiService {
     return `${API_BASE}/runs/${runId}/events${token ? `?token=${token}` : ""}`;
   }
 
-  getWebhookUrl(workflowId) {
-    return `${API_BASE}/webhooks/${workflowId}`;
+  getWebhookUrl(workflowId, isAsync = false) {
+    return `${API_BASE}/webhooks/${workflowId}${isAsync ? "?async=true" : ""}`;
   }
 
-  async sendWebhook(workflowId, payload, token = null) {
-    const url = `${API_BASE}/webhooks/${workflowId}`;
+  async sendWebhook(workflowId, payload, token = null, isAsync = false) {
+    const url = this.getWebhookUrl(workflowId, isAsync);
     const headers = { "Content-Type": "application/json" };
     if (token) {
       headers["x-webhook-token"] = token;

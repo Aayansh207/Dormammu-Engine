@@ -32,7 +32,7 @@ import ExecutionPanel from "./ExecutionPanel";
 import QuickAddPopover from "./QuickAddPopover";
 import { calculateAutoLayout } from "./autoLayout";
 
-export default function WorkflowEditor({ workflowId, onBack }) {
+export default function WorkflowEditor({ workflowId, onBack, onOpenReport }) {
   // Core Workflow State
   const [workflow, setWorkflow] = useState(null);
   const [nodes, setNodes] = useState([]);
@@ -1582,6 +1582,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         workflowId={workflowId}
         workflowName={workflowName}
         onOpenRun={handleOpenRunFromModal}
+        onOpenReport={onOpenReport}
       />
 
 

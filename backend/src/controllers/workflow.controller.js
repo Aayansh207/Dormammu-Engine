@@ -138,8 +138,8 @@ class WorkflowController {
   async listAllUserRuns(req, res, next) {
     try {
       const userId = req.user.id;
-      const { page, limit, status, triggerType, workflowId } = req.query;
-      const runs = await workflowService.listAllUserRuns(userId, { page, limit, status, triggerType, workflowId });
+      const { page, limit, status, triggerType, workflowId, search } = req.query;
+      const runs = await workflowService.listAllUserRuns(userId, { page, limit, status, triggerType, workflowId, search });
       return res.status(200).json({
         success: true,
         data: runs,

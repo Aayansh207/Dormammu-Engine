@@ -22,18 +22,20 @@ export default function WebhookTestingModal({
   workflowId,
   workflowName,
   onOpenRun,
+  onOpenReport,
 }) {
   if (!isOpen) return null;
 
   const [jsonBody, setJsonBody] = useState(JSON.stringify({ event: "webhook.test", timestamp: new Date().toISOString() }, null, 2));
   const [secretToken, setSecretToken] = useState("");
+  const [isAsync, setIsAsync] = useState(false);
   const [jsonError, setJsonError] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [responseState, setResponseState] = useState(null); // { status, ok, data }
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedResponse, setCopiedResponse] = useState(false);
 
-  const webhookUrl = api.getWebhookUrl(workflowId);
+  const webhookUrl = api.getWebhookUrl(workflowId, isAsync);
 
   const handleJsonChange = (e) => {
     const val = e.target.value;
@@ -72,7 +74,7 @@ export default function WebhookTestingModal({
     setResponseState(null);
 
     try {
-      const res = await api.sendWebhook(workflowId, parsedBody, secretToken.trim() || null);
+      const res = await api.sendWebhook(workflowId, parsedBody, secretToken.trim() || null, isAsync);
       setResponseState(res);
     } catch (err) {
       setResponseState({
@@ -264,6 +266,31 @@ export default function WebhookTestingModal({
                 (Protected by token verification)
               </span>
             </div>
+
+            {/* Execution Mode Selector */}
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", marginTop: "10px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: "600" }}>
+                Execution Mode:
+              </span>
+              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.76rem", color: !isAsync ? "var(--brand)" : "var(--text-secondary)", cursor: "pointer", fontWeight: !isAsync ? "700" : "500" }}>
+                <input
+                  type="radio"
+                  name="execMode"
+                  checked={!isAsync}
+                  onChange={() => setIsAsync(false)}
+                />
+                Synchronous (Wait for DAG result)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.76rem", color: isAsync ? "var(--brand)" : "var(--text-secondary)", cursor: "pointer", fontWeight: isAsync ? "700" : "500" }}>
+                <input
+                  type="radio"
+                  name="execMode"
+                  checked={isAsync}
+                  onChange={() => setIsAsync(true)}
+                />
+                Asynchronous (Immediate HTTP 202 Ack)
+              </label>
+            </div>
           </div>
 
 
@@ -366,8 +393,22 @@ export default function WebhookTestingModal({
                     <XCircle size={18} color="#f43f5e" />
                   )}
                   <span style={{ fontSize: "0.86rem", fontWeight: "700", color: responseState.ok ? "#10b981" : "#f43f5e" }}>
-                    HTTP {responseState.status} {responseState.ok ? "Success" : "Error"}
+                    HTTP {responseState.status} {responseState.ok ? (isAsync ? "Accepted (Running)" : "Success") : "Error"}
                   </span>
+                  {responseState.data?.status && (
+                    <span
+                      style={{
+                        fontSize: "0.7rem",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        fontWeight: "700",
+                        background: responseState.data.status === "SUCCEEDED" ? "rgba(16, 185, 129, 0.15)" : "rgba(57, 174, 169, 0.15)",
+                        color: responseState.data.status === "SUCCEEDED" ? "#10b981" : "var(--brand)",
+                      }}
+                    >
+                      {responseState.data.status}
+                    </span>
+                  )}
                   {responseState.data?.durationMs !== undefined && (
                     <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                       ({responseState.data.durationMs}ms engine latency)
@@ -375,7 +416,7 @@ export default function WebhookTestingModal({
                   )}
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={handleCopyResponse}
@@ -397,30 +438,54 @@ export default function WebhookTestingModal({
                   </button>
 
                   {responseState.data?.runId && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        onOpenRun?.(responseState.data.runId);
-                      }}
-                      style={{
-                        background: "var(--brand)",
-                        border: "none",
-                        borderRadius: "6px",
-                        padding: "5px 12px",
-                        color: "#ffffff",
-                        cursor: "pointer",
-                        fontSize: "0.76rem",
-                        fontWeight: "700",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        boxShadow: "0 2px 8px rgba(57, 174, 169, 0.3)",
-                      }}
-                    >
-                      <ExternalLink size={13} />
-                      Open Run Execution ({responseState.data.runId.slice(0, 8)}...)
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          if (onOpenReport) {
+                            onOpenReport(responseState.data.runId);
+                          } else {
+                            window.location.href = `/runs/${responseState.data.runId}`;
+                          }
+                        }}
+                        style={{
+                          background: "linear-gradient(135deg, #39AEA9, #479994)",
+                          border: "none",
+                          borderRadius: "6px",
+                          padding: "5px 12px",
+                          color: "#ffffff",
+                          cursor: "pointer",
+                          fontSize: "0.76rem",
+                          fontWeight: "700",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 2px 8px rgba(57, 174, 169, 0.35)",
+                        }}
+                      >
+                        <ExternalLink size={13} />
+                        View Full Execution Report
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenRun?.(responseState.data.runId);
+                        }}
+                        className="btn btn-secondary"
+                        style={{
+                          padding: "5px 10px",
+                          fontSize: "0.74rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        Canvas Inspector
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
