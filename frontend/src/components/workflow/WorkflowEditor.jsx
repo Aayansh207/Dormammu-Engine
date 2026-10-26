@@ -1521,13 +1521,22 @@ export default function WorkflowEditor({
   return (
     <div
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+
         width: "100%",
-        height: "calc(100vh - 65px)",
+        height: "auto",
+        minHeight: 0,
+
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+
         background: "var(--bg-main)",
-        position: "relative",
+        zIndex: 20,
       }}
     >
       {/* Top Action & Status Bar */}
@@ -1590,8 +1599,8 @@ export default function WorkflowEditor({
                 ? "var(--brand-light)"
                 : "var(--bg-secondary)",
               border: `1px solid ${isPaletteOpen
-                  ? "var(--brand-border)"
-                  : "var(--border-subtle)"
+                ? "var(--brand-border)"
+                : "var(--border-subtle)"
                 }`,
               borderRadius: "var(--radius-sm)",
               color: isPaletteOpen
@@ -1801,8 +1810,8 @@ export default function WorkflowEditor({
                 ? "#10b981"
                 : "#f43f5e",
               border: `1px solid ${validationResult.valid
-                  ? "rgba(16, 185, 129, 0.3)"
-                  : "rgba(244, 63, 94, 0.4)"
+                ? "rgba(16, 185, 129, 0.3)"
+                : "rgba(244, 63, 94, 0.4)"
                 }`,
               cursor: "pointer",
               whiteSpace: "nowrap",
@@ -1840,8 +1849,8 @@ export default function WorkflowEditor({
                 ? "rgba(56, 189, 248, 0.18)"
                 : "var(--bg-secondary)",
               border: `1px solid ${isWebhookModalOpen
-                  ? "#38bdf8"
-                  : "var(--border-subtle)"
+                ? "#38bdf8"
+                : "var(--border-subtle)"
                 }`,
               borderRadius: "var(--radius-sm)",
               color: isWebhookModalOpen
@@ -1871,8 +1880,8 @@ export default function WorkflowEditor({
                 ? "rgba(57, 174, 169, 0.15)"
                 : "var(--bg-secondary)",
               border: `1px solid ${isPastRunsDrawerOpen
-                  ? "var(--brand-border)"
-                  : "var(--border-subtle)"
+                ? "var(--brand-border)"
+                : "var(--border-subtle)"
                 }`,
               borderRadius: "var(--radius-sm)",
               color: isPastRunsDrawerOpen
@@ -1923,8 +1932,8 @@ export default function WorkflowEditor({
                 ? "var(--brand)"
                 : "var(--bg-secondary)",
               border: `1px solid ${isDirty
-                  ? "var(--brand-border)"
-                  : "var(--border-subtle)"
+                ? "var(--brand-border)"
+                : "var(--border-subtle)"
                 }`,
               borderRadius: "var(--radius-sm)",
               color: isDirty

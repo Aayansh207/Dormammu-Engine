@@ -124,30 +124,10 @@ model WorkflowRun {
   createdAt         DateTime  @default(now())
 
   workflowVersion WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
-  taskRuns        TaskRun[]
 
   @@index([workflowId, createdAt])
   @@index([workflowVersionId])
   @@map("workflow_runs")
-}
-
-model TaskRun {
-  id            String    @id @default(uuid())
-  workflowRunId String
-  nodeId        String
-  status        String    @default("PENDING") // "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED"
-  attempts      Int       @default(1)
-  input         Json?
-  output        Json?
-  error         Json?
-  startedAt     DateTime?
-  finishedAt    DateTime?
-
-  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
-
-  @@unique([workflowRunId, nodeId])
-  @@index([workflowRunId])
-  @@map("task_runs")
 }
 
 model NodeDefinition {

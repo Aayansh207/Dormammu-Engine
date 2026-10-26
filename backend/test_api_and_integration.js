@@ -191,16 +191,14 @@ async function runApiAndIntegrationTests() {
 
       runId = runResult.runId;
 
-      // Verify database record in PostgreSQL: single WorkflowRun with complete report, 0 TaskRun rows
+      // Verify database record in PostgreSQL: single WorkflowRun with complete report
       const dbRun = await prisma.workflowRun.findUnique({
         where: { id: runResult.runId },
-        include: { taskRuns: true },
       });
 
       assert.ok(dbRun);
       assert.strictEqual(dbRun.status, "SUCCEEDED");
       assert.strictEqual(dbRun.output, 50);
-      assert.strictEqual(dbRun.taskRuns.length, 0); // No separate TaskRun rows created!
       assert.ok(dbRun.report);
       assert.strictEqual(dbRun.report.schemaVersion, 1);
       assert.strictEqual(dbRun.report.nodes.length, 3);
@@ -301,14 +299,12 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseBody.summary.totalNodes, 2);
       assert.strictEqual(responseBody.summary.succeededNodes, 2);
 
-      // Verify persistence in PostgreSQL: single WorkflowRun with complete report, 0 TaskRun rows
+      // Verify persistence in PostgreSQL: single WorkflowRun with complete report
       const persistedRun = await prisma.workflowRun.findUnique({
         where: { id: responseBody.runId },
-        include: { taskRuns: true },
       });
       assert.ok(persistedRun);
       assert.strictEqual(persistedRun.status, "SUCCEEDED");
-      assert.strictEqual(persistedRun.taskRuns.length, 0); // No TaskRun rows!
       assert.ok(persistedRun.report);
       assert.strictEqual(persistedRun.report.nodes.length, 2);
       assert.deepStrictEqual(persistedRun.output, { event: "stripe_charge", amount: 9900 });
@@ -533,12 +529,10 @@ async function runApiAndIntegrationTests() {
       const latestRun = await prisma.workflowRun.findFirst({
         where: { workflowVersion: { workflowId: opsWorkflowRecord.id } },
         orderBy: { createdAt: "desc" },
-        include: { taskRuns: true },
       });
 
       assert.ok(latestRun);
       assert.strictEqual(latestRun.status, "FAILED");
-      assert.strictEqual(latestRun.taskRuns.length, 0); // Zero TaskRun rows
       assert.ok(latestRun.report);
 
       const validateTask = latestRun.report.nodes.find((t) => t.nodeId === "validate_incident");

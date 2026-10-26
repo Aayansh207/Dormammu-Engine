@@ -684,31 +684,6 @@ class WorkflowService {
           logs: n.logs || [],
         };
       }
-    } else {
-      // Fallback for any legacy run lacking a report JSON
-      const legacyTaskRuns = await prisma.taskRun.findMany({
-        where: { workflowRunId: runId },
-        orderBy: { startedAt: "asc" },
-      });
-
-      for (const tr of legacyTaskRuns) {
-        nodeResults[tr.nodeId] = {
-          nodeId: tr.nodeId,
-          status: tr.status,
-          attempts: tr.attempts,
-          input: tr.input,
-          inputs: tr.input,
-          output: tr.output,
-          outputs: tr.output,
-          error: tr.error,
-          startedAt: tr.startedAt,
-          completedAt: tr.finishedAt,
-          finishedAt: tr.finishedAt,
-          durationMs: tr.finishedAt && tr.startedAt
-            ? Math.max(0, new Date(tr.finishedAt).getTime() - new Date(tr.startedAt).getTime())
-            : 0,
-        };
-      }
     }
 
     const durationMs = run.durationMs !== null && run.durationMs !== undefined
