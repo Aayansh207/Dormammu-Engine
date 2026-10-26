@@ -10,7 +10,9 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+router.get("/", workflowController.listAllUserRuns);
 router.get("/:runId", workflowController.getRunDetails);
+router.get("/:runId/report", workflowController.getRunReport);
 router.get("/:runId/tasks", workflowController.getRunTasks);
 router.get("/:runId/events", workflowController.streamRunEvents);
 

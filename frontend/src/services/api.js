@@ -314,6 +314,12 @@ class ApiService {
     });
   }
 
+  async getRunReport(runId) {
+    return this.request(`/runs/${runId}/report`, {
+      method: "GET",
+    });
+  }
+
   async getRunTasks(runId) {
     return this.request(`/runs/${runId}/tasks`, {
       method: "GET",

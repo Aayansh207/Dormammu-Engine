@@ -151,9 +151,10 @@ export default function ExecutionPanel({
         {[
           { id: "overview", label: "Overview", icon: Info },
           { id: "timeline", label: `Timeline (${orderedTasks.length})`, icon: Clock },
-          { id: "input", label: "Inbound Input", icon: Code2 },
-          { id: "output", label: "Final Result", icon: CheckCircle2 },
-          { id: "history", label: "Recent Runs", icon: History },
+          { id: "input", label: "Input", icon: Code2 },
+          { id: "output", label: "Result", icon: CheckCircle2 },
+          { id: "report", label: "Report", icon: Sparkles },
+          { id: "history", label: "History", icon: History },
         ].map((tab) => {
           const isAct = activeTab === tab.id;
           const Icon = tab.icon;
@@ -564,6 +565,199 @@ export default function ExecutionPanel({
             >
               {JSON.stringify(runResult?.finalOutput !== undefined ? runResult.finalOutput : (runResult?.output || "No output produced"), null, 2)}
             </pre>
+          </div>
+        )}
+
+        {/* EXECUTION REPORT TAB */}
+        {activeTab === "report" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {!runResult ? (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+                No execution report loaded. Execute this workflow or pick a run from history to view its durable report.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: "700", color: "var(--text-primary)" }}>
+                      Durable Execution Report
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "0.65rem",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        background: "rgba(57, 174, 169, 0.15)",
+                        color: "var(--brand)",
+                        fontWeight: "600",
+                      }}
+                    >
+                      v{runResult.report?.schemaVersion || "1.0.0"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(runResult.report || runResult, "reportJson")}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "6px",
+                      padding: "4px 8px",
+                      fontSize: "0.72rem",
+                      color: copiedField === "reportJson" ? "#10b981" : "var(--brand)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    {copiedField === "reportJson" ? <Check size={12} /> : <Copy size={12} />}
+                    {copiedField === "reportJson" ? "Copied" : "Copy Report"}
+                  </button>
+                </div>
+
+                {/* Report Stats Grid */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "8px",
+                    fontSize: "0.74rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>Trigger Mode</div>
+                    <div style={{ fontWeight: "700", color: "var(--text-primary)", marginTop: "2px" }}>
+                      {runResult.report?.trigger?.type || runResult.triggerType || "MANUAL"}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>Execution Duration</div>
+                    <div style={{ fontWeight: "700", color: "var(--text-primary)", marginTop: "2px" }}>
+                      {runResult.report?.execution?.durationMs ?? runResult.durationMs ?? 0} ms
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>Nodes Executed</div>
+                    <div style={{ fontWeight: "700", color: "var(--text-primary)", marginTop: "2px" }}>
+                      {runResult.report?.nodes?.length || orderedTasks.length || 0}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>DB Writes / TaskRuns</div>
+                    <div style={{ fontWeight: "700", color: "#10b981", marginTop: "2px" }}>
+                      0 rows (1 Report)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Node Summary List from Report */}
+                {Array.isArray(runResult.report?.nodes) && runResult.report.nodes.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ fontSize: "0.7rem", fontWeight: "700", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                      Reported Nodes ({runResult.report.nodes.length})
+                    </div>
+                    <div
+                      style={{
+                        maxHeight: "180px",
+                        overflowY: "auto",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "6px",
+                        background: "var(--bg-secondary)",
+                      }}
+                    >
+                      {runResult.report.nodes.map((node, idx) => (
+                        <div
+                          key={node.nodeId || idx}
+                          onClick={() => onSelectNode?.(node.nodeId)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "6px 10px",
+                            borderBottom: idx === runResult.report.nodes.length - 1 ? "none" : "1px solid var(--border-subtle)",
+                            fontSize: "0.72rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            {node.status === "SUCCEEDED" ? (
+                              <CheckCircle2 size={12} color="#10b981" />
+                            ) : node.status === "FAILED" ? (
+                              <XCircle size={12} color="#f43f5e" />
+                            ) : (
+                              <FastForward size={12} color="var(--text-muted)" />
+                            )}
+                            <span style={{ fontWeight: "600", color: "var(--text-primary)" }}>
+                              {node.label || node.nodeId}
+                            </span>
+                            <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>
+                              ({node.nodeType})
+                            </span>
+                          </div>
+                          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                            {node.durationMs || 0} ms
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Full Report Raw JSON View */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ fontSize: "0.7rem", fontWeight: "700", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                    Complete Serialized Report
+                  </div>
+                  <pre
+                    style={{
+                      background: "var(--bg-input)",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-subtle)",
+                      fontSize: "0.75rem",
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--text-primary)",
+                      maxHeight: "300px",
+                      overflowY: "auto",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                      margin: 0,
+                    }}
+                  >
+                    {JSON.stringify(runResult.report || runResult, null, 2)}
+                  </pre>
+                </div>
+              </>
+            )}
           </div>
         )}
 

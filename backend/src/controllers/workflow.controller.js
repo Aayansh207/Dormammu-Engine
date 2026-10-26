@@ -123,10 +123,27 @@ class WorkflowController {
     try {
       const userId = req.user.id;
       const { id } = req.params;
-      const runs = await workflowService.listRunsForWorkflow(userId, id);
+      const { page, limit, status, triggerType } = req.query;
+      const runs = await workflowService.listRunsForWorkflow(userId, id, { page, limit, status, triggerType });
       return res.status(200).json({
         success: true,
         data: runs,
+        pagination: runs.pagination,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listAllUserRuns(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { page, limit, status, triggerType, workflowId } = req.query;
+      const runs = await workflowService.listAllUserRuns(userId, { page, limit, status, triggerType, workflowId });
+      return res.status(200).json({
+        success: true,
+        data: runs,
+        pagination: runs.pagination,
       });
     } catch (err) {
       next(err);
@@ -140,6 +157,19 @@ class WorkflowController {
       return res.status(200).json({
         success: true,
         data: run,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getRunReport(req, res, next) {
+    try {
+      const { runId } = req.params;
+      const report = await workflowService.getRunReport(req.user, runId);
+      return res.status(200).json({
+        success: true,
+        data: report,
       });
     } catch (err) {
       next(err);

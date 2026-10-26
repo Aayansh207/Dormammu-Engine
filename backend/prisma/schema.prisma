@@ -110,11 +110,15 @@ model WorkflowVersion {
 
 model WorkflowRun {
   id                String    @id @default(uuid())
+  workflowId        String?
   workflowVersionId String
   status            String    @default("PENDING") // "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
+  triggerType       String    @default("MANUAL")  // "MANUAL" | "WEBHOOK" | "CRON" | "API"
+  durationMs        Int?
   input             Json?
   output            Json?
   error             Json?
+  report            Json?
   startedAt         DateTime  @default(now())
   finishedAt        DateTime?
   createdAt         DateTime  @default(now())
@@ -122,6 +126,7 @@ model WorkflowRun {
   workflowVersion WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
   taskRuns        TaskRun[]
 
+  @@index([workflowId, createdAt])
   @@index([workflowVersionId])
   @@map("workflow_runs")
 }

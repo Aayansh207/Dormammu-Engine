@@ -178,7 +178,7 @@ async function runApiAndIntegrationTests() {
 
     let runId;
 
-    await test("Execution: runs immutable version 2 and persists WorkflowRun and TaskRuns in PostgreSQL", async () => {
+    await test("Execution: runs immutable version 2 and persists durable report without separate TaskRun rows", async () => {
       // Trigger: 5 * 10 = 50
       const runResult = await workflowService.executeWorkflowRun(testUserAId, createdWorkflowId, {
         triggerData: 5,
@@ -191,7 +191,7 @@ async function runApiAndIntegrationTests() {
 
       runId = runResult.runId;
 
-      // Verify database record
+      // Verify database record in PostgreSQL: single WorkflowRun with complete report, 0 TaskRun rows
       const dbRun = await prisma.workflowRun.findUnique({
         where: { id: runResult.runId },
         include: { taskRuns: true },
@@ -200,21 +200,30 @@ async function runApiAndIntegrationTests() {
       assert.ok(dbRun);
       assert.strictEqual(dbRun.status, "SUCCEEDED");
       assert.strictEqual(dbRun.output, 50);
-      assert.strictEqual(dbRun.taskRuns.length, 3);
+      assert.strictEqual(dbRun.taskRuns.length, 0); // No separate TaskRun rows created!
+      assert.ok(dbRun.report);
+      assert.strictEqual(dbRun.report.schemaVersion, 1);
+      assert.strictEqual(dbRun.report.nodes.length, 3);
 
-      const multTask = dbRun.taskRuns.find((t) => t.nodeId === "n2");
+      const multTask = dbRun.report.nodes.find((t) => t.nodeId === "n2");
       assert.ok(multTask);
       assert.strictEqual(multTask.status, "SUCCEEDED");
       assert.deepStrictEqual(multTask.output, { output: 50 });
       assert.ok(multTask.startedAt);
-      assert.ok(multTask.finishedAt);
+      assert.ok(multTask.completedAt);
     });
 
-    await test("Execution Inspection: owner can retrieve run details and task runs", async () => {
+    await test("Execution Inspection: owner can retrieve run details, report, and reconstructed tasks", async () => {
       const runDetails = await workflowService.getRunById(testUserAId, runId);
       assert.strictEqual(runDetails.id, runId);
       assert.strictEqual(runDetails.status, "SUCCEEDED");
       assert.strictEqual(runDetails.taskRuns.length, 3);
+      assert.ok(runDetails.report);
+
+      const reportDirect = await workflowService.getRunReport(testUserAId, runId);
+      assert.ok(reportDirect);
+      assert.strictEqual(reportDirect.runId, runId);
+      assert.strictEqual(reportDirect.execution.status, "SUCCEEDED");
     });
 
     await test("Execution Authorization: unauthorized user cannot access run history", async () => {
@@ -253,7 +262,7 @@ async function runApiAndIntegrationTests() {
       definition: webhookWorkflowDef,
     });
 
-    await test("Webhook: executes workflow and persists WorkflowRun with trigger payload", async () => {
+    await test("Webhook: executes workflow, returns small acknowledgement, and persists report", async () => {
       let responseStatus = 0;
       let responseBody = null;
       const mockReq = {
@@ -281,16 +290,28 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseStatus, 200);
       assert.strictEqual(responseBody.success, true);
       assert.strictEqual(responseBody.status, "SUCCEEDED");
-      assert.deepStrictEqual(responseBody.output, { event: "stripe_charge", amount: 9900 });
+      assert.ok(responseBody.runId);
+      assert.strictEqual(responseBody.resultUrl, `/api/runs/${responseBody.runId}`);
+      assert.strictEqual(responseBody.output, undefined); // Small response: no full output leak
+      assert.strictEqual(responseBody.nodeResults, undefined); // Small response: no task breakdown leak
 
-      // Verify persistence in PostgreSQL
+      // Verify persistence in PostgreSQL: single WorkflowRun with complete report, 0 TaskRun rows
       const persistedRun = await prisma.workflowRun.findUnique({
         where: { id: responseBody.runId },
         include: { taskRuns: true },
       });
       assert.ok(persistedRun);
       assert.strictEqual(persistedRun.status, "SUCCEEDED");
-      assert.strictEqual(persistedRun.taskRuns.length, 2);
+      assert.strictEqual(persistedRun.taskRuns.length, 0); // No TaskRun rows!
+      assert.ok(persistedRun.report);
+      assert.strictEqual(persistedRun.report.nodes.length, 2);
+      assert.deepStrictEqual(persistedRun.output, { event: "stripe_charge", amount: 9900 });
+
+      // Verify report can be fetched via getRunById
+      const runReport = await workflowService.getRunById(testUserAId, responseBody.runId);
+      assert.strictEqual(runReport.status, "SUCCEEDED");
+      assert.deepStrictEqual(runReport.output, { event: "stripe_charge", amount: 9900 });
+      assert.strictEqual(runReport.taskRuns.length, 2);
     });
 
     await test("Webhook: rejects unauthorized request with 401 when token is invalid or missing", async () => {
@@ -467,9 +488,11 @@ async function runApiAndIntegrationTests() {
 
       assert.ok(latestRun);
       assert.strictEqual(latestRun.status, "FAILED");
+      assert.strictEqual(latestRun.taskRuns.length, 0); // Zero TaskRun rows
+      assert.ok(latestRun.report);
 
-      const validateTask = latestRun.taskRuns.find((t) => t.nodeId === "validate_incident");
-      const normalizeTask = latestRun.taskRuns.find((t) => t.nodeId === "normalize_incident");
+      const validateTask = latestRun.report.nodes.find((t) => t.nodeId === "validate_incident");
+      const normalizeTask = latestRun.report.nodes.find((t) => t.nodeId === "normalize_incident");
 
       assert.ok(validateTask);
       assert.strictEqual(validateTask.status, "FAILED");
@@ -537,21 +560,30 @@ async function runApiAndIntegrationTests() {
       assert.strictEqual(responseBody.error.code, "WORKFLOW_NOT_FOUND");
     });
 
-    await test("Persistence Recovery: getRunById and getRunTasks retrieve full inspectable state", async () => {
-      const runs = await workflowService.listRunsForWorkflow(testUserAId, opsWorkflowRecord.id);
+    await test("Persistence Recovery: getRunById and listRunsForWorkflow retrieve full inspectable state and pagination", async () => {
+      const runs = await workflowService.listRunsForWorkflow(testUserAId, opsWorkflowRecord.id, { page: 1, limit: 10 });
       assert.ok(runs.length >= 3);
+      assert.ok(runs.pagination);
+      assert.strictEqual(runs.pagination.page, 1);
+      assert.ok(runs.pagination.total >= 3);
 
       const firstRunId = runs[0].id;
       const detailedRun = await workflowService.getRunById(testUserAId, firstRunId);
       assert.ok(detailedRun);
+      assert.ok(detailedRun.report);
       assert.ok(detailedRun.taskRuns.length > 0);
 
       // Verify each task run has required inspectability fields
       for (const task of detailedRun.taskRuns) {
-        assert.ok(task.id);
+        assert.ok(task.id || task.nodeId);
         assert.ok(task.nodeId);
         assert.ok(["SUCCEEDED", "SKIPPED", "FAILED", "BLOCKED"].includes(task.status));
       }
+
+      // Verify listAllUserRuns works
+      const allUserRuns = await workflowService.listAllUserRuns(testUserAId, { limit: 10 });
+      assert.ok(allUserRuns.length > 0);
+      assert.ok(allUserRuns.pagination);
     });
 
     // Cleanup test data

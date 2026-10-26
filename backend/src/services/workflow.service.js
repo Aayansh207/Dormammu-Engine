@@ -9,6 +9,110 @@ const { defaultRegistry } = require("../engine/registry/node.registry");
 const { ErrorCodes } = require("../engine/contracts/errors");
 const { defaultSseService } = require("./sse.service");
 
+/**
+ * Recursively sanitizes payloads to ensure sensitive credentials, tokens, and secrets
+ * are masked before persistence in execution reports.
+ * Also enforces safety boundaries on unbounded payloads.
+ */
+function sanitizePayload(data, depth = 0) {
+  if (depth > 10) return "[Max Depth Reached]";
+  if (data === null || data === undefined) return data;
+  if (typeof data !== "object") {
+    if (typeof data === "string" && data.length > 50000) {
+      return data.slice(0, 50000) + "... [Truncated]";
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    if (data.length > 500) {
+      return data.slice(0, 500).map((item) => sanitizePayload(item, depth + 1)).concat(["... [Truncated array]"]);
+    }
+    return data.map((item) => sanitizePayload(item, depth + 1));
+  }
+  const sanitized = {};
+  for (const [key, val] of Object.entries(data)) {
+    const lower = key.toLowerCase();
+    if (
+      lower.includes("password") ||
+      lower.includes("secret") ||
+      lower.includes("cookie") ||
+      lower === "authorization" ||
+      lower === "apikey" ||
+      lower === "api_key" ||
+      lower === "x-webhook-token" ||
+      lower === "x-api-key"
+    ) {
+      sanitized[key] = "[REDACTED]";
+    } else {
+      sanitized[key] = sanitizePayload(val, depth + 1);
+    }
+  }
+  return sanitized;
+}
+
+/**
+ * Assembles a complete, self-contained, durable execution report for a workflow run.
+ */
+function buildExecutionReport({
+  runId,
+  workflow,
+  versionRecord,
+  definition,
+  triggerType,
+  triggerMetadata = {},
+  input,
+  status,
+  startedAt,
+  completedAt,
+  durationMs,
+  tasks = {},
+  executionTrace = [],
+  finalOutput = null,
+  error = null,
+}) {
+  const nodes = Object.values(tasks).map((t) => ({
+    id: t.nodeId,
+    nodeId: t.nodeId,
+    nodeType: t.nodeType || null,
+    nodeName: t.nodeName || t.nodeId,
+    status: t.status,
+    attempts: t.attempts || 1,
+    input: sanitizePayload(t.inputs !== undefined ? t.inputs : t.input),
+    output: sanitizePayload(t.outputs !== undefined ? t.outputs : t.output),
+    startedAt: t.startedAt || null,
+    completedAt: t.completedAt || t.finishedAt || null,
+    durationMs: t.durationMs !== undefined ? t.durationMs : null,
+    error: t.error || null,
+    logs: t.logs || [],
+  }));
+
+  return {
+    schemaVersion: 1,
+    runId,
+    workflow: {
+      id: workflow.id,
+      name: workflow.name,
+      version: versionRecord?.version || 1,
+      definition,
+    },
+    trigger: {
+      type: triggerType,
+      metadata: sanitizePayload(triggerMetadata),
+    },
+    input: sanitizePayload(input),
+    execution: {
+      status,
+      startedAt,
+      completedAt,
+      durationMs,
+    },
+    nodes,
+    events: executionTrace || [],
+    finalOutput: sanitizePayload(finalOutput),
+    error: error || null,
+  };
+}
+
 class WorkflowService {
   /**
    * Creates a new workflow with version 1 in a database transaction.
@@ -279,7 +383,7 @@ class WorkflowService {
    * @param {string} workflowId
    * @param {Object} [options={}] - { versionId, triggerData }
    */
-  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {} } = {}) {
+  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {} } = {}) {
     const workflow = await prisma.workflow.findUnique({
       where: { id: workflowId },
       include: {
@@ -311,7 +415,7 @@ class WorkflowService {
 
     const definition = versionRecord.definitionJson;
 
-    // 1. Initial Level 5 validation check before run creation
+    // 1. Level 1-4 validation check before run creation
     const validation = validateWorkflow(definition, defaultRegistry);
     if (!validation.valid) {
       const primary = validation.errors[0];
@@ -321,51 +425,27 @@ class WorkflowService {
       throw err;
     }
 
-    // 2. Create WorkflowRun in PENDING state
+    const resolvedTriggerType = triggerType ||
+      triggerData?.$triggerType ||
+      (triggerData?.$webhook ? "WEBHOOK" : (triggerData?.$cron ? "CRON" : "MANUAL"));
+
+    const startedAt = new Date().toISOString();
+    const sanitizedInput = sanitizePayload(triggerData) || {};
+
+    // 2. Create durable WorkflowRun record in RUNNING state
     const runRecord = await prisma.workflowRun.create({
       data: {
+        workflowId: workflow.id,
         workflowVersionId: versionRecord.id,
         status: "RUNNING",
-        input: triggerData || {},
+        triggerType: resolvedTriggerType,
+        input: sanitizedInput,
+        startedAt: new Date(startedAt),
       },
     });
 
-    // 3. Callback to persist/update TaskRun states as nodes execute
-    const onTaskStateChange = async (runId, taskRecord) => {
-      try {
-        await prisma.taskRun.upsert({
-          where: {
-            workflowRunId_nodeId: {
-              workflowRunId: runRecord.id,
-              nodeId: taskRecord.nodeId,
-            },
-          },
-          update: {
-            status: taskRecord.status,
-            attempts: taskRecord.attempts || 1,
-            input: taskRecord.inputs !== undefined ? taskRecord.inputs : null,
-            output: taskRecord.outputs !== undefined ? taskRecord.outputs : null,
-            error: taskRecord.error !== undefined ? taskRecord.error : null,
-            startedAt: taskRecord.startedAt ? new Date(taskRecord.startedAt) : null,
-            finishedAt: taskRecord.completedAt ? new Date(taskRecord.completedAt) : null,
-          },
-          create: {
-            workflowRunId: runRecord.id,
-            nodeId: taskRecord.nodeId,
-            status: taskRecord.status,
-            attempts: taskRecord.attempts || 1,
-            input: taskRecord.inputs !== undefined ? taskRecord.inputs : null,
-            output: taskRecord.outputs !== undefined ? taskRecord.outputs : null,
-            error: taskRecord.error !== undefined ? taskRecord.error : null,
-            startedAt: taskRecord.startedAt ? new Date(taskRecord.startedAt) : null,
-            finishedAt: taskRecord.completedAt ? new Date(taskRecord.completedAt) : null,
-          },
-        });
-      } catch (err) {
-        console.error(`Failed to persist TaskRun for node ${taskRecord.nodeId}:`, err.message);
-      }
-
-      // Stream live task state event via SSE
+    // 3. Callback for live SSE event streaming ONLY (no per-task database writes!)
+    const onTaskStateChange = (runId, taskRecord) => {
       defaultSseService.emitRunEvent(runRecord.id, `task:${taskRecord.status.toLowerCase()}`, {
         runId: runRecord.id,
         nodeId: taskRecord.nodeId,
@@ -386,26 +466,67 @@ class WorkflowService {
       workflowId: workflow.id,
       workflowName: workflow.name,
       status: "RUNNING",
-      startedAt: runRecord.startedAt,
+      startedAt,
     });
 
-    // 4. Execute through the in-process DAG scheduler
-    const execSummary = await executeWorkflow(definition, {
+    // 4. Execute through the in-process DAG scheduler (collecting execution state in memory)
+    let execSummary;
+    try {
+      execSummary = await executeWorkflow(definition, {
+        runId: runRecord.id,
+        triggerData,
+        registry: defaultRegistry,
+        onTaskStateChange,
+      });
+    } catch (err) {
+      execSummary = {
+        status: "FAILED",
+        finalOutput: null,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        durationMs: Math.max(0, Date.now() - new Date(startedAt).getTime()),
+        tasks: {},
+        executionTrace: [],
+        error: {
+          code: err.code || "EXECUTION_ERROR",
+          message: err.message,
+        },
+      };
+    }
+
+    // 5. Finalize WorkflowRun status, output, duration, and complete report atomically
+    const completedAt = execSummary.completedAt || new Date().toISOString();
+    const durationMs = execSummary.durationMs !== undefined && execSummary.durationMs !== null
+      ? execSummary.durationMs
+      : Math.max(0, new Date(completedAt).getTime() - new Date(startedAt).getTime());
+
+    const report = buildExecutionReport({
       runId: runRecord.id,
-      triggerData,
-      registry: defaultRegistry,
-      onTaskStateChange,
+      workflow,
+      versionRecord,
+      definition,
+      triggerType: resolvedTriggerType,
+      triggerMetadata,
+      input: sanitizedInput,
+      status: execSummary.status,
+      startedAt,
+      completedAt,
+      durationMs,
+      tasks: execSummary.tasks,
+      executionTrace: execSummary.executionTrace,
+      finalOutput: execSummary.finalOutput,
+      error: execSummary.error,
     });
 
-    // 5. Finalize WorkflowRun status and outputs
-    const finishedAt = new Date();
     await prisma.workflowRun.update({
       where: { id: runRecord.id },
       data: {
         status: execSummary.status,
         output: execSummary.finalOutput !== undefined ? execSummary.finalOutput : null,
         error: execSummary.error || null,
-        finishedAt,
+        durationMs,
+        finishedAt: new Date(completedAt),
+        report,
       },
     });
 
@@ -415,13 +536,11 @@ class WorkflowService {
       workflowId: workflow.id,
       status: execSummary.status,
       finalOutput: execSummary.finalOutput,
-      durationMs: execSummary.durationMs,
-      startedAt: execSummary.startedAt,
-      completedAt: execSummary.completedAt,
+      durationMs,
+      startedAt,
+      completedAt,
       error: execSummary.error,
     });
-
-    const triggerType = triggerData?.$triggerType || (triggerData?.$webhook ? "WEBHOOK" : (triggerData?.$cron ? "CRON" : "MANUAL"));
 
     return {
       id: runRecord.id,
@@ -431,23 +550,24 @@ class WorkflowService {
       workflowVersionId: versionRecord.id,
       version: versionRecord.version,
       status: execSummary.status,
-      triggerType,
-      input: triggerData || {},
+      triggerType: resolvedTriggerType,
+      input: sanitizedInput,
       output: execSummary.finalOutput,
       finalOutput: execSummary.finalOutput,
-      durationMs: execSummary.durationMs,
-      startedAt: execSummary.startedAt,
-      finishedAt: finishedAt.toISOString(),
-      completedAt: execSummary.completedAt,
+      durationMs,
+      startedAt,
+      finishedAt: completedAt,
+      completedAt,
       tasks: execSummary.tasks,
       nodeResults: execSummary.tasks,
       executionTrace: execSummary.executionTrace,
       error: execSummary.error,
+      report,
     };
   }
 
   /**
-   * Retrieves a run by ID with all task run records.
+   * Retrieves a run by ID with its complete execution report.
    * @param {string|Object} userOrId - Authenticated userId or user object
    * @param {string} runId
    */
@@ -465,9 +585,6 @@ class WorkflowService {
             },
           },
         },
-        taskRuns: {
-          orderBy: { startedAt: "asc" },
-        },
       },
     });
 
@@ -477,43 +594,80 @@ class WorkflowService {
       throw err;
     }
 
-    if (run.workflowVersion.workflow.ownerId !== userId && userRole !== "ADMIN") {
+    const ownerId = run.workflowVersion?.workflow?.ownerId;
+    if (ownerId && ownerId !== userId && userRole !== "ADMIN") {
       const err = new Error("Forbidden: You do not have permission to view this execution run");
       err.statusCode = 403;
       throw err;
     }
 
-    const triggerType = run.input?.$triggerType || (run.input?.$webhook ? "WEBHOOK" : (run.input?.$cron ? "CRON" : "MANUAL"));
-    const durationMs = run.finishedAt && run.startedAt
-      ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
-      : 0;
-
+    let report = run.report;
     const nodeResults = {};
-    for (const tr of run.taskRuns || []) {
-      nodeResults[tr.nodeId] = {
-        nodeId: tr.nodeId,
-        status: tr.status,
-        attempts: tr.attempts,
-        inputs: tr.input,
-        outputs: tr.output,
-        input: tr.input,
-        output: tr.output,
-        error: tr.error,
-        startedAt: tr.startedAt,
-        completedAt: tr.finishedAt,
-        finishedAt: tr.finishedAt,
-        durationMs: tr.finishedAt && tr.startedAt
-          ? Math.max(0, new Date(tr.finishedAt).getTime() - new Date(tr.startedAt).getTime())
-          : 0,
-      };
+
+    if (report && Array.isArray(report.nodes)) {
+      for (const n of report.nodes) {
+        nodeResults[n.nodeId] = {
+          nodeId: n.nodeId,
+          nodeType: n.nodeType,
+          nodeName: n.nodeName,
+          status: n.status,
+          attempts: n.attempts || 1,
+          input: n.input,
+          inputs: n.input,
+          output: n.output,
+          outputs: n.output,
+          error: n.error,
+          startedAt: n.startedAt,
+          completedAt: n.completedAt,
+          finishedAt: n.completedAt,
+          durationMs: n.durationMs,
+          logs: n.logs || [],
+        };
+      }
+    } else {
+      // Fallback for any legacy run lacking a report JSON
+      const legacyTaskRuns = await prisma.taskRun.findMany({
+        where: { workflowRunId: runId },
+        orderBy: { startedAt: "asc" },
+      });
+
+      for (const tr of legacyTaskRuns) {
+        nodeResults[tr.nodeId] = {
+          nodeId: tr.nodeId,
+          status: tr.status,
+          attempts: tr.attempts,
+          input: tr.input,
+          inputs: tr.input,
+          output: tr.output,
+          outputs: tr.output,
+          error: tr.error,
+          startedAt: tr.startedAt,
+          completedAt: tr.finishedAt,
+          finishedAt: tr.finishedAt,
+          durationMs: tr.finishedAt && tr.startedAt
+            ? Math.max(0, new Date(tr.finishedAt).getTime() - new Date(tr.startedAt).getTime())
+            : 0,
+        };
+      }
     }
+
+    const durationMs = run.durationMs !== null && run.durationMs !== undefined
+      ? run.durationMs
+      : (run.finishedAt && run.startedAt
+          ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
+          : 0);
+
+    const triggerType = run.triggerType ||
+      (run.input?.$triggerType || (run.input?.$webhook ? "WEBHOOK" : (run.input?.$cron ? "CRON" : "MANUAL")));
+
+    const taskList = Object.values(nodeResults);
 
     return {
       id: run.id,
       runId: run.id,
-      workflowId: run.workflowVersion.workflow.id,
-      workflowName: run.workflowVersion.workflow.name,
-      version: run.workflowVersion.version,
+      workflowId: run.workflowId || run.workflowVersion?.workflow?.id,
+      workflowName: run.workflowVersion?.workflow?.name,
+      version: run.workflowVersion?.version,
       status: run.status,
       triggerType,
       input: run.input,
@@ -525,21 +679,34 @@ class WorkflowService {
       completedAt: run.finishedAt,
       durationMs,
       createdAt: run.createdAt,
-      taskRuns: run.taskRuns,
+      report: run.report,
+      taskRuns: taskList,
       tasks: nodeResults,
       nodeResults,
     };
   }
 
   /**
-   * Lists execution runs for a workflow.
+   * Retrieves the complete standalone execution report for a run.
+   * @param {string|Object} userOrId
+   * @param {string} runId
+   */
+  async getRunReport(userOrId, runId) {
+    const run = await this.getRunById(userOrId, runId);
+    return run.report;
+  }
+
+  /**
+   * Lists lightweight execution runs for a specific workflow with pagination and filtering.
+   * Does NOT query large reports or task runs.
    * @param {string} userId
    * @param {string} workflowId
+   * @param {Object} [options={}] - { page, limit, status, triggerType }
    */
-  async listRunsForWorkflow(userId, workflowId) {
+  async listRunsForWorkflow(userId, workflowId, options = {}) {
     const workflow = await prisma.workflow.findUnique({
       where: { id: workflowId },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, name: true },
     });
 
     if (!workflow) {
@@ -554,47 +721,162 @@ class WorkflowService {
       throw err;
     }
 
-    const runs = await prisma.workflowRun.findMany({
-      where: {
-        workflowVersion: {
-          workflowId,
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      include: {
-        workflowVersion: {
-          select: { version: true },
-        },
-        _count: {
-          select: { taskRuns: true },
-        },
-      },
-    });
+    const page = Math.max(1, parseInt(options.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));
+    const skip = (page - 1) * limit;
 
-    return runs.map((r) => {
-      const triggerType = r.input?.$triggerType || (r.input?.$webhook ? "WEBHOOK" : (r.input?.$cron ? "CRON" : "MANUAL"));
-      const durationMs = r.finishedAt && r.startedAt
-        ? Math.max(0, new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())
-        : 0;
+    const where = {
+      OR: [
+        { workflowId },
+        { workflowVersion: { workflowId } },
+      ],
+      ...(options.status ? { status: options.status } : {}),
+      ...(options.triggerType ? { triggerType: options.triggerType } : {}),
+    };
+
+    const [total, runs] = await Promise.all([
+      prisma.workflowRun.count({ where }),
+      prisma.workflowRun.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          workflowId: true,
+          status: true,
+          triggerType: true,
+          durationMs: true,
+          error: true,
+          startedAt: true,
+          finishedAt: true,
+          createdAt: true,
+          output: true,
+          workflowVersion: {
+            select: { version: true },
+          },
+        },
+      }),
+    ]);
+
+    const formattedRuns = runs.map((r) => {
+      const durationMs = r.durationMs !== null && r.durationMs !== undefined
+        ? r.durationMs
+        : (r.finishedAt && r.startedAt
+            ? Math.max(0, new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())
+            : 0);
 
       return {
         id: r.id,
         runId: r.id,
-        version: r.workflowVersion.version,
+        workflowId: r.workflowId || workflowId,
+        workflowName: workflow.name,
+        version: r.workflowVersion?.version || 1,
         status: r.status,
-        triggerType,
-        input: r.input,
-        output: r.output,
-        finalOutput: r.output,
-        error: r.error,
+        triggerType: r.triggerType || "MANUAL",
         startedAt: r.startedAt,
         finishedAt: r.finishedAt,
         completedAt: r.finishedAt,
         durationMs,
         createdAt: r.createdAt,
-        taskCount: r._count.taskRuns,
+        hasOutput: r.output !== null && r.output !== undefined,
+        errorSummary: r.error ? (r.error.message || String(r.error)) : null,
       };
+    });
+
+    return Object.assign(formattedRuns, {
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  }
+
+  /**
+   * Lists lightweight execution runs across all workflows owned by the user.
+   * @param {string} userId
+   * @param {Object} [options={}] - { page, limit, status, triggerType, workflowId }
+   */
+  async listAllUserRuns(userId, options = {}) {
+    const page = Math.max(1, parseInt(options.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const where = {
+      workflowVersion: {
+        workflow: {
+          ownerId: userId,
+        },
+      },
+      ...(options.workflowId ? { workflowId: options.workflowId } : {}),
+      ...(options.status ? { status: options.status } : {}),
+      ...(options.triggerType ? { triggerType: options.triggerType } : {}),
+    };
+
+    const [total, runs] = await Promise.all([
+      prisma.workflowRun.count({ where }),
+      prisma.workflowRun.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          workflowId: true,
+          status: true,
+          triggerType: true,
+          durationMs: true,
+          error: true,
+          startedAt: true,
+          finishedAt: true,
+          createdAt: true,
+          output: true,
+          workflowVersion: {
+            select: {
+              version: true,
+              workflow: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const formattedRuns = runs.map((r) => {
+      const durationMs = r.durationMs !== null && r.durationMs !== undefined
+        ? r.durationMs
+        : (r.finishedAt && r.startedAt
+            ? Math.max(0, new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())
+            : 0);
+
+      return {
+        id: r.id,
+        runId: r.id,
+        workflowId: r.workflowId || r.workflowVersion?.workflow?.id,
+        workflowName: r.workflowVersion?.workflow?.name || "Workflow",
+        version: r.workflowVersion?.version || 1,
+        status: r.status,
+        triggerType: r.triggerType || "MANUAL",
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        completedAt: r.finishedAt,
+        durationMs,
+        createdAt: r.createdAt,
+        hasOutput: r.output !== null && r.output !== undefined,
+        errorSummary: r.error ? (r.error.message || String(r.error)) : null,
+      };
+    });
+
+    return Object.assign(formattedRuns, {
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   }
 }
