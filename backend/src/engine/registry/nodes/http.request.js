@@ -42,9 +42,11 @@ module.exports = {
     body: defineInputPort({ name: "body", type: PortTypes.ANY, required: false, description: "Request payload (JSON object, string, etc.)" }),
     url: defineInputPort({ name: "url", type: PortTypes.STRING, required: false, description: "Target URL (overrides config if provided)" }),
     headers: defineInputPort({ name: "headers", type: PortTypes.OBJECT, required: false, description: "Dynamic headers map" }),
+    input: defineInputPort({ name: "input", type: PortTypes.ANY, required: false, description: "Alternative input payload for template variables" }),
   },
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.ANY, description: "Parsed response body (JSON object or string)" }),
+    body: defineOutputPort({ name: "body", type: PortTypes.ANY, description: "Alias for parsed response body" }),
     status: defineOutputPort({ name: "status", type: PortTypes.NUMBER, description: "HTTP status code" }),
     headers: defineOutputPort({ name: "headers", type: PortTypes.OBJECT, description: "Response headers map" }),
   },
@@ -113,14 +115,27 @@ module.exports = {
   },
   handler: async (inputs, node, context = {}) => {
     const config = node.config || {};
-    const targetUrl = inputs.url || config.url;
+    let rawTargetUrl = String(inputs.url || config.url || config.targetUrl || "").trim();
 
-    if (!targetUrl || typeof targetUrl !== "string") {
+    if (!rawTargetUrl) {
       throw new EngineError(
         ErrorCodes.REQUIRED_INPUT_MISSING,
         "Target URL must be provided in node configuration or via the 'url' input port",
         { field: "url" }
       );
+    }
+
+    // Resolve environment / secret tokens
+    let targetUrl = resolveSecretTokens(rawTargetUrl);
+
+    // Resolve dynamic payload placeholders like {{service}} from inputs.body or inputs.input
+    const dataSource = (inputs.body && typeof inputs.body === "object") ? inputs.body :
+                       (inputs.input && typeof inputs.input === "object") ? inputs.input : null;
+    if (dataSource) {
+      targetUrl = targetUrl.replace(/\{\{\s*(?:body\.|input\.)?([a-zA-Z0-9_.-]+)\s*\}\}/g, (match, field) => {
+        const val = field.split(".").reduce((acc, part) => (acc ? acc[part] : undefined), dataSource);
+        return val !== undefined ? String(val) : match;
+      });
     }
 
     // Enforce private network authorization policy
@@ -204,6 +219,7 @@ module.exports = {
               { url: currentUrl, timeoutMs }
             );
           }
+
           throw new EngineError(
             ErrorCodes.HTTP_REQUEST_FAILED,
             `HTTP network request failed: ${err.message}`,
@@ -329,6 +345,7 @@ module.exports = {
 
     return {
       output: parsedData,
+      body: parsedData,
       status: response.status,
       headers: respHeaders,
     };

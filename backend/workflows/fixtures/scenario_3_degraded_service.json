@@ -1,0 +1,24 @@
+{
+  "scenario_name": "Degraded Auth Service Performance",
+  "expected_severity": "warning",
+  "expected_route": "warning",
+  "payload": {
+    "incident_id": "INC-6520",
+    "service": "auth-service",
+    "title": "Token validation latency degradation and cache misses",
+    "description": "JWT verification latency elevated across API gateways due to Redis cluster failover. Sporadic 408 request timeouts.",
+    "error_rate": 0.08,
+    "latency_ms": 780,
+    "affected_users": 310,
+    "failed_transactions": 28,
+    "revenue_at_risk": 3200,
+    "region": "ap-south-1",
+    "customer_tier": "business",
+    "recent_deploy": false,
+    "logs": [
+      "2026-10-25T23:05:10Z WARN  [redis-client] Cluster replica failover in progress; redirecting reads to primary node",
+      "2026-10-25T23:05:14Z WARN  [auth-filter] Token cache miss rate increased to 41.2% (threshold: 15%)",
+      "2026-10-25T23:05:18Z ERROR [token-validator] Slow crypto verification took 680ms for user #usr_8820"
+    ]
+  }
+}

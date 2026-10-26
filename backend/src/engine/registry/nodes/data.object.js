@@ -49,6 +49,10 @@ module.exports = {
   inputs: {
     input: defineInputPort({ name: "input", type: PortTypes.ANY, required: false, description: "Optional base object or input data" }),
     value: defineInputPort({ name: "value", type: PortTypes.ANY, required: false, description: "Dynamic value for targetKey" }),
+    telemetry: defineInputPort({ name: "telemetry", type: PortTypes.ANY, required: false, description: "Optional telemetry data object" }),
+    derivedMetrics: defineInputPort({ name: "derivedMetrics", type: PortTypes.ANY, required: false, description: "Optional derived metrics object" }),
+    aiAnalysis: defineInputPort({ name: "aiAnalysis", type: PortTypes.ANY, required: false, description: "Optional AI analysis object" }),
+    actionPlan: defineInputPort({ name: "actionPlan", type: PortTypes.ANY, required: false, description: "Optional action plan object or string" }),
   },
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.OBJECT, description: "Constructed object" }),
@@ -97,8 +101,8 @@ module.exports = {
     const config = node.config || {};
     const result = {};
 
-    // If input is an object, start with shallow clone as base
-    if (inputs.input && typeof inputs.input === "object" && !Array.isArray(inputs.input)) {
+    // If inheritInput is not explicitly false, start with shallow clone as base
+    if (config.inheritInput !== false && inputs.input && typeof inputs.input === "object" && !Array.isArray(inputs.input)) {
       Object.assign(result, inputs.input);
     }
 
@@ -108,19 +112,52 @@ module.exports = {
         if (!field.key) continue;
         let val = field.value;
 
-        // If fromInput is true, resolve from inputs.input
-        if (field.fromInput && inputs.input && typeof inputs.input === "object") {
+        // If fromPort is configured, read directly from inputs[field.fromPort]
+        if (field.fromPort && inputs[field.fromPort] !== undefined) {
+          val = inputs[field.fromPort];
+        } else if (field.fromInput && inputs.input && typeof inputs.input === "object") {
           const lookupKey = field.inputKey || field.key;
-          val = lookupKey.split(".").reduce((acc, part) => (acc ? acc[part] : undefined), inputs.input);
+          const candidates = String(lookupKey).split("|").map((k) => k.trim());
+          for (const cand of candidates) {
+            val = cand.split(".").reduce((acc, part) => (acc ? acc[part] : undefined), inputs.input);
+            if (val !== undefined) break;
+          }
         }
 
         safeSetNested(result, field.key, val);
       }
     }
 
+    // Direct multi-port attachments if supplied (clean and structured)
+    if (inputs.telemetry !== undefined) {
+      const tel = inputs.telemetry?.body || inputs.telemetry;
+      result.serviceTelemetry = tel;
+    }
+    if (inputs.derivedMetrics !== undefined) {
+      result.derivedMetrics = inputs.derivedMetrics;
+    }
+    if (inputs.aiAnalysis !== undefined) {
+      const ai = inputs.aiAnalysis;
+      if (ai && typeof ai === "object") {
+        const { _aiExecution, ...cleanAi } = ai;
+        result.aiAnalysis = cleanAi;
+      } else {
+        result.aiAnalysis = ai;
+      }
+    }
+    if (inputs.actionPlan !== undefined) {
+      result.actionPlan = inputs.actionPlan;
+    }
+
     // If targetKey is configured and port 'value' has input, attach it
     if (config.targetKey && inputs.value !== undefined) {
       safeSetNested(result, config.targetKey, inputs.value);
+    }
+
+    // Generate metadata if this is an operations report
+    if (result.serviceTelemetry || result.aiAnalysis || result.derivedMetrics) {
+      result.reportGeneratedAt = new Date().toISOString();
+      result.status = "INVESTIGATION_COMPLETE";
     }
 
     return { output: result };

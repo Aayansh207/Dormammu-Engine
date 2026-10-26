@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dormammu-loop.dev/schemas/incident.v1.json",
+  "title": "IncidentInputContract",
+  "description": "Canonical versioned data contract for inbound operational incidents ingested by Dormammu AI Operations Center.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "incident_id",
+    "service",
+    "title",
+    "error_rate",
+    "latency_ms",
+    "affected_users",
+    "failed_transactions",
+    "region"
+  ],
+  "properties": {
+    "incident_id": {
+      "type": "string",
+      "pattern": "^INC-[A-Za-z0-9-]+$",
+      "description": "Unique incident tracking identifier"
+    },
+    "service": {
+      "type": "string",
+      "minLength": 2,
+      "description": "Impacted microservice or platform component"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "description": "Brief descriptive title of the incident"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed human or automated operational context"
+    },
+    "error_rate": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Fraction of failing requests between 0.0 (0%) and 1.0 (100%)"
+    },
+    "latency_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Average request latency in milliseconds"
+    },
+    "affected_users": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Estimated unique users impacted"
+    },
+    "failed_transactions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total count of dropped or failed customer transactions"
+    },
+    "revenue_at_risk": {
+      "type": "number",
+      "minimum": 0.0,
+      "description": "Estimated financial exposure in USD"
+    },
+    "region": {
+      "type": "string",
+      "description": "Deployment region or cloud cluster identifier"
+    },
+    "customer_tier": {
+      "type": "string",
+      "enum": ["enterprise", "business", "standard", "free"],
+      "default": "standard",
+      "description": "Highest impacted customer tier"
+    },
+    "recent_deploy": {
+      "type": "boolean",
+      "description": "Whether a production deployment occurred within the last 60 minutes"
+    },
+    "logs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Recent log lines or stack traces captured around incident onset"
+    }
+  },
+  "additionalProperties": true
+}

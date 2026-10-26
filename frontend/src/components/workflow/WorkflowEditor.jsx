@@ -15,6 +15,10 @@ import {
   Wand2,
   Sparkles,
   Zap,
+  Activity,
+  Radio,
+  GitCompare,
+  History,
 } from "lucide-react";
 import { api } from "../../services/api";
 import NodePalette from "./NodePalette";
@@ -23,6 +27,8 @@ import EdgePath, { calculatePortPosition, generateBezierPath } from "./EdgePath"
 import NodeInspector from "./NodeInspector";
 import ValidationDrawer from "./ValidationDrawer";
 import RunExecutionModal from "./RunExecutionModal";
+import WebhookTestingModal from "./WebhookTestingModal";
+import ExecutionPanel from "./ExecutionPanel";
 import QuickAddPopover from "./QuickAddPopover";
 import { calculateAutoLayout } from "./autoLayout";
 
@@ -52,6 +58,11 @@ export default function WorkflowEditor({ workflowId, onBack }) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(true);
   const [isValidationDrawerOpen, setIsValidationDrawerOpen] = useState(false);
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+  const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
+  const [isExecutionPanelOpen, setIsExecutionPanelOpen] = useState(false);
+  const [recentRuns, setRecentRuns] = useState([]);
+  const [activeRunId, setActiveRunId] = useState(null);
+  const sseUnsubRef = useRef(null);
 
   // Quick Add Popover State
   const [quickAdd, setQuickAdd] = useState({
@@ -208,7 +219,62 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     };
   }, []);
 
-  // 2. Load Workflow Definition ONLY when workflowId changes
+  // Fetch recent runs for this workflow
+  const fetchRecentRuns = useCallback(async (wfId) => {
+    if (!wfId) return;
+    try {
+      const res = await api.listWorkflowRuns(wfId);
+      if (res && res.data) {
+        setRecentRuns(Array.isArray(res.data) ? res.data : []);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch recent runs:", err);
+    }
+  }, []);
+
+  // Durable run loader (supports browser refresh recovery via ?runId=)
+  const loadRunById = useCallback(async (runId) => {
+    if (!runId) return;
+    try {
+      const res = await api.getRunDetails(runId);
+      if (res && res.data) {
+        const runData = res.data;
+        // Verify this run belongs to the active workflow
+        if (runData.workflowId && workflowId && runData.workflowId !== workflowId) {
+          console.warn("Run does not belong to the current workflow. Clearing runId param.");
+          const url = new URL(window.location.href);
+          url.searchParams.delete("runId");
+          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+          return;
+        }
+
+        const normalized = {
+          ...runData,
+          id: runData.id || runData.runId || runId,
+          runId: runData.runId || runData.id || runId,
+          finalOutput: runData.finalOutput !== undefined ? runData.finalOutput : runData.output,
+          tasks: runData.tasks || (runData.taskRuns ? Object.fromEntries(runData.taskRuns.map((t) => [t.nodeId, t])) : {}),
+        };
+        setRunResult(normalized);
+        setActiveRunId(normalized.runId);
+        setIsExecutionPanelOpen(true);
+      }
+    } catch (err) {
+      console.warn("Could not load execution run details:", err.message);
+      // Clean up invalid or unauthorized runId from URL to prevent repetitive forbidden errors
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("runId")) {
+          url.searchParams.delete("runId");
+          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+        }
+      } catch {
+        // Ignore URL parsing errors
+      }
+    }
+  }, [workflowId]);
+
+  // 2. Load Workflow Definition and Initial Runs
   useEffect(() => {
     if (!workflowId) return;
     let mounted = true;
@@ -236,13 +302,36 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
 
     loadWorkflow();
+    fetchRecentRuns(workflowId);
+
+    // Auto-recover run state if URL contains ?runId=
+    const urlParams = new URLSearchParams(window.location.search);
+    const qRunId = urlParams.get("runId");
+    if (qRunId) {
+      loadRunById(qRunId);
+    }
+
     return () => {
       mounted = false;
       if (validationTimerRef.current) {
         clearTimeout(validationTimerRef.current);
       }
+      if (sseUnsubRef.current) {
+        sseUnsubRef.current();
+        sseUnsubRef.current = null;
+      }
+      // Clean runId from URL when navigating away from this workflow
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("runId")) {
+          url.searchParams.delete("runId");
+          window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+        }
+      } catch {
+        // Ignore URL parsing errors
+      }
     };
-  }, [workflowId, validateDefinition]);
+  }, [workflowId, validateDefinition, fetchRecentRuns, loadRunById]);
 
   // Add a node to the canvas with optional auto-connect
   const handleAddNode = useCallback((catalogueNode, customPos = null, autoConnectSource = null) => {
@@ -636,6 +725,101 @@ export default function WorkflowEditor({ workflowId, onBack }) {
     }
   };
 
+  // Live SSE Run Tracker
+  const startLiveRunTracking = useCallback((targetRunId) => {
+    if (!targetRunId) return;
+    if (sseUnsubRef.current) {
+      sseUnsubRef.current();
+      sseUnsubRef.current = null;
+    }
+
+    const unsub = api.subscribeToRunEvents(
+      targetRunId,
+      (event) => {
+        if (!event || !event.type) return;
+
+        setRunResult((prev) => {
+          if (!prev) return prev;
+          const currentTasks = { ...(prev.tasks || {}) };
+
+          if (event.type === "task:running" && event.nodeId) {
+            currentTasks[event.nodeId] = {
+              ...(currentTasks[event.nodeId] || {}),
+              nodeId: event.nodeId,
+              status: "RUNNING",
+              startedAt: event.timestamp || new Date().toISOString(),
+            };
+            return { ...prev, status: "RUNNING", tasks: currentTasks };
+          }
+
+          if (event.type === "task:succeeded" && event.nodeId) {
+            currentTasks[event.nodeId] = {
+              ...(currentTasks[event.nodeId] || {}),
+              nodeId: event.nodeId,
+              status: "SUCCEEDED",
+              outputs: event.output,
+              output: event.output,
+              durationMs: event.durationMs,
+              completedAt: event.timestamp || new Date().toISOString(),
+            };
+            return { ...prev, tasks: currentTasks };
+          }
+
+          if (event.type === "task:failed" && event.nodeId) {
+            currentTasks[event.nodeId] = {
+              ...(currentTasks[event.nodeId] || {}),
+              nodeId: event.nodeId,
+              status: "FAILED",
+              error: event.error,
+              durationMs: event.durationMs,
+              completedAt: event.timestamp || new Date().toISOString(),
+            };
+            return { ...prev, tasks: currentTasks };
+          }
+
+          if (event.type === "task:skipped" && event.nodeId) {
+            currentTasks[event.nodeId] = {
+              ...(currentTasks[event.nodeId] || {}),
+              nodeId: event.nodeId,
+              status: "SKIPPED",
+            };
+            return { ...prev, tasks: currentTasks };
+          }
+
+          if (event.type === "workflow:completed") {
+            fetchRecentRuns(workflowId);
+            return {
+              ...prev,
+              status: "SUCCEEDED",
+              durationMs: event.durationMs || prev.durationMs,
+              finalOutput: event.output !== undefined ? event.output : prev.finalOutput,
+              output: event.output !== undefined ? event.output : prev.output,
+              tasks: currentTasks,
+            };
+          }
+
+          if (event.type === "workflow:failed") {
+            fetchRecentRuns(workflowId);
+            return {
+              ...prev,
+              status: "FAILED",
+              error: event.error || prev.error,
+              durationMs: event.durationMs || prev.durationMs,
+              tasks: currentTasks,
+            };
+          }
+
+          return prev;
+        });
+      },
+      (err) => {
+        console.warn("SSE stream closed or completed:", err);
+      }
+    );
+
+    sseUnsubRef.current = unsub;
+  }, [workflowId, fetchRecentRuns]);
+
   // Run execution
   const handleExecuteRun = async (triggerData) => {
     setIsRunning(true);
@@ -646,7 +830,23 @@ export default function WorkflowEditor({ workflowId, onBack }) {
 
       const res = await api.executeWorkflow(workflowId, { triggerData });
       if (res && res.data) {
-        setRunResult(res.data);
+        const runData = res.data;
+        const normalized = {
+          ...runData,
+          id: runData.id || runData.runId,
+          runId: runData.runId || runData.id,
+          finalOutput: runData.finalOutput !== undefined ? runData.finalOutput : runData.output,
+          tasks: runData.tasks || (runData.taskRuns ? Object.fromEntries(runData.taskRuns.map((t) => [t.nodeId, t])) : {}),
+        };
+        setRunResult(normalized);
+        setActiveRunId(normalized.runId);
+        window.history.replaceState({}, "", `${window.location.pathname}?runId=${normalized.runId}`);
+        fetchRecentRuns(workflowId);
+        setIsExecutionPanelOpen(true);
+
+        if (normalized.status === "RUNNING" || normalized.status === "QUEUED") {
+          startLiveRunTracking(normalized.runId);
+        }
       }
     } catch (err) {
       console.error("Execution failed:", err);
@@ -655,9 +855,22 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         error: { message: err.message },
         finalOutput: null,
       });
+      setIsExecutionPanelOpen(true);
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const handleOpenRunFromModal = (run) => {
+    const runId = run?.id || run?.runId;
+    if (runId) {
+      loadRunById(runId);
+      window.history.replaceState({}, "", `${window.location.pathname}?runId=${runId}`);
+    } else if (run) {
+      setRunResult(run);
+      setIsExecutionPanelOpen(true);
+    }
+    setIsWebhookModalOpen(false);
   };
 
   const selectedNode = selectedElement?.type === "node" ? nodes.find((n) => n.id === selectedElement.id) : null;
@@ -870,6 +1083,67 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                 ? "Ready to Run"
                 : `${validationResult.errors.length} Issue${validationResult.errors.length > 1 ? "s" : ""}`}
             </span>
+          </button>
+
+          {/* Webhook Testing Tool */}
+          <button
+            onClick={() => setIsWebhookModalOpen(true)}
+            title="Open Webhook Testing Panel"
+            style={{
+              padding: "6px 12px",
+              background: isWebhookModalOpen ? "rgba(56, 189, 248, 0.18)" : "var(--bg-secondary)",
+              border: `1px solid ${isWebhookModalOpen ? "#38bdf8" : "var(--border-subtle)"}`,
+              borderRadius: "var(--radius-sm)",
+              color: isWebhookModalOpen ? "#38bdf8" : "var(--text-primary)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "0.82rem",
+              fontWeight: "600",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Radio size={14} color="#38bdf8" />
+            <span>Webhook</span>
+          </button>
+
+
+          {/* Execution Timeline & Results Drawer */}
+          <button
+            onClick={() => setIsExecutionPanelOpen(!isExecutionPanelOpen)}
+            title="Toggle Execution Timeline & Result Inspector"
+            style={{
+              padding: "6px 12px",
+              background: isExecutionPanelOpen || runResult ? "rgba(57, 174, 169, 0.15)" : "var(--bg-secondary)",
+              border: `1px solid ${isExecutionPanelOpen || runResult ? "var(--brand-border)" : "var(--border-subtle)"}`,
+              borderRadius: "var(--radius-sm)",
+              color: isExecutionPanelOpen || runResult ? "var(--brand)" : "var(--text-secondary)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "0.82rem",
+              fontWeight: "600",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Activity size={14} color={runResult ? "#10b981" : "currentColor"} />
+            <span>Execution</span>
+            {recentRuns.length > 0 && (
+              <span
+                style={{
+                  fontSize: "0.68rem",
+                  padding: "1px 6px",
+                  borderRadius: "10px",
+                  background: "var(--bg-main)",
+                  color: "var(--text-muted)",
+                  fontWeight: "700",
+                }}
+              >
+                {recentRuns.length}
+              </span>
+            )}
           </button>
 
           {/* Save Button */}
@@ -1185,6 +1459,7 @@ export default function WorkflowEditor({ workflowId, onBack }) {
                     onDelete={handleDeleteEdge}
                     hasError={edgeHasError}
                     isRunning={isRunning}
+                    executionTasks={runResult?.tasks}
                   />
                 );
               })}
@@ -1298,6 +1573,45 @@ export default function WorkflowEditor({ workflowId, onBack }) {
         onRun={handleExecuteRun}
         isRunning={isRunning}
         runResult={runResult}
+      />
+
+      {/* Webhook Testing Modal */}
+      <WebhookTestingModal
+        isOpen={isWebhookModalOpen}
+        onClose={() => setIsWebhookModalOpen(false)}
+        workflowId={workflowId}
+        workflowName={workflowName}
+        onOpenRun={handleOpenRunFromModal}
+      />
+
+
+      {/* Dedicated Execution Timeline & Node Result Inspector */}
+      <ExecutionPanel
+        isOpen={isExecutionPanelOpen}
+        onClose={() => setIsExecutionPanelOpen(false)}
+        run={runResult}
+        recentRuns={recentRuns}
+        workflow={{
+          ...workflow,
+          name: workflowName,
+          version: workflowVersion,
+          nodes,
+          edges,
+        }}
+        onSelectRun={(runId) => {
+          loadRunById(runId);
+          window.history.replaceState({}, "", `${window.location.pathname}?runId=${runId}`);
+        }}
+        onSelectNode={(nodeId) => {
+          setSelectedElement({ id: nodeId, type: "node" });
+          const targetNode = nodes.find((n) => n.id === nodeId);
+          if (targetNode) {
+            setPan({
+              x: -targetNode.position.x * scale + 240,
+              y: -targetNode.position.y * scale + 200,
+            });
+          }
+        }}
       />
     </div>
   );

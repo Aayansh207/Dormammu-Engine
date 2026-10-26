@@ -20,6 +20,7 @@ import {
   AlertCircle
 } from "lucide-react";
 
+
 export default function RunExecutionModal({
   isOpen,
   onClose,
@@ -31,9 +32,7 @@ export default function RunExecutionModal({
   const allNodes = workflow?.definition?.nodes || workflow?.nodes || [];
   const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual");
   const isMultiTrigger = manualTriggers.length >= 2;
-  const hasAiNode = allNodes.some((n) => n.type?.startsWith("ai."));
-
-  const [triggerInput, setTriggerInput] = useState("10");
+  const [triggerInput, setTriggerInput] = useState("{}");
   const [multiTriggerMode, setMultiTriggerMode] = useState("per_trigger"); // "per_trigger" | "broadcast"
   const [selectedTriggerId, setSelectedTriggerId] = useState(null);
   const [perTriggerInputs, setPerTriggerInputs] = useState({});
@@ -43,21 +42,19 @@ export default function RunExecutionModal({
   const [taskTabs, setTaskTabs] = useState({}); // taskId -> "outputs" | "inputs" | "raw"
   const [copiedTaskId, setCopiedTaskId] = useState(null);
 
-  // Auto-load sample payload or AI scenario when modal opens
+  // Initialize input data on modal open
   useEffect(() => {
     if (!isOpen) return;
-    if (workflow?.definition?.samplePayload) {
-      setTriggerInput(JSON.stringify(workflow.definition.samplePayload, null, 2));
-    } else if (hasAiNode && triggerInput === "10") {
-      setTriggerInput(JSON.stringify({
-        ticketId: "TCK-4102",
-        customerName: "Marcus Vance",
-        email: "m.vance@retailhub.com",
-        issue: "Billing question regarding our monthly subscription invoice",
-        tier: "standard"
-      }, null, 2));
+    const defaultPayload = workflow?.definition?.samplePayload ||
+      manualTriggers[0]?.config?.defaultPayload ||
+      workflow?.samplePayload;
+
+    if (defaultPayload && Object.keys(defaultPayload).length > 0) {
+      setTriggerInput(typeof defaultPayload === "object" ? JSON.stringify(defaultPayload, null, 2) : String(defaultPayload));
+    } else {
+      setTriggerInput("{}");
     }
-  }, [isOpen, hasAiNode]);
+  }, [isOpen, workflow?.id]);
 
   // Synchronize multi-trigger default values whenever modal opens or workflow changes
   useEffect(() => {
@@ -485,84 +482,27 @@ export default function RunExecutionModal({
                     <label style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--text-secondary)" }}>
                       {isMultiTrigger ? "Broadcast Payload (Passed to all triggers)" : "Trigger Input Data (JSON or number)"}
                     </label>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      {hasAiNode && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setTriggerInput(
-                                JSON.stringify(
-                                  {
-                                    ticketId: "TCK-4102",
-                                    customerName: "Marcus Vance",
-                                    email: "m.vance@retailhub.com",
-                                    issue: "Billing question regarding our monthly subscription invoice",
-                                    tier: "standard",
-                                  },
-                                  null,
-                                  2
-                                )
-                              )
-                            }
-                            style={{
-                              fontSize: "0.7rem",
-                              padding: "2px 8px",
-                              background: "rgba(56, 189, 248, 0.12)",
-                              border: "1px solid rgba(56, 189, 248, 0.3)",
-                              borderRadius: "4px",
-                              color: "#38bdf8",
-                              fontWeight: "600",
-                              cursor: "pointer",
-                            }}
-                          >
-                            📋 Scenario 1: Normal Billing
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setTriggerInput(
-                                JSON.stringify(
-                                  {
-                                    ticketId: "TCK-8092",
-                                    customerName: "Sarah Chen",
-                                    email: "sarah.chen@enterprise.io",
-                                    issue: "Database connection pools exhausting rapidly on US-East prod cluster causing 504 timeouts",
-                                    tier: "enterprise",
-                                  },
-                                  null,
-                                  2
-                                )
-                              )
-                            }
-                            style={{
-                              fontSize: "0.7rem",
-                              padding: "2px 8px",
-                              background: "rgba(244, 63, 94, 0.12)",
-                              border: "1px solid rgba(244, 63, 94, 0.3)",
-                              borderRadius: "4px",
-                              color: "#fb7185",
-                              fontWeight: "600",
-                              cursor: "pointer",
-                            }}
-                          >
-                            🚨 Scenario 2: Critical Outage
-                          </button>
-                        </>
-                      )}
+                    <div style={{ display: "flex", gap: "6px" }}>
                       <button
                         type="button"
-                        onClick={() => setTriggerInput("10")}
-                        style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                        onClick={() => {
+                          try {
+                            const parsed = JSON.parse(triggerInput);
+                            setTriggerInput(JSON.stringify(parsed, null, 2));
+                          } catch {
+                            // ignore syntax error
+                          }
+                        }}
+                        style={{ fontSize: "0.7rem", padding: "3px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
                       >
-                        Number 10
+                        Format JSON
                       </button>
                       <button
                         type="button"
-                        onClick={() => setTriggerInput('{"userId": "usr_99", "amount": 250}')}
-                        style={{ fontSize: "0.7rem", padding: "2px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                        onClick={() => setTriggerInput("{}")}
+                        style={{ fontSize: "0.7rem", padding: "3px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
                       >
-                        JSON Object
+                        Clear
                       </button>
                     </div>
                   </div>
@@ -686,6 +626,280 @@ export default function RunExecutionModal({
                       </div>
                     </div>
                   )}
+
+                  {/* Structured Operational Incident Report Card */}
+                  {runResult.finalOutput && (runResult.finalOutput.serviceTelemetry || runResult.finalOutput.aiAnalysis) && (
+                    <div
+                      style={{
+                        background: "linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%)",
+                        border: "1px solid rgba(56, 189, 248, 0.25)",
+                        borderRadius: "12px",
+                        padding: "16px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "14px",
+                        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+                      }}
+                    >
+                      {/* Header */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                          borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                          paddingBottom: "10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <div
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              background:
+                                runResult.finalOutput.aiAnalysis?.severity === "critical"
+                                  ? "rgba(244, 63, 94, 0.2)"
+                                  : runResult.finalOutput.aiAnalysis?.severity === "warning"
+                                  ? "rgba(245, 158, 11, 0.2)"
+                                  : "rgba(56, 189, 248, 0.2)",
+                              border: `1px solid ${
+                                runResult.finalOutput.aiAnalysis?.severity === "critical"
+                                  ? "#f43f5e"
+                                  : runResult.finalOutput.aiAnalysis?.severity === "warning"
+                                  ? "#f59e0b"
+                                  : "#38bdf8"
+                              }`,
+                              color:
+                                runResult.finalOutput.aiAnalysis?.severity === "critical"
+                                  ? "#f43f5e"
+                                  : runResult.finalOutput.aiAnalysis?.severity === "warning"
+                                  ? "#f59e0b"
+                                  : "#38bdf8",
+                              fontSize: "0.78rem",
+                              fontWeight: "800",
+                              letterSpacing: "0.5px",
+                            }}
+                          >
+                            {runResult.finalOutput.aiAnalysis?.severity
+                              ? runResult.finalOutput.aiAnalysis.severity.toUpperCase()
+                              : "INCIDENT"}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: "0.98rem", fontWeight: "800", color: "#f8fafc" }}>
+                              {runResult.finalOutput.incidentId || runResult.finalOutput.ticketId || "INCIDENT REPORT"} —{" "}
+                              {runResult.finalOutput.service || "service"}
+                            </div>
+                            <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                              Region: {runResult.finalOutput.region || "global"} • Tier:{" "}
+                              {runResult.finalOutput.customerTier || "standard"} • Generated:{" "}
+                              {runResult.finalOutput.reportGeneratedAt || new Date().toISOString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#10b981",
+                            background: "rgba(16, 185, 129, 0.12)",
+                            padding: "3px 8px",
+                            borderRadius: "4px",
+                            fontWeight: "700",
+                            border: "1px solid rgba(16, 185, 129, 0.25)",
+                          }}
+                        >
+                          {runResult.finalOutput.status || "INVESTIGATION COMPLETE"}
+                        </div>
+                      </div>
+
+                      {/* Metrics Grid */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                          gap: "10px",
+                        }}
+                      >
+                        {/* Derived Calculations */}
+                        <div
+                          style={{
+                            background: "rgba(0, 0, 0, 0.25)",
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: "1px solid rgba(255, 255, 255, 0.05)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "0.72rem",
+                              fontWeight: "700",
+                              color: "#38bdf8",
+                              marginBottom: "6px",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            📊 Derived Metrics
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.76rem" }}>
+                            <div>
+                              Impacted Users:{" "}
+                              <strong style={{ color: "#f8fafc" }}>
+                                {runResult.finalOutput.derivedMetrics?.impactedVolume ?? runResult.finalOutput.affectedUsers}
+                              </strong>
+                            </div>
+                            <div>
+                              Error Rate:{" "}
+                              <strong style={{ color: "#f8fafc" }}>
+                                {((runResult.finalOutput.errorRate || 0) * 100).toFixed(0)}%
+                              </strong>
+                            </div>
+                            <div>
+                              Financial Risk:{" "}
+                              <strong style={{ color: "#f8fafc" }}>
+                                ${(runResult.finalOutput.revenueAtRisk || 0).toLocaleString()}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Service Telemetry */}
+                        {runResult.finalOutput.serviceTelemetry && (
+                          <div
+                            style={{
+                              background: "rgba(0, 0, 0, 0.25)",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              border: "1px solid rgba(255, 255, 255, 0.05)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "0.72rem",
+                                fontWeight: "700",
+                                color: "#a855f7",
+                                marginBottom: "6px",
+                                textTransform: "uppercase",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <span>📡 Telemetry (Mock)</span>
+                              <span style={{ fontSize: "0.62rem", color: "#94a3b8" }}>Simulated</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.76rem" }}>
+                              <div>
+                                P99 Latency:{" "}
+                                <strong style={{ color: "#f8fafc" }}>
+                                  {runResult.finalOutput.serviceTelemetry.p99LatencyMs} ms
+                                </strong>
+                              </div>
+                              <div>
+                                Pods:{" "}
+                                <strong style={{ color: "#f8fafc" }}>
+                                  {runResult.finalOutput.serviceTelemetry.activePods} active (
+                                  {runResult.finalOutput.serviceTelemetry.unhealthyPods} unhealthy)
+                                </strong>
+                              </div>
+                              <div>
+                                Provider:{" "}
+                                <strong
+                                  style={{
+                                    color:
+                                      runResult.finalOutput.serviceTelemetry.providerHealth === "degraded"
+                                        ? "#f43f5e"
+                                        : "#10b981",
+                                  }}
+                                >
+                                  {runResult.finalOutput.serviceTelemetry.providerHealth}
+                                </strong>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* AI Analysis */}
+                        {runResult.finalOutput.aiAnalysis && (
+                          <div
+                            style={{
+                              background: "rgba(0, 0, 0, 0.25)",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              border: "1px solid rgba(255, 255, 255, 0.05)",
+                              gridColumn: "span 2",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "0.72rem",
+                                fontWeight: "700",
+                                color: "#f59e0b",
+                                marginBottom: "6px",
+                                textTransform: "uppercase",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <span>
+                                🤖 AI Hypothesis ({runResult.finalOutput.aiAnalysis.provider} /{" "}
+                                {runResult.finalOutput.aiAnalysis.model})
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: "0.65rem",
+                                  color: "#f59e0b",
+                                  background: "rgba(245, 158, 11, 0.15)",
+                                  padding: "1px 6px",
+                                  borderRadius: "3px",
+                                }}
+                              >
+                                {((runResult.finalOutput.aiAnalysis.confidence || 0.95) * 100).toFixed(0)}% Confidence
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "0.8rem", color: "#e2e8f0", lineHeight: 1.4, marginBottom: "6px" }}>
+                              <strong>Leading Hypothesis:</strong> {runResult.finalOutput.aiAnalysis.leadingHypothesis}
+                            </div>
+                            {Array.isArray(runResult.finalOutput.aiAnalysis.alternativeExplanations) && (
+                              <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                                <strong>Alternative Explanations:</strong>{" "}
+                                {runResult.finalOutput.aiAnalysis.alternativeExplanations.join(" • ")}
+                              </div>
+                            )}
+                            <div style={{ fontSize: "0.68rem", color: "#64748b", marginTop: "4px", fontStyle: "italic" }}>
+                              ⚠️ Root cause unconfirmed: generated hypothesis requires human verification before production rollback.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Plan */}
+                      {runResult.finalOutput.actionPlan && (
+                        <div
+                          style={{
+                            background: "rgba(0, 0, 0, 0.35)",
+                            padding: "10px 14px",
+                            borderRadius: "8px",
+                            borderLeft: `4px solid ${
+                              runResult.finalOutput.aiAnalysis?.severity === "critical"
+                                ? "#f43f5e"
+                                : runResult.finalOutput.aiAnalysis?.severity === "warning"
+                                ? "#f59e0b"
+                                : "#38bdf8"
+                            }`,
+                            fontSize: "0.82rem",
+                            fontWeight: "600",
+                            color: "#f8fafc",
+                          }}
+                        >
+                          {runResult.finalOutput.actionPlan}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+
 
                   {/* Final Output */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>

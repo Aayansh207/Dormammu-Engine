@@ -16,20 +16,40 @@ function getPropertyByPath(obj, path) {
     return obj;
   }
 
-  // Tokenize paths like "user.profile.name" or "items[0].id"
-  const tokens = cleanPath
-    .replace(/\[(\w+)\]/g, ".$1")
-    .split(".")
-    .filter((token) => token.length > 0);
+  // Support pipe-delimited fallback paths e.g. "affected_users|affectedUsers"
+  const candidatePaths = cleanPath.split("|").map(p => p.trim()).filter(Boolean);
+  for (const candidate of candidatePaths) {
+    const tokens = candidate
+      .replace(/\[(\w+)\]/g, ".$1")
+      .split(".")
+      .filter((token) => token.length > 0);
 
-  let current = obj;
-  for (const token of tokens) {
-    if (current === null || current === undefined) {
-      return undefined;
+    let current = obj;
+    let found = true;
+    for (const token of tokens) {
+      if (current === null || current === undefined || !(token in Object(current))) {
+        found = false;
+        break;
+      }
+      current = current[token];
     }
-    current = current[token];
+    if (found && current !== undefined) {
+      return current;
+    }
   }
-  return current;
+
+  // Automatic camelCase / snake_case alternative lookup
+  const primary = candidatePaths[0];
+  const camelAlt = primary.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  if (obj && typeof obj === "object" && obj[camelAlt] !== undefined) {
+    return obj[camelAlt];
+  }
+  const snakeAlt = primary.replace(/([A-Z])/g, "_$1").toLowerCase();
+  if (obj && typeof obj === "object" && obj[snakeAlt] !== undefined) {
+    return obj[snakeAlt];
+  }
+
+  return undefined;
 }
 
 module.exports = {

@@ -1,0 +1,12 @@
+{
+  "scenario_name": "Invalid / Incomplete Incident Payload",
+  "expected_severity": "rejected",
+  "expected_route": "failed_fast",
+  "payload": {
+    "incident_id": "INC-INVALID",
+    "title": "Bad",
+    "affected_users": -25,
+    "error_rate": 1.45,
+    "region": "ap-south-1"
+  }
+}

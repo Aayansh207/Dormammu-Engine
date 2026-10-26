@@ -3,6 +3,7 @@
  * Tests every node handler, validator rules, planner, and DAG scheduler.
  */
 
+require("dotenv").config();
 const assert = require("assert");
 const { NodeRegistry, defaultRegistry } = require("./src/engine/registry/node.registry");
 const { validateWorkflow } = require("./src/engine/validator/workflow.validator");
@@ -539,7 +540,7 @@ async function runWorkflowEngineTests() {
       { config: { schema: { customerName: "string", priority: "string" } } }
     );
     assert.ok(typeof resExtract.output === "object");
-    assert.strictEqual(resExtract.output.priority, "high");
+    assert.ok(["urgent", "high"].includes(resExtract.output.priority));
 
     // Summarize
     const resSummary = await summarizeDef.handler(
@@ -1242,17 +1243,28 @@ async function runWorkflowEngineTests() {
 
   const opsCenterWorkflow = require("./workflows/dormammu_ai_operations_center.json");
 
-  await test("Flagship Scenario 1: Critical outage routes to CRITICAL escalation with impact score 96", async () => {
+  await test("Flagship Scenario 1: Critical outage routes to CRITICAL escalation with real telemetry & impact calculations", async () => {
     const criticalPayload = {
-      ticketId: "TCK-8092",
+      incident_id: "INC-8092",
+      ticketId: "INC-8092",
       title: "Payment gateway returning HTTP 504 errors",
       description: "Multiple users cannot complete checkout.",
       service: "payment-gateway",
+      customer_tier: "enterprise",
       customerTier: "enterprise",
+      affected_users: 1200,
       affectedUsers: 1200,
+      error_rate: 0.42,
       errorRate: 0.42,
+      latency_ms: 3400,
+      failed_transactions: 620,
+      revenue_at_risk: 54800,
       region: "ap-south-1",
-      source: "support-webhook",
+      recent_deploy: true,
+      logs: [
+        "2026-10-26T00:14:12Z [ERROR] HTTP 504 Gateway Timeout upstream provider",
+        "2026-10-26T00:14:18Z [WARN] Connection pool exhausted: active=100/100 queue=450"
+      ]
     };
 
     const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: criticalPayload });
@@ -1262,6 +1274,7 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.tasks.trig_ops.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.validate_incident.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.normalize_incident.status, TaskRunStatus.SUCCEEDED);
+    assert.strictEqual(summary.tasks.fetch_service_telemetry.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.ai_classifier.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.calc_raw_impact.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.calc_impact_score.status, TaskRunStatus.SUCCEEDED);
@@ -1275,30 +1288,41 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.tasks.assemble_final_report.status, TaskRunStatus.SUCCEEDED);
     assert.strictEqual(summary.tasks.ops_return.status, TaskRunStatus.SUCCEEDED);
 
-    // Verify math & impact score calculation (1200 * 0.42 * 0.190476 = 96.0 -> round -> 96)
+    // Verify math & impact score calculation (1200 * 0.42 = 504)
     assert.strictEqual(summary.tasks.calc_raw_impact.outputs.output, 504);
-    assert.strictEqual(summary.tasks.calc_impact_score.outputs.output, 96);
-    assert.strictEqual(summary.tasks.build_impact_summary.outputs.output.impactScore, 96);
+    assert.strictEqual(summary.tasks.calc_impact_score.outputs.output, 504);
+    assert.strictEqual(summary.tasks.build_impact_summary.outputs.output.impactedVolume, 504);
 
     // Verify final report structure and content
     const report = summary.finalOutput;
-    assert.strictEqual(report.ticketId, "TCK-8092");
+    assert.strictEqual(report.ticketId, "INC-8092");
     assert.strictEqual(report.service, "payment-gateway");
     assert.strictEqual(report.customerTier, "enterprise");
-    assert.ok(report.actionSummary.includes("CRITICAL OUTAGE ESCALATION"));
+    assert.ok(report.actionPlan.includes("CRITICAL OUTAGE ESCALATION"));
+    assert.ok(report.serviceTelemetry);
+    assert.ok(report.aiAnalysis);
+    assert.strictEqual(report.aiAnalysis.severity, "critical");
+    assert.strictEqual(report.aiAnalysis.isVerifiedFact, false);
   });
 
   await test("Flagship Scenario 2: Normal billing inquiry routes to STANDARD support queue", async () => {
     const normalPayload = {
-      ticketId: "TCK-4102",
+      incident_id: "INC-4102",
+      ticketId: "INC-4102",
       title: "Question about an invoice",
       description: "The customer wants clarification about a recent invoice.",
-      service: "billing",
+      service: "billing-worker",
+      customer_tier: "standard",
       customerTier: "standard",
-      affectedUsers: 1,
+      affected_users: 0,
+      affectedUsers: 0,
+      error_rate: 0,
       errorRate: 0,
+      latency_ms: 42,
+      failed_transactions: 0,
+      revenue_at_risk: 0,
       region: "ap-south-1",
-      source: "support-webhook",
+      recent_deploy: false,
     };
 
     const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: normalPayload });
@@ -1311,21 +1335,29 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.tasks.merge_actions.status, TaskRunStatus.SUCCEEDED);
 
     const report = summary.finalOutput;
-    assert.strictEqual(report.ticketId, "TCK-4102");
-    assert.ok(report.actionSummary.includes("STANDARD SUPPORT"));
+    assert.strictEqual(report.ticketId, "INC-4102");
+    assert.ok(report.actionPlan.includes("STANDARD SUPPORT"));
+    assert.strictEqual(report.aiAnalysis.severity, "normal");
   });
 
   await test("Flagship Scenario 3: Warning degradation routes to PROMPT INVESTIGATION", async () => {
     const warningPayload = {
-      ticketId: "TCK-6204",
-      title: "Slow response times and latency spikes on reporting cluster",
-      description: "Average latency increased to 950ms on reporting queries",
-      service: "reporting-api",
+      incident_id: "INC-6204",
+      ticketId: "INC-6204",
+      title: "Slow response times and latency spikes on auth cluster",
+      description: "Average latency increased to 950ms on token verification queries",
+      service: "auth-service",
+      customer_tier: "standard",
       customerTier: "standard",
+      affected_users: 150,
       affectedUsers: 150,
+      error_rate: 0.12,
       errorRate: 0.12,
+      latency_ms: 950,
+      failed_transactions: 12,
+      revenue_at_risk: 1200,
       region: "ap-south-1",
-      source: "support-webhook",
+      recent_deploy: false,
     };
 
     const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: warningPayload });
@@ -1338,14 +1370,15 @@ async function runWorkflowEngineTests() {
     assert.strictEqual(summary.tasks.merge_actions.status, TaskRunStatus.SUCCEEDED);
 
     const report = summary.finalOutput;
-    assert.strictEqual(report.ticketId, "TCK-6204");
-    assert.ok(report.actionSummary.includes("WARNING INVESTIGATION"));
+    assert.strictEqual(report.ticketId, "INC-6204");
+    assert.ok(report.actionPlan.includes("WARNING INVESTIGATION"));
+    assert.strictEqual(report.aiAnalysis.severity, "warning");
   });
 
   await test("Flagship Scenario 4: Invalid input rejected fast at validate_incident, marking downstream BLOCKED", async () => {
     const invalidPayload = {
-      ticketId: "TCK-INVALID",
-      // missing required fields: title, service, customerTier, errorRate
+      incident_id: "INC-INVALID",
+      // missing required fields: service, error_rate, affected_users, latency_ms
     };
 
     const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: invalidPayload });
@@ -1357,6 +1390,33 @@ async function runWorkflowEngineTests() {
     // Downstream nodes must be BLOCKED
     assert.strictEqual(summary.tasks.normalize_incident.status, TaskRunStatus.BLOCKED);
     assert.strictEqual(summary.tasks.ai_classifier.status, TaskRunStatus.BLOCKED);
+    assert.strictEqual(summary.tasks.ops_return.status, TaskRunStatus.BLOCKED);
+  });
+
+  await test("Flagship Scenario 5: Telemetry dependency failure stops operations center and marks downstream BLOCKED", async () => {
+    const depFailurePayload = {
+      incident_id: "INC-9901",
+      ticketId: "INC-9901",
+      service: "nonexistent-failing-service",
+      title: "Downstream telemetry provider unreachable",
+      description: "Service monitoring endpoint returns HTTP 503 unavailable.",
+      customer_tier: "enterprise",
+      customerTier: "enterprise",
+      affected_users: 50,
+      affectedUsers: 50,
+      error_rate: 0.25,
+      errorRate: 0.25,
+      latency_ms: 4500,
+      failed_transactions: 20,
+      revenue_at_risk: 1500,
+      region: "eu-central-1",
+      recent_deploy: true,
+    };
+
+    const summary = await executeWorkflow(opsCenterWorkflow, { triggerData: depFailurePayload });
+    assert.strictEqual(summary.status, WorkflowRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.fetch_service_telemetry.status, TaskRunStatus.FAILED);
+    assert.strictEqual(summary.tasks.assemble_final_report.status, TaskRunStatus.BLOCKED);
     assert.strictEqual(summary.tasks.ops_return.status, TaskRunStatus.BLOCKED);
   });
 

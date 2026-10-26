@@ -58,28 +58,44 @@ module.exports = {
 
     // 1. Check required fields
     if (Array.isArray(config.requiredFields)) {
-      for (const field of config.requiredFields) {
-        const val = payloadObj[field];
-        if (val === undefined || val === null || val === "") {
-          validationErrors.push(`Required field '${field}' is missing or empty`);
+      for (const fieldExpr of config.requiredFields) {
+        const candidates = String(fieldExpr).split("|").map(f => f.trim());
+        let val = undefined;
+        for (const candidate of candidates) {
+          if (payloadObj[candidate] !== undefined && payloadObj[candidate] !== null && payloadObj[candidate] !== "") {
+            val = payloadObj[candidate];
+            break;
+          }
+        }
+        if (val === undefined) {
+          validationErrors.push(`Required field '${fieldExpr}' is missing or empty`);
         }
       }
     }
 
     // 2. Check field constraints
     if (config.rules && typeof config.rules === "object") {
-      for (const [field, rule] of Object.entries(config.rules)) {
-        const val = payloadObj[field];
-        if (val !== undefined && val !== null) {
+      for (const [fieldExpr, rule] of Object.entries(config.rules)) {
+        const candidates = String(fieldExpr).split("|").map(f => f.trim());
+        let val = undefined;
+        let matchedField = fieldExpr;
+        for (const candidate of candidates) {
+          if (payloadObj[candidate] !== undefined && payloadObj[candidate] !== null) {
+            val = payloadObj[candidate];
+            matchedField = candidate;
+            break;
+          }
+        }
+        if (val !== undefined) {
           if (rule.type && typeof val !== rule.type) {
-            validationErrors.push(`Field '${field}' must be of type '${rule.type}' (got '${typeof val}')`);
+            validationErrors.push(`Field '${matchedField}' must be of type '${rule.type}' (got '${typeof val}')`);
           }
           if (typeof val === "number") {
             if (rule.min !== undefined && val < rule.min) {
-              validationErrors.push(`Field '${field}' must be >= ${rule.min} (got ${val})`);
+              validationErrors.push(`Field '${matchedField}' must be >= ${rule.min} (got ${val})`);
             }
             if (rule.max !== undefined && val > rule.max) {
-              validationErrors.push(`Field '${field}' must be <= ${rule.max} (got ${val})`);
+              validationErrors.push(`Field '${matchedField}' must be <= ${rule.max} (got ${val})`);
             }
           }
         }

@@ -1,0 +1,25 @@
+{
+  "scenario_name": "Critical Payment Gateway Outage",
+  "expected_severity": "critical",
+  "expected_route": "critical",
+  "payload": {
+    "incident_id": "INC-8092",
+    "service": "payment-gateway",
+    "title": "Payment gateway returning HTTP 504 gateway timeout errors",
+    "description": "Customer checkout flows are failing across web and mobile apps. Connection pool exhausted to upstream bank acquirer.",
+    "error_rate": 0.48,
+    "latency_ms": 3400,
+    "affected_users": 1450,
+    "failed_transactions": 620,
+    "revenue_at_risk": 54800,
+    "region": "ap-south-1",
+    "customer_tier": "enterprise",
+    "recent_deploy": true,
+    "logs": [
+      "2026-10-25T23:14:02Z ERROR [pool-worker-04] Upstream bank acquirer socket timeout after 3000ms",
+      "2026-10-25T23:14:05Z FATAL [http-inbound] Connection pool exhausted (size=50, active=50, waiting=142)",
+      "2026-10-25T23:14:08Z WARN  [circuit-breaker] Circuit breaker tripped to OPEN state for payment-gateway",
+      "2026-10-25T23:14:12Z ERROR [checkout-router] 504 Gateway Timeout returned to client session #sess_99120"
+    ]
+  }
+}

@@ -180,23 +180,39 @@ function callMockAi(taskType, payload) {
         }
       }
 
+      let severity = "normal";
+      let leadingHypothesis = "Standard operational parameters within baseline thresholds";
+      let alternativeExplanations = ["Transient network variance", "Minor client-side retry spike"];
+
       // Keyword heuristics for support triage & operations center
       if (lower.includes("outage") || lower.includes("504") || lower.includes("crash") || lower.includes("down") || lower.includes("emergency") || lower.includes("payment")) {
         const critMatch = categories.find((c) => /outage|critical|urgent|high/i.test(String(c)));
         if (critMatch) matched = critMatch;
-      } else if (lower.includes("latency") || lower.includes("slow") || lower.includes("degradation") || lower.includes("warning") || lower.includes("spike")) {
+        severity = "critical";
+        leadingHypothesis = "Upstream payment provider TLS/HTTP connection pool exhaustion following recent deployment";
+        alternativeExplanations = ["Database connection pool saturation in primary cluster", "Transit ISP packet loss in ap-south-1"];
+      } else if (lower.includes("latency") || lower.includes("slow") || lower.includes("degradation") || lower.includes("warning") || lower.includes("spike") || lower.includes("auth")) {
         const warnMatch = categories.find((c) => /degradation|warning|performance|medium/i.test(String(c)));
         if (warnMatch) matched = warnMatch;
+        severity = "warning";
+        leadingHypothesis = "Redis token cache saturation causing excessive cache misses and database fallback latency";
+        alternativeExplanations = ["External identity provider throttling", "Intermittent CPU throttling under peak load"];
       } else if (lower.includes("billing") || lower.includes("invoice") || lower.includes("question") || lower.includes("clarification") || lower.includes("standard")) {
         const normMatch = categories.find((c) => /billing|inquiry|support|standard|general|normal/i.test(String(c)));
         if (normMatch) matched = normMatch;
+        severity = "normal";
+        leadingHypothesis = "Routine inquiry or standard operation within normal SLA thresholds";
+        alternativeExplanations = ["Single-user account configuration question"];
       }
 
       return {
         ...commonMeta,
         category: matched,
+        severity,
         confidence: 0.95,
-        reasoning: `[DEMO MOCK - Offline Deterministic Fallback] Matched based on semantic keyword presence in text '${text.slice(0, 50)}...'`,
+        leadingHypothesis,
+        alternativeExplanations,
+        reasoning: `[DEMO MOCK - Offline Deterministic Fallback] Matched category '${matched}' with severity '${severity}' based on incident indicators.`,
       };
     }
 
@@ -271,8 +287,8 @@ async function executeAiTask(taskType, payload, options = {}) {
   const groqKey = options.apiKey || payload.apiKey || process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
 
   if (!groqKey) {
-    // In offline automated test environments or when explicitly permitted via ALLOW_OFFLINE_MOCK, fallback transparently if not strict
-    if (!options.strict && (process.env.ALLOW_OFFLINE_MOCK === "true" || process.env.NODE_ENV === "test")) {
+    // Isolated automated unit test environments (NODE_ENV === "test") may use mock AI if explicitly permitted
+    if (process.env.NODE_ENV === "test" && (process.env.ALLOW_OFFLINE_MOCK === "true" || options.allowMock)) {
       return callMockAi(taskType, payload);
     }
 
@@ -292,7 +308,7 @@ async function executeAiTask(taskType, payload, options = {}) {
     systemInstruction =
       "You are an expert triage and classification AI powered by Groq. You must classify the input into exactly one of the target categories. " +
       "You MUST return ONLY a valid JSON object matching this schema:\n" +
-      '{"category": string, "confidence": number, "reasoning": string, "severity": "critical" | "warning" | "normal"}\n' +
+      '{"category": string, "confidence": number, "reasoning": string, "severity": "critical" | "warning" | "normal", "leadingHypothesis": string, "alternativeExplanations": string[]}\n' +
       "Do NOT return markdown backticks or commentary.";
     userPrompt =
       `Target Categories: ${JSON.stringify(categories)}\n\n` +

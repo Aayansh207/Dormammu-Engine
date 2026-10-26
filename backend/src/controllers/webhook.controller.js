@@ -53,14 +53,14 @@ class WebhookController {
       const definition = versionRecord.definitionJson;
       const nodes = (definition && definition.nodes) || [];
 
-      // 2. Locate trigger.webhook node(s)
-      const webhookNode = nodes.find((n) => n.type === "trigger.webhook");
+      // 2. Locate entry trigger node (trigger.webhook or trigger.manual)
+      const webhookNode = nodes.find((n) => n.type === "trigger.webhook") || nodes.find((n) => n.type === "trigger.manual");
       if (!webhookNode) {
         return res.status(400).json({
           success: false,
           error: {
             code: "NO_WEBHOOK_TRIGGER",
-            message: "Workflow does not contain an active 'trigger.webhook' node",
+            message: "Workflow does not contain an active trigger node ('trigger.webhook' or 'trigger.manual')",
           },
         });
       }
@@ -84,8 +84,11 @@ class WebhookController {
       }
 
       // 4. Verify Secret Token if configured on webhook node
-      if (config.webhookToken && String(config.webhookToken).trim() !== "") {
-        const expectedToken = String(config.webhookToken).trim();
+      const expectedToken = (config.webhookToken && String(config.webhookToken).trim() !== "")
+        ? String(config.webhookToken).trim()
+        : null;
+
+      if (expectedToken) {
         const headerToken = req.headers["x-webhook-token"] || req.headers["x-api-key"];
         const queryToken = req.query.token;
         const authHeader = req.headers["authorization"];
@@ -140,15 +143,37 @@ class WebhookController {
       });
 
       const httpStatus = runResult.status === "SUCCEEDED" ? 200 : 422;
+
+      // Clean, organized node execution summary (avoids dumping raw HTTP headers into terminal output)
+      const cleanNodeResults = {};
+      for (const [nodeId, task] of Object.entries(runResult.tasks || {})) {
+        cleanNodeResults[nodeId] = {
+          status: task.status,
+          ...(task.durationMs !== undefined && { durationMs: task.durationMs }),
+          ...(task.error && { error: task.error }),
+        };
+      }
+
       return res.status(httpStatus).json({
         success: runResult.status === "SUCCEEDED",
         runId: runResult.runId,
         workflowId: workflow.id,
         status: runResult.status,
-        output: runResult.finalOutput,
+        triggerType: "WEBHOOK",
         durationMs: runResult.durationMs,
         startedAt: runResult.startedAt,
         completedAt: runResult.completedAt,
+        statusUrl: `/api/runs/${runResult.runId}`,
+        eventsUrl: `/api/runs/${runResult.runId}/events`,
+        summary: {
+          totalNodes: Object.keys(runResult.tasks || {}).length,
+          succeeded: Object.values(runResult.tasks || {}).filter((t) => t.status === "SUCCEEDED").length,
+          skipped: Object.values(runResult.tasks || {}).filter((t) => t.status === "SKIPPED").length,
+          failed: Object.values(runResult.tasks || {}).filter((t) => t.status === "FAILED").length,
+        },
+        nodeResults: cleanNodeResults,
+        output: runResult.finalOutput,
+        finalOutput: runResult.finalOutput,
         error: runResult.error || null,
       });
     } catch (err) {

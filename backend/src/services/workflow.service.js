@@ -380,6 +380,15 @@ class WorkflowService {
       });
     };
 
+    // Emit workflow started event via SSE
+    defaultSseService.emitRunEvent(runRecord.id, "workflow:started", {
+      runId: runRecord.id,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      status: "RUNNING",
+      startedAt: runRecord.startedAt,
+    });
+
     // 4. Execute through the in-process DAG scheduler
     const execSummary = await executeWorkflow(definition, {
       runId: runRecord.id,
@@ -412,18 +421,26 @@ class WorkflowService {
       error: execSummary.error,
     });
 
+    const triggerType = triggerData?.$triggerType || (triggerData?.$webhook ? "WEBHOOK" : (triggerData?.$cron ? "CRON" : "MANUAL"));
+
     return {
+      id: runRecord.id,
       runId: runRecord.id,
       workflowId: workflow.id,
       workflowName: workflow.name,
       workflowVersionId: versionRecord.id,
       version: versionRecord.version,
       status: execSummary.status,
+      triggerType,
+      input: triggerData || {},
+      output: execSummary.finalOutput,
       finalOutput: execSummary.finalOutput,
       durationMs: execSummary.durationMs,
       startedAt: execSummary.startedAt,
+      finishedAt: finishedAt.toISOString(),
       completedAt: execSummary.completedAt,
       tasks: execSummary.tasks,
+      nodeResults: execSummary.tasks,
       executionTrace: execSummary.executionTrace,
       error: execSummary.error,
     };
@@ -431,10 +448,13 @@ class WorkflowService {
 
   /**
    * Retrieves a run by ID with all task run records.
-   * @param {string} userId
+   * @param {string|Object} userOrId - Authenticated userId or user object
    * @param {string} runId
    */
-  async getRunById(userId, runId) {
+  async getRunById(userOrId, runId) {
+    const userId = typeof userOrId === "object" && userOrId ? userOrId.id : userOrId;
+    const userRole = typeof userOrId === "object" && userOrId ? userOrId.role : null;
+
     const run = await prisma.workflowRun.findUnique({
       where: { id: runId },
       include: {
@@ -457,25 +477,57 @@ class WorkflowService {
       throw err;
     }
 
-    if (run.workflowVersion.workflow.ownerId !== userId) {
+    if (run.workflowVersion.workflow.ownerId !== userId && userRole !== "ADMIN") {
       const err = new Error("Forbidden: You do not have permission to view this execution run");
       err.statusCode = 403;
       throw err;
     }
 
+    const triggerType = run.input?.$triggerType || (run.input?.$webhook ? "WEBHOOK" : (run.input?.$cron ? "CRON" : "MANUAL"));
+    const durationMs = run.finishedAt && run.startedAt
+      ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
+      : 0;
+
+    const nodeResults = {};
+    for (const tr of run.taskRuns || []) {
+      nodeResults[tr.nodeId] = {
+        nodeId: tr.nodeId,
+        status: tr.status,
+        attempts: tr.attempts,
+        inputs: tr.input,
+        outputs: tr.output,
+        input: tr.input,
+        output: tr.output,
+        error: tr.error,
+        startedAt: tr.startedAt,
+        completedAt: tr.finishedAt,
+        finishedAt: tr.finishedAt,
+        durationMs: tr.finishedAt && tr.startedAt
+          ? Math.max(0, new Date(tr.finishedAt).getTime() - new Date(tr.startedAt).getTime())
+          : 0,
+      };
+    }
+
     return {
       id: run.id,
+      runId: run.id,
       workflowId: run.workflowVersion.workflow.id,
       workflowName: run.workflowVersion.workflow.name,
       version: run.workflowVersion.version,
       status: run.status,
+      triggerType,
       input: run.input,
       output: run.output,
+      finalOutput: run.output,
       error: run.error,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
+      completedAt: run.finishedAt,
+      durationMs,
       createdAt: run.createdAt,
       taskRuns: run.taskRuns,
+      tasks: nodeResults,
+      nodeResults,
     };
   }
 
@@ -520,17 +572,30 @@ class WorkflowService {
       },
     });
 
-    return runs.map((r) => ({
-      id: r.id,
-      version: r.workflowVersion.version,
-      status: r.status,
-      output: r.output,
-      error: r.error,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
-      createdAt: r.createdAt,
-      taskCount: r._count.taskRuns,
-    }));
+    return runs.map((r) => {
+      const triggerType = r.input?.$triggerType || (r.input?.$webhook ? "WEBHOOK" : (r.input?.$cron ? "CRON" : "MANUAL"));
+      const durationMs = r.finishedAt && r.startedAt
+        ? Math.max(0, new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())
+        : 0;
+
+      return {
+        id: r.id,
+        runId: r.id,
+        version: r.workflowVersion.version,
+        status: r.status,
+        triggerType,
+        input: r.input,
+        output: r.output,
+        finalOutput: r.output,
+        error: r.error,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        completedAt: r.finishedAt,
+        durationMs,
+        createdAt: r.createdAt,
+        taskCount: r._count.taskRuns,
+      };
+    });
   }
 }
 

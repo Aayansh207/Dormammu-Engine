@@ -6,8 +6,9 @@ A production-grade, reliable visual workflow automation platform and DAG executi
 
 ## 🚀 Key Highlights & Architecture
 
+- **General-Purpose Workflow Automation Platform**: Build, configure, validate, and execute arbitrary DAG workflows for data processing, AI triage, webhook ingestion, external API integrations, and business logic.
 - **Canonical Workflow Standard**: Explicit, namespaced format featuring deterministic node instances, declared input/output ports, directed edges, visual editor positions, and schema-validated configuration.
-- **Authoritative Node Catalogue in PostgreSQL**: Node definitions, port schemas, configuration constraints, and capability flags are persisted in PostgreSQL (`node_definitions`) and automatically synced with trusted execution handlers on startup.
+- **Authoritative Node Catalogue in PostgreSQL**: 35 production node definitions, port schemas, configuration constraints, and capability flags are persisted in PostgreSQL (`node_definitions`) and automatically synced with trusted execution handlers on startup.
 - **4-Level Unified Validator**:
   1. *Level 1 (Structural)*: Schema version compatibility (`1`, `1.0`), non-empty unique IDs, object shapes.
   2. *Level 2 (Graph Integrity)*: Source/target existence, port existence, duplicate edges, self-loop rejection, and cycle detection (3-color DFS).
@@ -15,42 +16,89 @@ A production-grade, reliable visual workflow automation platform and DAG executi
   4. *Level 4 (Semantic)*: Required input connections, defaults fallback, and port type compatibility.
 - **Deterministic O(V + E) Execution Planner**: Derives adjacency indexes, in-degrees, entry nodes, and terminal targets with reproducible ID tie-breaking.
 - **Isolated Node Runtime Contract**: Handlers execute with resolved input values, safe scoped logging, abort signals, and configurable execution timeouts.
-- **Sequential DAG Scheduler**: Manages dependency readiness, topological ordering, fail-fast cascading blocking of downstream nodes on failure, cancellation propagation, deadlock detection, and final output extraction.
-- **Immutable Versioning & Durable Run History**:
+- **Sequential DAG Scheduler**: Manages dependency readiness, topological ordering, cascading branch skipping (`SKIPPED`), fail-fast blocking of downstream nodes on failure (`BLOCKED`), cancellation propagation, deadlock detection, and final output extraction.
+- **Live Observability & Durable History**:
   - `Workflow`: Identity, ownership, metadata.
   - `WorkflowVersion`: Immutable snapshot of definition JSON per version (`v1`, `v2`, ...).
   - `WorkflowRun`: Execution run tracking status (`RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`), inputs, and final output.
   - `TaskRun`: Granular per-node execution records storing attempt counts, start/finish timestamps, duration, resolved inputs, outputs, and errors.
-- **Interactive Visual Canvas**: React + Vite frontend with pan/zoom viewport, dynamic SVG Bezier connector curves, interactive port handles, node inspector, validation flyout, and real-time execution result modal.
+  - `SSE Streaming`: Live execution events pushed in real time via Server-Sent Events (`/api/runs/:id/events`).
+- **Interactive Visual Canvas**: React + Vite frontend with pan/zoom viewport, dynamic SVG Bezier connector curves, interactive port handles, node inspector, validation drawer, manual execution modal with custom JSON input, and webhook testing interface.
 
 ---
 
-## 📦 Phase 1 Node Catalogue (20 Nodes)
+## 📖 General-Purpose Workflow Product Guide
 
-| Node Type | Category | Inputs | Outputs | Config Schema | Description |
-|-----------|----------|--------|---------|---------------|-------------|
-| `trigger.manual` | `trigger` | `input`, `payload` | `output` | `defaultPayload` | Manual workflow entry point with payload ingestion |
-| `data.input` | `trigger` | - | `output`, `value` | `key`, `defaultValue` | Ingests named property from trigger payload or defaults |
-| `math.add` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `addend` | Sums inputs or applies configured addend |
-| `math.subtract` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `subtrahend` | Calculates difference ($a - b$ or input - subtrahend) |
-| `math.multiply` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `factor` | Multiplies inputs or applies configured factor |
-| `math.divide` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `divisor` | Divides inputs with division-by-zero protection |
-| `math.modulo` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `divisor` | Remainder of division with zero-divisor checking |
-| `math.power` | `mathematical` | `input`, `base`, `exponent` | `output`, `result` | `exponent` | Computes $base^{exponent}$ |
-| `math.round` | `mathematical` | `input`, `value` | `output`, `result` | `precision`, `mode` | Rounds numbers (`round`, `floor`, `ceil`) |
-| `math.abs` | `mathematical` | `input`, `value` | `output`, `result` | - | Computes absolute value ($\|x\|$) |
-| `math.min` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `compareValue` | Evaluates minimum of inputs or compareValue |
-| `math.max` | `mathematical` | `input`, `a`, `b` | `output`, `result` | `compareValue` | Evaluates maximum of inputs or compareValue |
-| `math.average` | `mathematical` | `input`, `a`, `b` | `output`, `result` | - | Computes arithmetic mean |
-| `json.parse` | `json` | `input`, `text` | `output`, `data` | `defaultText` | Parses valid JSON strings with structured error handling |
-| `json.get` | `json` | `input`, `object`, `path` | `output`, `value` | `path`, `defaultValue` | Extracts nested properties via dot/bracket path |
-| `text.concat` | `text` | `input`, `a`, `b` | `output` | `separator`, `suffix` | Concatenates text strings with separator & suffix |
-| `utility.uuid` | `utility` | - | `output`, `uuid` | - | Generates RFC 4122 Version 4 UUID |
-| `utility.datetime` | `utility` | - | `output`, `timestamp` | `format` | Current timestamp in ISO, UTC, or epoch format |
-| `output.log` | `output` | `input`, `message` | `output`, `logged` | `level` | Writes diagnostic logs and forwards input |
-| `output.return` | `output` | `input`, `value` | `output`, `finalValue` | - | Captures and exposes the final workflow output |
+### 1. Creating or Opening a Workflow
+- **Workflow Listing**: Open the dashboard to view all saved workflows with their real execution status, node count, and last run time.
+- **New Workflow**: Click **"New Workflow"** to start with a blank canvas or select from starter templates.
+- **Open & Edit**: Click any workflow card to load the graph into the visual editor.
 
-> 📖 **Complete Node Reference & Workflow Creation Guide**: Read [`docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md`](docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md) for full port specifications, configuration parameters, execution rules, and step-by-step pipeline blueprints.
+### 2. Configuring Nodes and Wires
+- **Node Palette**: Drag any of the 35 available nodes from the searchable left palette onto the canvas.
+- **Wiring (Connections)**: Connect an output port of an upstream node to a compatible input port of a downstream node by dragging between port handles.
+- **Node Inspector**: Click any node to open the inspector panel on the right. Configure type-specific parameters, such as formulas, JSON paths, AI prompt instructions, HTTP target URLs, or switch cases.
+- **Validation**: Click **"Validate"** in the top bar or view the real-time validation indicator to ensure your graph is free of cycles, disconnected required inputs, or invalid configurations.
+
+### 3. Saving Workflows
+- Click **"Save Workflow"** in the top bar.
+- Dormammu validates the workflow and creates an immutable new version snapshot in PostgreSQL (`WorkflowVersion`), preserving historical definitions while updating the active workflow state.
+
+### 4. Running a Workflow Manually
+- Click **"Execute Workflow"** (Run) in the top bar.
+- **Supplying Custom Input**: In the **Run Execution Modal**, supply any custom JSON payload or numeric input.
+- **Multi-Trigger Workflows**: If your workflow has multiple manual triggers, you can provide per-trigger inputs or broadcast the payload to all triggers.
+- Click **"Run Workflow"**. The engine validates the DAG, executes nodes in topological order, and streams real-time updates as nodes transition between `RUNNING`, `SUCCEEDED`, `SKIPPED`, or `FAILED`.
+- View individual node inputs, outputs, execution duration, and the final output payload returned by `output.return`.
+
+### 5. Configuring Webhook Triggers
+- Any workflow containing a `trigger.webhook` node can be triggered via HTTP POST.
+- The webhook URL follows the canonical structure:
+  ```
+  POST http://localhost:5001/api/webhooks/:workflowId
+  ```
+- **Optional Secret Token**: Secure your webhook by specifying a secret token in the trigger node configuration or the `X-Webhook-Token` / `Bearer` header.
+- **Testing in the UI**: Open the **"Webhook Trigger"** modal from the editor top bar to test live payloads with one click, inspect HTTP status codes and responses, and navigate directly to the persisted execution run.
+
+### 6. Inspecting Failures and Run History
+- **Run History**: Open the **"History"** panel to inspect persisted execution records for the workflow.
+- **Failure Transparency**: If a node fails (e.g. an external HTTP service returns 500 or an invalid JSON payload is ingested), the engine records the exact error message, marks the failing task `FAILED`, and marks downstream nodes `BLOCKED`. No mock data or fake success states are ever fabricated.
+
+---
+
+## 💡 Example Saved Workflow: Dormammu AI Operations Center
+
+The repository includes a comprehensive 17-node example workflow saved at:
+[`backend/workflows/dormammu_ai_operations_center.json`](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/backend/workflows/dormammu_ai_operations_center.json)
+
+This workflow demonstrates multi-stage orchestration on Dormammu:
+1. **Ingestion**: Accepts incident telemetry payloads via manual trigger or webhook.
+2. **Validation & Normalization**: Validates required fields (`errorRate`, `affectedUsers`, `service`) using `data.validate` and `data.object`.
+3. **Dual Analysis Pipeline**:
+   - Runs parallel **AI Incident Classification** via Groq AI (`ai.classify`) to determine severity (`critical`, `warning`, `normal`).
+   - Simultaneously calculates numerical business impact scores using mathematical nodes (`math.multiply`, `math.round`).
+4. **Service Enrichment**: Performs an outbound HTTP request (`http.request`) to fetch live infrastructure metrics.
+5. **3-Way Severity Routing**: Uses `logic.switch` to route execution down the active severity branch while cascading `SKIPPED` on alternative branches.
+6. **Report Assembly**: Merges action results using `flow.merge` and constructs a structured incident report returned via `output.return`.
+
+You can open this workflow directly from your workflow list, inspect its nodes, edit its configuration, and execute it with any test payload.
+
+---
+
+## 📦 Production Node Catalogue (35 Canonical Nodes)
+
+| Category | Node Types |
+|----------|------------|
+| **Triggers** | `trigger.manual`, `trigger.webhook`, `trigger.cron`, `data.input` |
+| **Logic & Control Flow** | `logic.condition`, `logic.switch`, `flow.merge`, `flow.delay` |
+| **Data & Transformation** | `data.object`, `data.validate`, `data.array.map` |
+| **HTTP & Webhooks** | `http.request`, `http.respond` |
+| **AI / Machine Learning** | `ai.classify`, `ai.extract`, `ai.summarize` |
+| **Mathematical** | `math.add`, `math.subtract`, `math.multiply`, `math.divide`, `math.modulo`, `math.power`, `math.round`, `math.abs`, `math.min`, `math.max`, `math.average` |
+| **JSON & Text** | `json.parse`, `json.get`, `text.concat`, `text.template` |
+| **Utilities & Output** | `utility.uuid`, `utility.datetime`, `output.log`, `output.return` |
+
+> 📖 **Complete Node Reference & Port Guide**: Read [`docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md`](docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md) for full port specifications, configuration parameters, execution rules, and pipeline blueprints.
 
 ---
 
@@ -59,27 +107,29 @@ A production-grade, reliable visual workflow automation platform and DAG executi
 ```
 Dormammu-Engine/
 ├── backend/
-│   ├── app.js                          # Express application configuration & CORS
+│   ├── app.js                          # Express application configuration & error handling
 │   ├── server.js                       # HTTP server & startup synchronization
 │   ├── env.js                          # Validated environment configuration
 │   ├── package.json                    # Backend dependencies & test scripts
+│   ├── workflows/                      # Saved canonical workflow definitions
+│   │   └── dormammu_ai_operations_center.json # 17-node multi-stage example workflow
 │   ├── prisma/
 │   │   ├── schema.prisma               # Prisma data models (Workflows, Runs, Nodes, Auth)
 │   │   └── migrations/                 # Safe reversible PostgreSQL migrations
 │   ├── src/
 │   │   ├── config/db.js                # Neon PostgreSQL connection pool & Prisma adapter
-│   │   ├── controllers/                # REST API controllers (Workflows, Nodes, Auth)
-│   │   ├── services/                   # Business logic & database persistence services
+│   │   ├── controllers/                # REST API controllers (Workflows, Nodes, Webhooks, Auth)
+│   │   ├── services/                   # Business logic, DB persistence & SSE services
 │   │   ├── routes/                     # Express API routes
 │   │   └── engine/                     # Core Webster Execution Engine
 │   │       ├── contracts/              # Context, errors, and port type checking
 │   │       ├── validator/              # 4-level workflow validation engine
 │   │       ├── planner/                # O(V + E) deterministic execution planner
 │   │       ├── runtime/                # Node runtime & handler invocation
-│   │       ├── scheduler/              # Sequential DAG scheduler & failure orchestrator
-│   │       └── registry/               # Authoritative node registry & trusted handlers
-│   │           └── nodes/              # 20 complete node implementations
-│   ├── test_workflow_engine.js         # Engine unit tests (all 20 nodes, validator, scheduler)
+│   │       ├── scheduler/              # Sequential DAG scheduler & branch orchestrator
+│   │       ├── providers/              # Groq AI provider abstraction (LPU Inference Engine)
+│   │       └── registry/               # Authoritative node registry & 35 trusted handlers
+│   ├── test_workflow_engine.js         # Engine unit tests (all nodes, validator, scheduler)
 │   └── test_api_and_integration.js     # DB persistence, versioning & authorization integration tests
 └── frontend/
     ├── src/
@@ -90,8 +140,9 @@ Dormammu-Engine/
     │   │   ├── NodeInspector.jsx       # Real-time config & port property inspector
     │   │   ├── EdgePath.jsx            # Interactive SVG Bezier curve renderer
     │   │   ├── ValidationDrawer.jsx    # Interactive validation error drawer
-    │   │   ├── RunExecutionModal.jsx   # Execution runner & task breakdown viewer
-    │   │   └── WorkflowList.jsx        # Workflow dashboard & management
+    │   │   ├── RunExecutionModal.jsx   # Execution runner, custom JSON input & task breakdown
+    │   │   ├── WebhookTestingModal.jsx # Generic webhook testing & cURL inspector
+    │   │   └── WorkflowList.jsx        # General workflow dashboard & management
     │   ├── services/api.js             # API client with token refresh & workflow endpoints
     │   └── types/workflow.d.ts         # TypeScript contracts matching backend definitions
     └── vite.config.js                  # Vite build & bundler configuration
@@ -101,7 +152,7 @@ Dormammu-Engine/
 
 ## 🧪 Testing & Verification
 
-The repository contains an automated test suite verifying node handlers, graph validation, topological DAG scheduling, failure cascading, and PostgreSQL persistence:
+The repository contains an automated test suite verifying node handlers, graph validation, topological DAG scheduling, control-flow branching, failure cascading, and PostgreSQL persistence:
 
 ```bash
 # Run backend test suites
@@ -109,33 +160,20 @@ cd backend
 npm test
 ```
 
-### Verified Test Results:
+### Verified Test Results (93 Tests, 0 Failures):
 ```
 =======================================================
  Webster Engine Unit & Integration Test Suite
 =======================================================
---- 1. Node Handler Unit Tests (All 20 Nodes) ---
-  ✓ trigger.manual: extracts triggerData payload
-  ✓ trigger.manual: falls back to defaultPayload when no triggerData
-  ✓ data.input: extracts key from triggerData
-  ✓ data.input: returns defaultValue if key is missing in triggerData
-  ✓ math.add: calculates sum of a and b or input + addend
-  ✓ math.subtract: calculates difference a - b or input - subtrahend
-  ✓ math.multiply: multiplies values or applies factor
-  ✓ math.divide: performs division and rejects division by zero
-  ✓ math.modulo: computes remainder and rejects modulo by zero
-  ✓ math.power: computes base ^ exponent
-  ✓ math.round: handles precision and rounding modes (round, floor, ceil)
-  ✓ math.abs: returns absolute value of positive and negative numbers
-  ✓ math.min & math.max: correctly evaluate bounds
-  ✓ math.average: computes mean of provided values
-  ✓ json.parse: parses valid JSON and throws structured INVALID_JSON error for invalid JSON
-  ✓ json.get: extracts nested properties with dot and bracket notation
-  ✓ text.concat: combines strings with separator and suffix
-  ✓ utility.uuid: generates valid RFC 4122 v4 UUID
-  ✓ utility.datetime: returns timestamp and formatted string
-  ✓ output.log: logs message safely and passes output through
-  ✓ output.return: extracts final workflow return value
+--- 1. Node Handler Unit Tests (35 Canonical Nodes) ---
+  ✓ trigger.manual, data.input, trigger.webhook, trigger.cron
+  ✓ math.add, math.subtract, math.multiply, math.divide, math.modulo, math.power, math.round, math.abs, math.min, math.max, math.average
+  ✓ json.parse, json.get, text.concat, text.template
+  ✓ utility.uuid, utility.datetime, output.log, output.return
+  ✓ logic.condition, logic.switch, flow.merge, flow.delay
+  ✓ data.object, data.validate, data.array.map
+  ✓ http.request (with SSRF guard), http.respond
+  ✓ ai.classify, ai.provider (Groq LPU), ai.extract, ai.summarize
 
 --- 2. Validation & Graph Integrity Tests ---
   ✓ Validator: accepts valid linear workflow
@@ -151,14 +189,39 @@ npm test
   ✓ Scheduler: produces identical deterministic results regardless of node/edge array order
   ✓ Scheduler: fail-fast marks downstream nodes as BLOCKED on node failure
   ✓ Scheduler: respects cancellation signal and marks unstarted tasks CANCELLED
+  ✓ Scheduler: executes workflow with multiple manual triggers
 
-Results: 32 passed, 0 failed
+--- 4. Control-Flow & Branching DAG Scheduler Tests ---
+  ✓ Scheduler: conditional branch routes execution down TRUE branch and cascades SKIPPED down FALSE branch
+  ✓ Scheduler: conditional branch routes execution down FALSE branch and cascades SKIPPED down TRUE branch
+  ✓ Scheduler: switch routes execution to matching case and cascades SKIPPED on unselected cases
+  ✓ Scheduler: flow.merge joins active branch when alternative branch was skipped
+  ✓ Scheduler: flow.merge in 'all' and 'object' modes cleanly joins active branch when alternative is skipped
+  ✓ Scheduler: non-blocking delay pauses workflow and resumes downstream execution
+
+--- 5. New Trigger & Data Validation Unit Tests ---
+  ✓ trigger.webhook, trigger.cron, data.validate, http.request failOnError
+
+--- 6. Phase 1 Extended Execution Semantics ---
+  ✓ Single-node execution, empty workflow rejection, repeated execution isolation
+
+--- 7. Operations Center Workflow Scenarios ---
+  ✓ Scenario 1: Critical outage routes to CRITICAL escalation with real telemetry & impact calculations
+  ✓ Scenario 2: Normal billing inquiry routes to STANDARD support queue
+  ✓ Scenario 3: Warning degradation routes to PROMPT INVESTIGATION
+  ✓ Scenario 4: Invalid input rejected fast at validate_incident, marking downstream BLOCKED
+  ✓ Scenario 5: Controlled HTTP failure stops workflow and marks downstream BLOCKED
+
+--- 8. Cron Scheduler & SSE Streaming Services ---
+  ✓ CronSchedulerService and SseService verification
+
+Results: 74 passed, 0 failed
 
 =======================================================
  Webster Persistence, Versioning & API Integration Suite
 =======================================================
 --- 1. Node Metadata PostgreSQL Persistence ---
-  ✓ PostgreSQL: seedNodeDefinitions upserts all 20 nodes into database
+  ✓ PostgreSQL: seedNodeDefinitions upserts all 35 nodes into database
   ✓ PostgreSQL: repeated seeding is idempotent and does not create duplicates
   ✓ PostgreSQL: listNodes and getNodeMetadata return accurate metadata with handler status
 
@@ -173,7 +236,18 @@ Results: 32 passed, 0 failed
   ✓ Execution Inspection: owner can retrieve run details and task runs
   ✓ Execution Authorization: unauthorized user cannot access run history
 
-Results: 10 passed, 0 failed
+--- 4. Webhook Trigger Pipeline Integration ---
+  ✓ Webhook: executes workflow and persists WorkflowRun with trigger payload
+  ✓ Webhook: rejects unauthorized request with 401 when token is invalid or missing
+
+--- 5. Saved Workflow Persistence ---
+  ✓ Multi-scenario persistence in PostgreSQL
+  ✓ Webhook Security: rejects unsupported HTTP method with 405 Method Not Allowed
+  ✓ Webhook Security: rejects unknown workflow ID with 404 Not Found
+  ✓ Persistence Recovery: getRunById and getRunTasks retrieve full inspectable state
+
+Results: 19 passed, 0 failed
+Total: 93 passed, 0 failed
 ```
 
 ---
@@ -192,7 +266,8 @@ npm run dev
 ```bash
 cd frontend
 npm install
+npm run build
 npm run dev
 ```
 
-Visit `http://localhost:5174` (or port configured in `.env`) to access the Webster visual canvas.
+Visit `http://localhost:5174` (or port configured in `.env`) to access Dormammu Engine.

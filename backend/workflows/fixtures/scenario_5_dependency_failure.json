@@ -1,0 +1,22 @@
+{
+  "scenario_name": "HTTP Dependency Failure (Mock Monitoring 503)",
+  "expected_severity": "failed",
+  "expected_route": "blocked_downstream",
+  "payload": {
+    "incident_id": "INC-7700",
+    "service": "nonexistent-failing-service",
+    "title": "Service discovery failure across gateway mesh",
+    "description": "Upstream microservice registration failed; mock monitoring will return 503.",
+    "error_rate": 0.35,
+    "latency_ms": 1900,
+    "affected_users": 500,
+    "failed_transactions": 120,
+    "revenue_at_risk": 15000,
+    "region": "ap-south-1",
+    "customer_tier": "enterprise",
+    "recent_deploy": true,
+    "logs": [
+      "2026-10-25T23:18:00Z ERROR [mesh-discovery] Service nonexistent-failing-service not found in Consul catalog"
+    ]
+  }
+}

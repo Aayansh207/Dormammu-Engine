@@ -334,15 +334,26 @@ async function runApiAndIntegrationTests() {
     await test("Flagship: Scenario 1 (Critical Outage) persists full 17-node execution in PostgreSQL", async () => {
       const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
         triggerData: {
-          ticketId: "TCK-8092",
+          incident_id: "INC-8092",
+          ticketId: "INC-8092",
           title: "Payment gateway returning HTTP 504 errors",
           description: "Multiple users cannot complete checkout.",
           service: "payment-gateway",
+          customer_tier: "enterprise",
           customerTier: "enterprise",
+          affected_users: 1200,
           affectedUsers: 1200,
+          error_rate: 0.42,
           errorRate: 0.42,
+          latency_ms: 3400,
+          failed_transactions: 620,
+          revenue_at_risk: 54800,
           region: "ap-south-1",
-          source: "support-webhook",
+          recent_deploy: true,
+          logs: [
+            "2026-10-26T00:14:12Z [ERROR] HTTP 504 Gateway Timeout upstream provider",
+            "2026-10-26T00:14:18Z [WARN] Connection pool exhausted: active=100/100 queue=450"
+          ]
         },
       });
 
@@ -365,15 +376,22 @@ async function runApiAndIntegrationTests() {
     await test("Flagship: Scenario 2 (Normal) persists with action_normal SUCCEEDED and action_critical SKIPPED", async () => {
       const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
         triggerData: {
-          ticketId: "TCK-4102",
+          incident_id: "INC-4102",
+          ticketId: "INC-4102",
           title: "Question about monthly invoice",
           description: "The customer wants clarification regarding prorated tax charges on invoice #8819.",
-          service: "billing",
+          service: "billing-worker",
+          customer_tier: "standard",
           customerTier: "standard",
-          affectedUsers: 1,
+          affected_users: 0,
+          affectedUsers: 0,
+          error_rate: 0.0,
           errorRate: 0.0,
+          latency_ms: 42,
+          failed_transactions: 0,
+          revenue_at_risk: 0,
           region: "ap-south-1",
-          source: "support-webhook",
+          recent_deploy: false,
         },
       });
 
@@ -394,15 +412,22 @@ async function runApiAndIntegrationTests() {
     await test("Flagship: Scenario 3 (Warning) persists with action_warning SUCCEEDED and others SKIPPED", async () => {
       const execResult = await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
         triggerData: {
-          ticketId: "TCK-6204",
-          title: "Periodic latency spikes in worker cluster",
-          description: "Background job queue experiencing 250ms latency spikes.",
-          service: "worker-pool",
-          customerTier: "pro",
+          incident_id: "INC-6204",
+          ticketId: "INC-6204",
+          title: "Periodic latency spikes in auth cluster",
+          description: "Token verification endpoint experiencing 850ms latency spikes.",
+          service: "auth-service",
+          customer_tier: "standard",
+          customerTier: "standard",
+          affected_users: 150,
           affectedUsers: 150,
-          errorRate: 0.05,
+          error_rate: 0.08,
+          errorRate: 0.08,
+          latency_ms: 850,
+          failed_transactions: 10,
+          revenue_at_risk: 1200,
           region: "eu-west-1",
-          source: "support-webhook",
+          recent_deploy: false,
         },
       });
 
@@ -425,7 +450,7 @@ async function runApiAndIntegrationTests() {
       try {
         await workflowService.executeWorkflowRun(testUserAId, opsWorkflowRecord.id, {
           triggerData: {
-            ticketId: "TCK-BROKEN",
+            incident_id: "INC-BROKEN",
             title: "Missing critical fields",
           },
         });

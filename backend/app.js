@@ -8,6 +8,7 @@ const { createUser } = require("./src/controllers/user.controller");
 const app = express();
 
 app.set("trust proxy", 1);
+app.set("json spaces", 2);
 
 const allowedOrigins = [
   "http://localhost:5173",
@@ -97,11 +98,25 @@ app.use("/api", (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  const status = err.statusCode || 500;
+  const isDbConnectionError =
+    err.message?.includes("Connection terminated") ||
+    err.message?.includes("connection timeout") ||
+    err.code === "ECONNRESET" ||
+    err.code === "57P01";
+
+  const status = err.statusCode || (isDbConnectionError ? 503 : 500);
+
+  if (status >= 500) {
+    console.error(`[${req.method} ${req.originalUrl}] Server error (${status}):`, err.message || err);
+  } else {
+    console.warn(`[${req.method} ${req.originalUrl}] Handled client error (${status}): ${err.message}`);
+  }
+
   res.status(status).json({
     success: false,
-    message: err.message || "Internal server error",
+    message: isDbConnectionError
+      ? "Database is temporarily reconnecting. Please retry in a few seconds."
+      : (err.message || "Internal server error"),
   });
 });
 

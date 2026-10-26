@@ -1,0 +1,23 @@
+{
+  "scenario_name": "Ambiguous Evidence Requiring Human Review",
+  "expected_severity": "human_review",
+  "expected_route": "warning",
+  "payload": {
+    "incident_id": "INC-5190",
+    "service": "checkout-api",
+    "title": "Conflicting metrics: Low reported error rate with sudden latency jump",
+    "description": "Error rate appears nominal (0.01) but latency jumped to 2100ms. No log stack traces available.",
+    "error_rate": 0.01,
+    "latency_ms": 2100,
+    "affected_users": 85,
+    "failed_transactions": 2,
+    "revenue_at_risk": 900,
+    "region": "ap-south-1",
+    "customer_tier": "business",
+    "recent_deploy": false,
+    "logs": [
+      "2026-10-25T23:22:01Z INFO  [checkout-worker] Processing request batch #b9921",
+      "2026-10-25T23:22:05Z WARN  [db-pool] Query response time 1980ms exceeds soft threshold (500ms)"
+    ]
+  }
+}

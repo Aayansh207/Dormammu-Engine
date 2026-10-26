@@ -3,7 +3,7 @@
 **Project:** The Dormammu Loop (Dormammu Engine)  
 **Evaluation Standard:** Mid-Evaluation Master Showcase  
 **Target Duration:** 8–10 Minutes  
-**Engine Baseline:** 92 Tests Passing (0 Failures) | 35 Production Nodes | Sub-millisecond Execution Latency  
+**Engine Baseline:** 93 Tests Passing (0 Failures) | 35 Production Nodes | Sub-millisecond Execution Latency  
 
 ---
 
@@ -180,7 +180,34 @@ graph LR
 
 ---
 
-### Part 6: Webhook Ingestion & Live SSE Streaming (7:00 – 8:30)
+### Part 6: Webhook Ingestion, Live SSE & Self-Contained Testing UI (7:00 – 8:30)
+
+#### Option A: In-UI Webhook Testing Panel (No Terminal or Postman Needed)
+1. Open the flagship workflow in the visual editor.
+2. In the top action bar, click the **"⚡ Webhook"** button.
+3. The self-contained **Webhook Testing Panel** opens directly within Dormammu:
+   - Displays the canonical endpoint: `/api/webhooks/ops-center-demo` (or current workflow UUID).
+   - Provides a 1-click **Copy Endpoint** button.
+   - Shows the Webhook Token input prefilled with `demo-secret-token`.
+   - Includes **Quick Scenario Presets**:
+     - *Critical Outage*
+     - *Standard Support*
+     - *Degraded Service*
+     - *Schema Rejection (Invalid)*
+   - Provides an editable JSON payload editor with real-time JSON syntax validation.
+4. Click **Send Test Event**:
+   - The panel executes an authentic HTTP POST to the real webhook controller.
+   - Shows real-time request duration (e.g. `200 OK (218ms)`).
+   - Renders the full JSON response with `runId`, `status: "SUCCEEDED"`, and formatted outputs.
+5. Click **Open Run Execution**:
+   - The editor immediately loads the persisted run, highlights active vs skipped branches on the canvas, opens the Execution Timeline, and sets the URL to `?runId=<id>`.
+6. **Demonstrate Refresh Durability:**
+   - Press **F5 / Browser Refresh**.
+   - Notice the execution state, timeline, task statuses, and output are instantly rehydrated from PostgreSQL!
+
+---
+
+#### Option B: Terminal cURL Verification (For Deep Technical Judges)
 1. **Live Webhook Execution:**
    - Run the following cURL command from your terminal:
 ```bash
@@ -201,30 +228,58 @@ curl -X POST http://localhost:5001/api/webhooks/ops-center-demo \
 ```json
 {
   "success": true,
-  "runId": "run_9f4b1e8a...",
+  "runId": "dee9b166-...",
+  "workflowId": "6f2e4a0b-...",
   "status": "SUCCEEDED",
+  "triggerType": "WEBHOOK",
+  "statusUrl": "/api/runs/dee9b166-...",
+  "eventsUrl": "/api/runs/dee9b166-.../events",
+  "output": { ... },
   "finalOutput": { ... }
 }
 ```
 2. **Show Unauthorized Webhook Rejection:**
    - Run the same cURL without `-H "x-webhook-token: demo-secret-token"`.
-   - Show immediate HTTP 401 Unauthorized: `Missing or invalid webhook authorization token`.
+   - Show immediate HTTP 401 Unauthorized:
+```json
+{
+  "error": "UNAUTHORIZED_WEBHOOK",
+  "message": "Missing or invalid webhook authorization token"
+}
+```
 
 3. **Live SSE Streaming Endpoint:**
-   - Show `GET http://localhost:5001/api/runs/:runId/events`.
-   - Explain how frontend clients receive atomic server-sent events for `task:running`, `task:succeeded`, and `workflow:completed`.
+   - Show `GET http://localhost:5001/api/runs/:runId/events?token=<jwt-token>`.
+   - Demonstrates real-time SSE event delivery (`workflow:started`, `task:running`, `task:succeeded`, `task:skipped`, `workflow:completed`) with automatic reconnection and terminal replay.
 
 ---
 
-### Part 7: Engineering Rigor, Performance & Summary (8:30 – 10:00)
-1. **Benchmark Numbers:**
+### Part 7: What-If Intelligence Matrix & Engineering Rigor (8:30 – 10:00)
+
+1. **What-If Scenario Comparison:**
+   - In the canvas toolbar, click **"🔍 What-If"**.
+   - Select 2, 3, or all 4 scenarios (*Critical Outage*, *Standard Support*, *Degraded Service*, *Schema Rejection*).
+   - Click **Run Selected Scenarios**:
+     - Dormammu executes every scenario sequentially through the authentic sequential DAG engine and records durable runs.
+     - Displays a side-by-side comparison matrix showing:
+       - AI Classification & Confidence
+       - Normalized Business Impact Score
+       - Selected Branch (`critical` vs `normal` vs `warning` vs `validate_incident FAILED`)
+       - Succeeded, Skipped, and Blocked node counts
+       - Latency & Generated Action Plan
+     - Click **Inspect Run** on any scenario card to inspect its full execution timeline.
+
+2. **Benchmark Numbers:**
    - In-memory DAG engine (17 nodes): **0.253 ms median** (~3,054 runs/sec per Node.js process).
    - Small 3-node workflow: **0.023 ms median**.
    - End-to-end cloud persisted execution (Neon PostgreSQL over WAN): **5.95s median** (~34 WAN SSL roundtrips), demonstrating durability without sacrificing raw engine speed.
-2. **Test Suite:**
-   - **92 passing automated tests, 0 failures.**
-   - Verified across Unit, Graph Integrity, DAG Scheduler, Branching, Webhook, Cron, PostgreSQL persistence (all 5 flagship scenarios), and Security regression tests.
-3. **Conclusion:**
+
+3. **Test Suite:**
+   - **93 passing automated tests, 0 failures.**
+   - 74 unit, DAG scheduling, branching, AI provider, and validation tests.
+   - 19 PostgreSQL integration tests covering seeding, versioning, authorization, webhook ingestion, and all 5 flagship incident scenarios.
+
+4. **Conclusion:**
    - "Dormammu Engine delivers rock-solid execution semantics, comprehensive observability, and sub-millisecond orchestration for modern AI and event-driven workflows."
 
 ---

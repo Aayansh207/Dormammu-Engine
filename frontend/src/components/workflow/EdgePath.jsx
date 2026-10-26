@@ -53,6 +53,7 @@ export default function EdgePath({
   onDelete,
   hasError = false,
   isRunning = false,
+  executionTasks = null,
 }) {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -66,16 +67,36 @@ export default function EdgePath({
   const midX = (start.x + end.x) / 2;
   const midY = (start.y + end.y) / 2;
 
+  const srcTask = executionTasks ? executionTasks[edge.source] : null;
+  const tgtTask = executionTasks ? executionTasks[edge.target] : null;
+
+  const isSkippedBranch = tgtTask?.status === "SKIPPED" || tgtTask?.status === "BLOCKED";
+  const isSucceededBranch = srcTask?.status === "SUCCEEDED" && tgtTask?.status === "SUCCEEDED";
+  const isRunningBranch = isRunning || tgtTask?.status === "RUNNING";
+
   let strokeColor = "var(--wire-default)";
-  if (hasError) strokeColor = "var(--accent-rose)";
-  else if (isSelected) strokeColor = "var(--brand)";
-  else if (isHovered) strokeColor = "var(--brand-hover)";
+  let strokeDash = "none";
+  let opacity = 1;
+
+  if (hasError) {
+    strokeColor = "var(--accent-rose)";
+  } else if (isSelected) {
+    strokeColor = "var(--brand)";
+  } else if (isHovered) {
+    strokeColor = "var(--brand-hover)";
+  } else if (isSkippedBranch) {
+    strokeColor = "rgba(100, 116, 139, 0.35)";
+    strokeDash = "5 5";
+    opacity = 0.5;
+  } else if (isSucceededBranch) {
+    strokeColor = "#39AEA9";
+  }
 
   return (
     <g 
       onMouseEnter={() => setIsHovered(true)} 
       onMouseLeave={() => setIsHovered(false)}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: "pointer", opacity }}
     >
       {/* Invisible thick stroke for generous mouse hit area */}
       <path
@@ -94,11 +115,14 @@ export default function EdgePath({
         d={pathData}
         fill="none"
         stroke={strokeColor}
-        strokeWidth={isSelected || isHovered ? "3" : hasError ? "2.5" : "2"}
-        className={`connection-curve ${isRunning ? "running-edge-dash" : ""}`}
+        strokeWidth={isSelected || isHovered ? "3" : isSucceededBranch ? "2.5" : hasError ? "2.5" : "2"}
+        strokeDasharray={strokeDash}
+        className={`connection-curve ${isRunningBranch ? "running-edge-dash" : ""}`}
         style={{
           filter: isSelected || isHovered 
             ? `drop-shadow(0 0 8px ${strokeColor})` 
+            : isSucceededBranch
+            ? "drop-shadow(0 0 5px rgba(57, 174, 169, 0.4))"
             : hasError 
             ? "drop-shadow(0 0 6px rgba(244, 63, 94, 0.6))" 
             : "none",

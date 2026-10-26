@@ -3,15 +3,27 @@
   "name": "Dormammu AI Operations Center",
   "description": "Autonomous multi-stage incident triage and operations center engine: validates inbound payloads, performs parallel AI classification and business impact scoring, enriches with service health, routes across severity tiers, and produces structured operational reports.",
   "samplePayload": {
-    "ticketId": "TCK-8092",
+    "incident_id": "INC-8092",
+    "ticketId": "INC-8092",
+    "service": "payment-gateway",
     "title": "Payment gateway returning HTTP 504 errors",
     "description": "Multiple users cannot complete checkout.",
-    "service": "payment-gateway",
+    "customer_tier": "enterprise",
     "customerTier": "enterprise",
+    "affected_users": 1200,
     "affectedUsers": 1200,
+    "error_rate": 0.42,
     "errorRate": 0.42,
+    "latency_ms": 3400,
+    "failed_transactions": 620,
+    "revenue_at_risk": 54800,
     "region": "ap-south-1",
-    "source": "support-webhook"
+    "recent_deploy": true,
+    "logs": [
+      "2026-10-26T00:14:12Z [ERROR] HTTP 504 Gateway Timeout upstream provider",
+      "2026-10-26T00:14:18Z [WARN] Connection pool exhausted: active=100/100 queue=450",
+      "2026-10-26T00:15:02Z [ERROR] Checkout transaction aborted after 30000ms"
+    ]
   },
   "nodes": [
     {
@@ -22,15 +34,27 @@
       "position": { "x": 60, "y": 280 },
       "config": {
         "defaultPayload": {
-          "ticketId": "TCK-8092",
+          "incident_id": "INC-8092",
+          "ticketId": "INC-8092",
+          "service": "payment-gateway",
           "title": "Payment gateway returning HTTP 504 errors",
           "description": "Multiple users cannot complete checkout.",
-          "service": "payment-gateway",
+          "customer_tier": "enterprise",
           "customerTier": "enterprise",
+          "affected_users": 1200,
           "affectedUsers": 1200,
+          "error_rate": 0.42,
           "errorRate": 0.42,
+          "latency_ms": 3400,
+          "failed_transactions": 620,
+          "revenue_at_risk": 54800,
           "region": "ap-south-1",
-          "source": "support-webhook"
+          "recent_deploy": true,
+          "logs": [
+            "2026-10-26T00:14:12Z [ERROR] HTTP 504 Gateway Timeout upstream provider",
+            "2026-10-26T00:14:18Z [WARN] Connection pool exhausted: active=100/100 queue=450",
+            "2026-10-26T00:15:02Z [ERROR] Checkout transaction aborted after 30000ms"
+          ]
         }
       }
     },
@@ -42,16 +66,15 @@
       "position": { "x": 300, "y": 280 },
       "config": {
         "requiredFields": [
-          "ticketId",
-          "title",
+          "incident_id|ticketId",
           "service",
-          "customerTier",
-          "affectedUsers",
-          "errorRate"
+          "error_rate|errorRate",
+          "affected_users|affectedUsers"
         ],
         "rules": {
-          "errorRate": { "type": "number", "min": 0, "max": 1 },
-          "affectedUsers": { "type": "number", "min": 0 }
+          "error_rate|errorRate": { "type": "number", "min": 0, "max": 1 },
+          "affected_users|affectedUsers": { "type": "number", "min": 0 },
+          "latency_ms": { "type": "number", "min": 0 }
         }
       }
     },
@@ -63,16 +86,36 @@
       "position": { "x": 540, "y": 280 },
       "config": {
         "fields": [
-          { "key": "ticketId", "fromInput": true },
+          { "key": "ticketId", "fromInput": true, "inputKey": "ticketId|incident_id" },
           { "key": "title", "fromInput": true },
           { "key": "description", "fromInput": true },
           { "key": "service", "fromInput": true },
-          { "key": "customerTier", "fromInput": true },
-          { "key": "affectedUsers", "fromInput": true },
-          { "key": "errorRate", "fromInput": true },
+          { "key": "customerTier", "fromInput": true, "inputKey": "customerTier|customer_tier" },
+          { "key": "affectedUsers", "fromInput": true, "inputKey": "affectedUsers|affected_users" },
+          { "key": "errorRate", "fromInput": true, "inputKey": "errorRate|error_rate" },
+          { "key": "latencyMs", "fromInput": true, "inputKey": "latencyMs|latency_ms" },
+          { "key": "failedTransactions", "fromInput": true, "inputKey": "failedTransactions|failed_transactions" },
+          { "key": "revenueAtRisk", "fromInput": true, "inputKey": "revenueAtRisk|revenue_at_risk" },
           { "key": "region", "fromInput": true },
+          { "key": "recentDeploy", "fromInput": true, "inputKey": "recentDeploy|recent_deploy" },
+          { "key": "logs", "fromInput": true },
           { "key": "source", "fromInput": true }
         ]
+      }
+    },
+    {
+      "id": "fetch_service_telemetry",
+      "type": "http.request",
+      "version": 1,
+      "name": "Fetch Service Telemetry",
+      "position": { "x": 840, "y": 60 },
+      "config": {
+        "method": "GET",
+        "url": "http://localhost:5001/api/mock/monitoring/services/{{service}}",
+        "targetUrl": "http://localhost:5001/api/mock/monitoring/services/{{service}}",
+        "allowPrivateNetwork": true,
+        "failOnError": true,
+        "timeoutMs": 8000
       }
     },
     {
@@ -80,16 +123,16 @@
       "type": "ai.classify",
       "version": 1,
       "name": "AI Incident Classifier",
-      "position": { "x": 840, "y": 140 },
+      "position": { "x": 840, "y": 200 },
       "config": {
         "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "categories": [
           "service_outage",
           "performance_degradation",
           "support_inquiry"
         ],
-        "instructions": "Classify critical payment timeouts and gateway failures as service_outage, latency as performance_degradation, and invoices as support_inquiry"
+        "instructions": "Classify critical payment timeouts and gateway failures as service_outage, latency spikes as performance_degradation, and routine inquiries as support_inquiry"
       }
     },
     {
@@ -99,7 +142,7 @@
       "name": "Extract Affected Users",
       "position": { "x": 840, "y": 360 },
       "config": {
-        "path": "affectedUsers"
+        "path": "affected_users|affectedUsers"
       }
     },
     {
@@ -109,7 +152,7 @@
       "name": "Extract Error Rate",
       "position": { "x": 840, "y": 480 },
       "config": {
-        "path": "errorRate"
+        "path": "error_rate|errorRate"
       }
     },
     {
@@ -121,21 +164,11 @@
       "config": {}
     },
     {
-      "id": "calc_scale_impact",
-      "type": "math.multiply",
-      "version": 1,
-      "name": "Scale Impact Score",
-      "position": { "x": 1300, "y": 420 },
-      "config": {
-        "factor": 0.190476
-      }
-    },
-    {
       "id": "calc_impact_score",
       "type": "math.round",
       "version": 1,
       "name": "Round Impact Score",
-      "position": { "x": 1520, "y": 420 },
+      "position": { "x": 1300, "y": 420 },
       "config": {
         "precision": 0,
         "mode": "round"
@@ -146,13 +179,15 @@
       "type": "data.object",
       "version": 1,
       "name": "Build Impact Summary",
-      "position": { "x": 1740, "y": 420 },
+      "position": { "x": 1540, "y": 420 },
       "config": {
-        "targetKey": "impactScore",
+        "inheritInput": false,
+        "targetKey": "impactedVolume",
         "fields": [
-          { "key": "affectedUsers", "fromInput": true },
-          { "key": "errorRate", "fromInput": true },
-          { "key": "customerTier", "fromInput": true }
+          { "key": "affectedUsers", "fromInput": true, "inputKey": "affectedUsers|affected_users" },
+          { "key": "errorRate", "fromInput": true, "inputKey": "errorRate|error_rate" },
+          { "key": "revenueAtRisk", "fromInput": true, "inputKey": "revenueAtRisk|revenue_at_risk" },
+          { "key": "customerTier", "fromInput": true, "inputKey": "customerTier|customer_tier" }
         ]
       }
     },
@@ -161,7 +196,7 @@
       "type": "logic.switch",
       "version": 1,
       "name": "Severity Router",
-      "position": { "x": 1100, "y": 140 },
+      "position": { "x": 1100, "y": 200 },
       "config": {
         "cases": ["critical", "warning", "normal"]
       }
@@ -171,9 +206,9 @@
       "type": "text.template",
       "version": 1,
       "name": "Dispatch Critical Escalation",
-      "position": { "x": 1400, "y": 20 },
+      "position": { "x": 1400, "y": 100 },
       "config": {
-        "template": "🚨 CRITICAL OUTAGE ESCALATION: Ticket {{ticketId}} on [{{service}}]. Dispatched emergency DevOps on-call pager."
+        "template": "🚨 CRITICAL OUTAGE ESCALATION: Incident {{ticketId}} on [{{service}}]. Dispatched emergency DevOps on-call pager. Impacted Volume: High. Immediate rollback and failover initiated."
       }
     },
     {
@@ -181,9 +216,9 @@
       "type": "text.template",
       "version": 1,
       "name": "Queue Investigation Notice",
-      "position": { "x": 1400, "y": 120 },
+      "position": { "x": 1400, "y": 200 },
       "config": {
-        "template": "⚠️ WARNING INVESTIGATION: Ticket {{ticketId}} on [{{service}}]. Flagged for prompt engineering investigation."
+        "template": "⚠️ WARNING INVESTIGATION: Incident {{ticketId}} on [{{service}}]. Flagged for prompt engineering investigation. Telemetry indicates elevated latency."
       }
     },
     {
@@ -191,9 +226,9 @@
       "type": "text.template",
       "version": 1,
       "name": "Standard Support Response",
-      "position": { "x": 1400, "y": 220 },
+      "position": { "x": 1400, "y": 300 },
       "config": {
-        "template": "📋 STANDARD SUPPORT: Ticket {{ticketId}} on [{{service}}]. Created standard business-hours response."
+        "template": "📋 STANDARD SUPPORT: Incident {{ticketId}} on [{{service}}]. Created standard business-hours response. No pager dispatch required."
       }
     },
     {
@@ -201,7 +236,7 @@
       "type": "flow.merge",
       "version": 1,
       "name": "Merge Action Output",
-      "position": { "x": 1700, "y": 120 },
+      "position": { "x": 1700, "y": 200 },
       "config": {
         "mode": "first_available"
       }
@@ -213,13 +248,18 @@
       "name": "Assemble Operations Report",
       "position": { "x": 1960, "y": 260 },
       "config": {
-        "targetKey": "actionSummary",
+        "inheritInput": false,
         "fields": [
-          { "key": "ticketId", "fromInput": true },
+          { "key": "reportId", "fromInput": true, "inputKey": "ticketId|incident_id" },
+          { "key": "ticketId", "fromInput": true, "inputKey": "ticketId|incident_id" },
           { "key": "service", "fromInput": true },
-          { "key": "customerTier", "fromInput": true },
-          { "key": "affectedUsers", "fromInput": true },
-          { "key": "errorRate", "fromInput": true }
+          { "key": "customerTier", "fromInput": true, "inputKey": "customerTier|customer_tier" },
+          { "key": "incident.ticketId", "fromInput": true, "inputKey": "ticketId|incident_id" },
+          { "key": "incident.title", "fromInput": true, "inputKey": "title" },
+          { "key": "incident.description", "fromInput": true, "inputKey": "description" },
+          { "key": "incident.service", "fromInput": true, "inputKey": "service" },
+          { "key": "incident.customerTier", "fromInput": true, "inputKey": "customerTier|customer_tier" },
+          { "key": "incident.region", "fromInput": true, "inputKey": "region" }
         ]
       }
     },
@@ -228,7 +268,7 @@
       "type": "output.return",
       "version": 1,
       "name": "Final Operations Report",
-      "position": { "x": 2200, "y": 260 },
+      "position": { "x": 2220, "y": 260 },
       "config": {}
     }
   ],
@@ -258,40 +298,40 @@
       "id": "e04",
       "source": "normalize_incident",
       "sourcePort": "output",
-      "target": "get_affected_users",
+      "target": "fetch_service_telemetry",
       "targetPort": "input"
     },
     {
       "id": "e05",
       "source": "normalize_incident",
       "sourcePort": "output",
-      "target": "get_error_rate",
+      "target": "get_affected_users",
       "targetPort": "input"
     },
     {
       "id": "e06",
+      "source": "normalize_incident",
+      "sourcePort": "output",
+      "target": "get_error_rate",
+      "targetPort": "input"
+    },
+    {
+      "id": "e07",
       "source": "get_affected_users",
       "sourcePort": "output",
       "target": "calc_raw_impact",
       "targetPort": "a"
     },
     {
-      "id": "e07",
+      "id": "e08",
       "source": "get_error_rate",
       "sourcePort": "output",
       "target": "calc_raw_impact",
       "targetPort": "b"
     },
     {
-      "id": "e08",
-      "source": "calc_raw_impact",
-      "sourcePort": "output",
-      "target": "calc_scale_impact",
-      "targetPort": "input"
-    },
-    {
       "id": "e09",
-      "source": "calc_scale_impact",
+      "source": "calc_raw_impact",
       "sourcePort": "output",
       "target": "calc_impact_score",
       "targetPort": "input"
@@ -375,13 +415,34 @@
     },
     {
       "id": "e21",
-      "source": "merge_actions",
-      "sourcePort": "output",
+      "source": "fetch_service_telemetry",
+      "sourcePort": "body",
       "target": "assemble_final_report",
-      "targetPort": "value"
+      "targetPort": "telemetry"
     },
     {
       "id": "e22",
+      "source": "build_impact_summary",
+      "sourcePort": "output",
+      "target": "assemble_final_report",
+      "targetPort": "derivedMetrics"
+    },
+    {
+      "id": "e23",
+      "source": "ai_classifier",
+      "sourcePort": "analysis",
+      "target": "assemble_final_report",
+      "targetPort": "aiAnalysis"
+    },
+    {
+      "id": "e24",
+      "source": "merge_actions",
+      "sourcePort": "output",
+      "target": "assemble_final_report",
+      "targetPort": "actionPlan"
+    },
+    {
+      "id": "e25",
       "source": "assemble_final_report",
       "sourcePort": "output",
       "target": "ops_return",

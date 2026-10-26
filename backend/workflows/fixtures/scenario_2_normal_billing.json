@@ -1,0 +1,24 @@
+{
+  "scenario_name": "Routine Normal Billing Inquiry",
+  "expected_severity": "normal",
+  "expected_route": "normal",
+  "payload": {
+    "incident_id": "INC-4102",
+    "service": "billing-worker",
+    "title": "Customer requesting monthly invoice clarification",
+    "description": "User inquiring about prorated charges and tax itemization on invoice #8819.",
+    "error_rate": 0.0,
+    "latency_ms": 38,
+    "affected_users": 1,
+    "failed_transactions": 0,
+    "revenue_at_risk": 0,
+    "region": "ap-south-1",
+    "customer_tier": "standard",
+    "recent_deploy": false,
+    "logs": [
+      "2026-10-25T22:40:01Z INFO  [billing-worker] Generated invoice PDF for customer #cust_4102 in 34ms",
+      "2026-10-25T22:40:03Z INFO  [mail-dispatcher] Invoice notification email queued successfully",
+      "2026-10-25T22:40:05Z DEBUG [audit-log] User Marcus Vance viewed billing history"
+    ]
+  }
+}

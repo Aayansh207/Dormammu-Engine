@@ -131,7 +131,13 @@ export default function App() {
   const handleLogout = async () => {
     await api.logout();
     setUser(null);
+    setSelectedWorkflowId(null);
     setActiveView("home");
+    try {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch {
+      // ignore
+    }
   };
 
   const handleOpenWorkflow = (id) => {
@@ -142,6 +148,15 @@ export default function App() {
   const handleBackToWorkflows = () => {
     setSelectedWorkflowId(null);
     setActiveView("workflows");
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("runId")) {
+        url.searchParams.delete("runId");
+        window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ""));
+      }
+    } catch {
+      // ignore
+    }
   };
 
   return (

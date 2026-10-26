@@ -19,12 +19,15 @@ module.exports = {
     text: defineInputPort({ name: "text", type: PortTypes.ANY, required: false, description: "Text content or structured object to classify" }),
     input: defineInputPort({ name: "input", type: PortTypes.ANY, required: false, description: "Alternative input for text" }),
   },
-  outputs: {
+    outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.STRING, description: "The assigned category" }),
     category: defineOutputPort({ name: "category", type: PortTypes.STRING, description: "Assigned category alias" }),
     severity: defineOutputPort({ name: "severity", type: PortTypes.STRING, description: "Calculated severity ('critical', 'warning', 'normal')" }),
     confidence: defineOutputPort({ name: "confidence", type: PortTypes.NUMBER, description: "Confidence score between 0 and 1" }),
     reasoning: defineOutputPort({ name: "reasoning", type: PortTypes.STRING, description: "Explanation for the classification" }),
+    leadingHypothesis: defineOutputPort({ name: "leadingHypothesis", type: PortTypes.STRING, description: "Leading causal hypothesis" }),
+    alternativeExplanations: defineOutputPort({ name: "alternativeExplanations", type: PortTypes.ANY, description: "Alternative explanations" }),
+    analysis: defineOutputPort({ name: "analysis", type: PortTypes.OBJECT, description: "Complete AI incident analysis package" }),
     provider: defineOutputPort({ name: "provider", type: PortTypes.STRING, description: "AI provider ('groq')" }),
     mode: defineOutputPort({ name: "mode", type: PortTypes.STRING, description: "Execution mode ('live' or 'demo')" }),
   },
@@ -110,6 +113,10 @@ module.exports = {
     const assignedCategory = result.category || categories[0];
     const confidence = typeof result.confidence === "number" ? result.confidence : 0.9;
     const reasoning = result.reasoning || `Classified as ${assignedCategory}`;
+    const leadingHypothesis = result.leadingHypothesis || reasoning;
+    const alternativeExplanations = Array.isArray(result.alternativeExplanations)
+      ? result.alternativeExplanations
+      : ["Transient infrastructure variation"];
 
     let severity = result.severity;
     if (!severity) {
@@ -119,17 +126,32 @@ module.exports = {
       else severity = "normal";
     }
 
+    const analysisObj = {
+      provider: "groq",
+      model: result.model || config.model || "openai/gpt-oss-120b",
+      category: assignedCategory,
+      severity,
+      confidence,
+      reasoning,
+      leadingHypothesis,
+      alternativeExplanations,
+      isVerifiedFact: false,
+    };
+
     return {
       output: assignedCategory,
       category: assignedCategory,
       severity,
       confidence,
       reasoning,
+      leadingHypothesis,
+      alternativeExplanations,
+      analysis: analysisObj,
       provider: "groq",
       mode: result.mode,
       _aiExecution: {
         provider: "groq",
-        model: result.model || config.model || "llama-3.3-70b-versatile",
+        model: result.model || config.model || "openai/gpt-oss-120b",
         mode: result.mode,
         isDemo: Boolean(result.isDemo),
         badge: result.badge,

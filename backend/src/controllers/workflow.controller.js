@@ -135,9 +135,8 @@ class WorkflowController {
 
   async getRunDetails(req, res, next) {
     try {
-      const userId = req.user.id;
       const { runId } = req.params;
-      const run = await workflowService.getRunById(userId, runId);
+      const run = await workflowService.getRunById(req.user, runId);
       return res.status(200).json({
         success: true,
         data: run,
@@ -149,9 +148,8 @@ class WorkflowController {
 
   async getRunTasks(req, res, next) {
     try {
-      const userId = req.user.id;
       const { runId } = req.params;
-      const run = await workflowService.getRunById(userId, runId);
+      const run = await workflowService.getRunById(req.user, runId);
       return res.status(200).json({
         success: true,
         data: run.taskRuns,
@@ -172,16 +170,35 @@ class WorkflowController {
       // If already in a terminal state, stream existing tasks and completion immediately
       if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(run.status)) {
         for (const task of run.taskRuns || []) {
-          defaultSseService.sendRaw(res, `task:${task.status.toLowerCase()}`, task);
+          defaultSseService.sendRaw(res, `task:${task.status.toLowerCase()}`, {
+            runId: run.id,
+            nodeId: task.nodeId,
+            status: task.status,
+            attempts: task.attempts,
+            inputs: task.input,
+            outputs: task.output,
+            input: task.input,
+            output: task.output,
+            error: task.error,
+            startedAt: task.startedAt,
+            completedAt: task.finishedAt,
+            finishedAt: task.finishedAt,
+            durationMs: task.finishedAt && task.startedAt
+              ? Math.max(0, new Date(task.finishedAt).getTime() - new Date(task.startedAt).getTime())
+              : 0,
+          });
         }
         defaultSseService.sendRaw(res, "workflow:completed", {
           runId: run.id,
           workflowId: run.workflowId,
           status: run.status,
           finalOutput: run.output,
+          output: run.output,
           error: run.error,
           startedAt: run.startedAt,
           finishedAt: run.finishedAt,
+          completedAt: run.finishedAt,
+          durationMs: run.durationMs,
         });
       }
     } catch (err) {

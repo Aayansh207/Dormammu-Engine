@@ -1144,52 +1144,55 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "18px" }}>
-          {filteredWorkflows.map((wf) => (
-            <div
-              key={wf.id}
-              onClick={() => onOpenWorkflow(wf.id)}
-              className="glass-panel"
-              style={{
-                padding: "20px",
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                gap: "16px",
-                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-3px)";
-                e.currentTarget.style.borderColor = "var(--brand)";
-                e.currentTarget.style.boxShadow = "var(--shadow-lg)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0px)";
-                e.currentTarget.style.borderColor = "var(--border-subtle)";
-                e.currentTarget.style.boxShadow = "var(--shadow-card)";
-              }}
-            >
-              <div>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px" }}>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: "700", color: "var(--text-primary)" }}>
-                    {wf.name}
-                  </h3>
+          {filteredWorkflows.map((wf) => {
+            return (
+              <div
+                key={wf.id}
+                onClick={() => onOpenWorkflow(wf.id)}
+                className="glass-panel"
+                style={{
+                  padding: "20px",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                  transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-3px)";
+                  e.currentTarget.style.borderColor = "var(--brand)";
+                  e.currentTarget.style.boxShadow = "var(--shadow-lg)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0px)";
+                  e.currentTarget.style.borderColor = "var(--border-subtle)";
+                  e.currentTarget.style.boxShadow = "var(--shadow-card)";
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                      <h3 style={{ fontSize: "1.05rem", fontWeight: "700", color: "var(--text-primary)", margin: 0 }}>
+                        {wf.name}
+                      </h3>
+                    </div>
 
-                  <span
-                    style={{
-                      fontSize: "0.7rem",
-                      fontWeight: "700",
-                      padding: "2px 8px",
-                      borderRadius: "10px",
-                      background: "var(--brand-light)",
-                      color: "var(--brand)",
-                      border: "1px solid var(--brand-border)",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    v{wf.latestVersion}
-                  </span>
-                </div>
+                    <span
+                      style={{
+                        fontSize: "0.7rem",
+                        fontWeight: "700",
+                        padding: "2px 8px",
+                        borderRadius: "10px",
+                        background: "var(--brand-light)",
+                        color: "var(--brand)",
+                        border: "1px solid var(--brand-border)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      v{wf.latestVersion}
+                    </span>
+                  </div>
 
                 {wf.description && (
                   <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "6px", lineHeight: 1.4 }}>
@@ -1248,7 +1251,8 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                 </div>
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
       )}
 

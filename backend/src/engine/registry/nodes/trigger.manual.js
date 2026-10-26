@@ -50,6 +50,11 @@ module.exports = {
     const triggerData = context && context.triggerData;
 
     if (triggerData !== undefined && triggerData !== null) {
+      // If ingested via webhook endpoint, extract request body
+      if (typeof triggerData === "object" && triggerData.$webhook === true && triggerData.body !== undefined) {
+        return { output: triggerData.body };
+      }
+
       // Check if triggerData is partitioned by trigger/node keys
       if (typeof triggerData === "object" && !Array.isArray(triggerData)) {
         // 1. Direct match by node.id (e.g. { "trigger_01": payload })

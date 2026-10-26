@@ -329,7 +329,78 @@ class ApiService {
   }
 
   getRunEventsUrl(runId) {
-    return `${this.baseUrl}/runs/${runId}/events`;
+    const token = this.accessToken ? encodeURIComponent(this.accessToken) : "";
+    return `${API_BASE}/runs/${runId}/events${token ? `?token=${token}` : ""}`;
+  }
+
+  getWebhookUrl(workflowId) {
+    return `${API_BASE}/webhooks/${workflowId}`;
+  }
+
+  async sendWebhook(workflowId, payload, token = null) {
+    const url = `${API_BASE}/webhooks/${workflowId}`;
+    const headers = { "Content-Type": "application/json" };
+    if (token) {
+      headers["x-webhook-token"] = token;
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    return {
+      status: response.status,
+      ok: response.ok,
+      data,
+    };
+  }
+
+  subscribeToRunEvents(runId, onEvent, onError) {
+    const url = this.getRunEventsUrl(runId);
+    const eventSource = new EventSource(url);
+
+    const taskEvents = ["task:ready", "task:running", "task:succeeded", "task:failed", "task:blocked", "task:skipped", "task:cancelled"];
+    for (const evt of taskEvents) {
+      eventSource.addEventListener(evt, (e) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          onEvent?.(evt, parsed);
+        } catch (err) {
+          console.error("SSE parse error for", evt, err);
+        }
+      });
+    }
+
+    eventSource.addEventListener("workflow:started", (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onEvent?.("workflow:started", parsed);
+      } catch (err) {}
+    });
+
+    eventSource.addEventListener("workflow:completed", (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onEvent?.("workflow:completed", parsed);
+      } catch (err) {}
+      eventSource.close();
+    });
+
+    eventSource.addEventListener("connected", (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onEvent?.("connected", parsed);
+      } catch (err) {}
+    });
+
+    eventSource.onerror = (err) => {
+      onError?.(err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }
 }
 

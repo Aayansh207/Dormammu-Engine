@@ -7,14 +7,21 @@ const { verifyAccessToken } = require("../utils/tokens");
 async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    let token = null;
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else if (req.query && (req.query.token || req.query.access_token)) {
+      token = String(req.query.token || req.query.access_token).trim();
+    }
+
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Authorization token required (Format: Bearer <token>)",
+        message: "Authorization token required (Format: Bearer <token> or ?token=<token>)",
       });
     }
 
-    const token = authHeader.split(" ")[1];
     const decoded = verifyAccessToken(token);
 
     if (!decoded || !decoded.sub) {
