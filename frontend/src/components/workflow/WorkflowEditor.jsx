@@ -17,9 +17,17 @@ import {
   Zap,
   Radio,
   History,
+  Users,
+  Shield,
+  Eye,
+  Lock,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
 
-import { api } from "../../services/api";
+import { api, BACKEND_URL } from "../../services/api";
 import NodePalette from "./NodePalette";
 import NodeCard from "./NodeCard";
 import EdgePath, {
@@ -31,8 +39,28 @@ import ValidationDrawer from "./ValidationDrawer";
 import RunExecutionModal from "./RunExecutionModal";
 import WebhookTestingModal from "./WebhookTestingModal";
 import PastRunsDrawer from "./PastRunsDrawer";
+import VersionHistoryDrawer from "./VersionHistoryDrawer";
 import QuickAddPopover from "./QuickAddPopover";
 import { calculateAutoLayout } from "./autoLayout";
+
+const COLLAB_COLORS = [
+  "#39AEA9",
+  "#F59E0B",
+  "#EC4899",
+  "#8B5CF6",
+  "#3B82F6",
+  "#10B981",
+  "#F97316",
+  "#06B6D4",
+];
+
+const getCollabColor = (str) => {
+  let hash = 0;
+  for (let i = 0; i < (str || "").length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return COLLAB_COLORS[Math.abs(hash) % COLLAB_COLORS.length];
+};
 
 export default function WorkflowEditor({
   workflowId,
@@ -48,6 +76,17 @@ export default function WorkflowEditor({
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState("");
+
+  // Collaboration and Permissions State
+  const [currentUserRole, setCurrentUserRole] = useState("VIEWER"); // "OWNER" | "EDITOR" | "VIEWER"
+  const [collaborators, setCollaborators] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected"); // "connecting" | "connected" | "disconnected"
+  const [remoteSelectedNodes, setRemoteSelectedNodes] = useState({}); // nodeId -> { name, color }
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
+
+  const ydocRef = useRef(null);
+  const providerRef = useRef(null);
+  const isRemoteApplyingRef = useRef(false);
 
   // Catalogue
   const [catalogue, setCatalogue] = useState([]);
@@ -189,8 +228,47 @@ export default function WorkflowEditor({
     [getWorkflowJson]
   );
 
+  // Broadcast local changes to Yjs CRDT document
+  const syncLocalChange = useCallback((nextNodes, nextEdges, nextName = null) => {
+    if (currentUserRole === "VIEWER") return;
+    const doc = ydocRef.current;
+    if (!doc) return;
+
+    doc.transact(() => {
+      const nodesMap = doc.getMap("nodes");
+      const edgesArray = doc.getArray("edges");
+      const metaMap = doc.getMap("meta");
+
+      if (nextNodes) {
+        const nextNodeIds = new Set(nextNodes.map((n) => n.id));
+        for (const existingId of nodesMap.keys()) {
+          if (!nextNodeIds.has(existingId)) {
+            nodesMap.delete(existingId);
+          }
+        }
+        for (const node of nextNodes) {
+          nodesMap.set(node.id, node);
+        }
+      }
+
+      if (nextEdges) {
+        edgesArray.delete(0, edgesArray.length);
+        edgesArray.push(nextEdges);
+      }
+
+      if (nextName) {
+        metaMap.set("name", nextName);
+      }
+    }, "local");
+  }, [currentUserRole]);
+
   // Save workflow definition
   const handleSave = useCallback(async () => {
+    if (currentUserRole === "VIEWER") {
+      alert("Forbidden: Viewers cannot save workflow modifications.");
+      return false;
+    }
+
     const currentId = stateRef.current.workflowId;
 
     if (!currentId) {
@@ -224,6 +302,14 @@ export default function WorkflowEditor({
         `Saved as v${res.data.version ?? 1}`
       );
 
+      // Sync updated version to Yjs meta
+      const doc = ydocRef.current;
+      if (doc) {
+        doc.transact(() => {
+          doc.getMap("meta").set("version", res.data.version ?? 1);
+        }, "local");
+      }
+
       if (saveMessageTimerRef.current) {
         clearTimeout(saveMessageTimerRef.current);
       }
@@ -245,11 +331,16 @@ export default function WorkflowEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [getWorkflowJson, isSaving]);
+  }, [currentUserRole, getWorkflowJson, isSaving]);
 
   // Delete node and connected edges
   const handleDeleteNode = useCallback(
     (nodeId) => {
+      if (currentUserRole === "VIEWER") {
+        alert("Forbidden: Viewers cannot delete nodes.");
+        return;
+      }
+
       const nextNodes = stateRef.current.nodes.filter(
         (node) => node.id !== nodeId
       );
@@ -267,6 +358,7 @@ export default function WorkflowEditor({
       );
 
       setIsDirty(true);
+      syncLocalChange(nextNodes, nextEdges);
 
       validateDefinition(
         {
@@ -276,12 +368,17 @@ export default function WorkflowEditor({
         }
       );
     },
-    [getWorkflowJson, validateDefinition]
+    [currentUserRole, getWorkflowJson, syncLocalChange, validateDefinition]
   );
 
   // Delete edge
   const handleDeleteEdge = useCallback(
     (edgeId) => {
+      if (currentUserRole === "VIEWER") {
+        alert("Forbidden: Viewers cannot delete connections.");
+        return;
+      }
+
       const nextEdges = stateRef.current.edges.filter(
         (edge) => edge.id !== edgeId
       );
@@ -293,10 +390,11 @@ export default function WorkflowEditor({
       );
 
       setIsDirty(true);
+      syncLocalChange(null, nextEdges);
 
       validateDefinition(getWorkflowJson(null, nextEdges));
     },
-    [getWorkflowJson, validateDefinition]
+    [currentUserRole, getWorkflowJson, syncLocalChange, validateDefinition]
   );
 
   // Load node catalogue
@@ -489,6 +587,7 @@ export default function WorkflowEditor({
         setWorkflowVersion(wf.version || 1);
         setNodes(definition.nodes || []);
         setEdges(definition.edges || []);
+        setCurrentUserRole(wf.currentUserRole || "VIEWER");
         setIsDirty(false);
 
         validateDefinition(definition, 0);
@@ -532,9 +631,120 @@ export default function WorkflowEditor({
     clearSSESubscription,
   ]);
 
+  // Real-Time Yjs CRDT Synchronization & Presence Awareness
+  useEffect(() => {
+    if (!workflowId || !api.accessToken) return;
+
+    const doc = new Y.Doc();
+    ydocRef.current = doc;
+
+    const wsUrl = BACKEND_URL.replace(/^http/, "ws") + "/ws/collaboration";
+    let provider = null;
+
+    try {
+      provider = new WebsocketProvider(wsUrl, workflowId, doc, {
+        params: {
+          token: api.accessToken,
+          workflowId: workflowId,
+        },
+        connect: true,
+      });
+      providerRef.current = provider;
+
+      provider.on("status", (event) => {
+        setConnectionStatus(event.status); // "connected" | "connecting" | "disconnected"
+      });
+
+      const myColor = getCollabColor(api.currentUser?.id || "user");
+      provider.awareness.setLocalStateField("user", {
+        id: api.currentUser?.id,
+        name: api.currentUser?.name || api.currentUser?.email || "User",
+        email: api.currentUser?.email,
+        color: myColor,
+      });
+
+      provider.awareness.on("change", () => {
+        const states = provider.awareness.getStates();
+        const active = [];
+        const remoteSel = {};
+        for (const [clientId, state] of states.entries()) {
+          if (clientId !== doc.clientID && state?.user) {
+            active.push({ clientId, ...state });
+            if (state.selectedNodeId) {
+              remoteSel[state.selectedNodeId] = {
+                name: state.user.name || "Collaborator",
+                color: state.user.color || "#39AEA9",
+              };
+            }
+          }
+        }
+        setCollaborators(active);
+        setRemoteSelectedNodes(remoteSel);
+      });
+
+      const handleDocUpdate = (update, origin) => {
+        if (origin === "local" || isRemoteApplyingRef.current) return;
+        isRemoteApplyingRef.current = true;
+        try {
+          const nodesMap = doc.getMap("nodes");
+          const edgesArray = doc.getArray("edges");
+          const metaMap = doc.getMap("meta");
+
+          const syncedNodes = Array.from(nodesMap.values());
+          const syncedEdges = edgesArray.toArray();
+          const syncedName = metaMap.get("name");
+          const syncedVersion = metaMap.get("version");
+
+          if (syncedNodes.length > 0 || syncedEdges.length > 0) {
+            setNodes(syncedNodes);
+            setEdges(syncedEdges);
+            if (syncedName) setWorkflowName(syncedName);
+            if (syncedVersion) setWorkflowVersion(syncedVersion);
+            validateDefinition({ nodes: syncedNodes, edges: syncedEdges, name: syncedName }, 300);
+          }
+        } finally {
+          isRemoteApplyingRef.current = false;
+        }
+      };
+
+      doc.on("update", handleDocUpdate);
+    } catch (err) {
+      console.warn("Yjs WebsocketProvider initialization error:", err);
+    }
+
+    return () => {
+      if (provider) {
+        try {
+          provider.destroy();
+        } catch (e) {}
+      }
+      if (doc) {
+        try {
+          doc.destroy();
+        } catch (e) {}
+      }
+      ydocRef.current = null;
+      providerRef.current = null;
+    };
+  }, [workflowId, validateDefinition]);
+
+  // Keep awareness updated when selected node changes
+  useEffect(() => {
+    if (providerRef.current?.awareness) {
+      providerRef.current.awareness.setLocalStateField(
+        "selectedNodeId",
+        selectedElement?.type === "node" ? selectedElement.id : null
+      );
+    }
+  }, [selectedElement]);
+
   // Add node
   const handleAddNode = useCallback(
     (catalogueNode, customPos = null, autoConnectSource = null) => {
+      if (currentUserRole === "VIEWER") {
+        alert("Forbidden: Viewers cannot add nodes.");
+        return;
+      }
       if (!catalogueNode) {
         return;
       }
@@ -634,6 +844,7 @@ export default function WorkflowEditor({
         type: "node",
       });
       setIsDirty(true);
+      syncLocalChange(nextNodes, nextEdges);
 
       validateDefinition(
         {
@@ -644,7 +855,9 @@ export default function WorkflowEditor({
       );
     },
     [
+      currentUserRole,
       getWorkflowJson,
+      syncLocalChange,
       validateDefinition,
       pan.x,
       pan.y,
@@ -712,6 +925,7 @@ export default function WorkflowEditor({
 
   // Auto layout
   const handleAutoLayout = useCallback(() => {
+    if (currentUserRole === "VIEWER") return;
     const tidied = calculateAutoLayout(
       stateRef.current.nodes,
       stateRef.current.edges
@@ -719,12 +933,13 @@ export default function WorkflowEditor({
 
     setNodes(tidied);
     setIsDirty(true);
+    syncLocalChange(tidied, null);
 
     validateDefinition({
       ...getWorkflowJson(tidied),
       nodes: tidied,
     });
-  }, [getWorkflowJson, validateDefinition]);
+  }, [currentUserRole, getWorkflowJson, syncLocalChange, validateDefinition]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -818,6 +1033,9 @@ export default function WorkflowEditor({
   // Release drag/pan on window mouseup
   useEffect(() => {
     const handleGlobalMouseUp = () => {
+      if (draggingNodeId && currentUserRole !== "VIEWER") {
+        syncLocalChange(stateRef.current.nodes, null);
+      }
       setDraggingNodeId(null);
       setIsPanning(false);
     };
@@ -830,7 +1048,7 @@ export default function WorkflowEditor({
         handleGlobalMouseUp
       );
     };
-  }, []);
+  }, [currentUserRole, draggingNodeId, syncLocalChange]);
 
   // Global cleanup
   useEffect(() => {
@@ -859,6 +1077,7 @@ export default function WorkflowEditor({
 
   const handleCanvasDrop = (event) => {
     event.preventDefault();
+    if (currentUserRole === "VIEWER") return;
 
     const rawData = event.dataTransfer.getData(
       "application/dormammu-node"
@@ -900,6 +1119,7 @@ export default function WorkflowEditor({
 
   // Double-click canvas to add node
   const handleCanvasDoubleClick = (event) => {
+    if (currentUserRole === "VIEWER") return;
     const target = event.target;
 
     if (
@@ -938,12 +1158,14 @@ export default function WorkflowEditor({
 
   // Update node
   const handleUpdateNode = (updatedNode) => {
+    if (currentUserRole === "VIEWER") return;
     const nextNodes = stateRef.current.nodes.map((node) =>
       node.id === updatedNode.id ? updatedNode : node
     );
 
     setNodes(nextNodes);
     setIsDirty(true);
+    syncLocalChange(nextNodes, null);
 
     validateDefinition({
       ...getWorkflowJson(nextNodes),
@@ -953,6 +1175,7 @@ export default function WorkflowEditor({
 
   // Start node dragging
   const handleStartDragNode = (nodeId, event) => {
+    if (currentUserRole === "VIEWER") return;
     const node = stateRef.current.nodes.find(
       (item) => item.id === nodeId
     );
@@ -982,6 +1205,7 @@ export default function WorkflowEditor({
     portName,
     event
   ) => {
+    if (currentUserRole === "VIEWER") return;
     setConnectingSource({
       nodeId,
       portName,
@@ -1004,6 +1228,11 @@ export default function WorkflowEditor({
     targetNodeId,
     targetPortName
   ) => {
+    if (currentUserRole === "VIEWER") {
+      setConnectingSource(null);
+      setConnectingMousePos(null);
+      return;
+    }
     const source = connectingSource;
 
     if (!source) {
@@ -1076,6 +1305,7 @@ export default function WorkflowEditor({
 
       setEdges(nextEdges);
       setIsDirty(true);
+      syncLocalChange(null, nextEdges);
 
       validateDefinition({
         ...getWorkflowJson(null, nextEdges),
@@ -1398,8 +1628,43 @@ export default function WorkflowEditor({
     ]
   );
 
+  // Restore earlier workflow version
+  const handleRestoreVersion = useCallback(
+    (data) => {
+      const restoredWf = data?.workflow || data;
+      if (!restoredWf) return;
+      setWorkflow(restoredWf);
+      setWorkflowVersion(restoredWf.version || 1);
+      const def = restoredWf.definition || { nodes: [], edges: [] };
+      setNodes(def.nodes || []);
+      setEdges(def.edges || []);
+      if (restoredWf.name) setWorkflowName(restoredWf.name);
+      setIsDirty(false);
+      syncLocalChange(def.nodes || [], def.edges || [], restoredWf.name);
+      const doc = ydocRef.current;
+      if (doc) {
+        doc.transact(() => {
+          doc.getMap("meta").set("version", restoredWf.version || 1);
+        }, "local");
+      }
+      validateDefinition(def, 0);
+      setIsVersionHistoryOpen(false);
+      setSaveSuccessMsg(`Restored to v${restoredWf.version || 1}`);
+      if (saveMessageTimerRef.current) clearTimeout(saveMessageTimerRef.current);
+      saveMessageTimerRef.current = setTimeout(() => {
+        setSaveSuccessMsg("");
+        saveMessageTimerRef.current = null;
+      }, 3500);
+    },
+    [syncLocalChange, validateDefinition]
+  );
+
   // Execute workflow
   const handleExecuteRun = async (triggerData) => {
+    if (currentUserRole === "VIEWER") {
+      alert("Forbidden: Viewers cannot execute workflows.");
+      return;
+    }
     setIsRunning(true);
 
     try {
@@ -1923,31 +2188,231 @@ export default function WorkflowEditor({
             )}
           </button>
 
-          <button
-            onClick={() => void handleSave()}
-            disabled={isSaving}
+          {/* Real-time CRDT WebSocket Status Badge */}
+          <div
             style={{
-              padding: "7px 14px",
-              background: isDirty
-                ? "var(--brand)"
-                : "var(--bg-secondary)",
-              border: `1px solid ${isDirty
-                ? "var(--brand-border)"
-                : "var(--border-subtle)"
-                }`,
-              borderRadius: "var(--radius-sm)",
-              color: isDirty
-                ? "#ffffff"
-                : "var(--text-secondary)",
-              fontSize: "0.85rem",
-              fontWeight: "600",
-              cursor: isSaving ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              boxShadow: isDirty
-                ? "0 0 14px var(--brand-glow)"
-                : "none",
+              padding: "4px 10px",
+              borderRadius: "var(--radius-full)",
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border-subtle)",
+              fontSize: "0.75rem",
+              fontWeight: "600",
+              color:
+                connectionStatus === "connected"
+                  ? "var(--accent-emerald)"
+                  : connectionStatus === "connecting"
+                  ? "var(--accent-amber)"
+                  : "var(--text-muted)",
+            }}
+            title={`Collaboration WebSocket: ${connectionStatus}`}
+          >
+            <span
+              style={{
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background:
+                  connectionStatus === "connected"
+                    ? "#10b981"
+                    : connectionStatus === "connecting"
+                    ? "#f59e0b"
+                    : "#6b7280",
+                boxShadow:
+                  connectionStatus === "connected"
+                    ? "0 0 6px #10b981"
+                    : "none",
+              }}
+            />
+            <span>
+              {connectionStatus === "connected"
+                ? "Live"
+                : connectionStatus === "connecting"
+                ? "Syncing..."
+                : "Offline"}
+            </span>
+          </div>
+
+          {/* Active Collaborators Presence Cluster */}
+          {collaborators.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                marginLeft: "-2px",
+              }}
+              title={`${collaborators.length} collaborator${collaborators.length > 1 ? "s" : ""} in room`}
+            >
+              {collaborators.slice(0, 4).map((c, idx) => {
+                const initial = (c.user?.name || c.user?.email || "C")[0].toUpperCase();
+                const color = c.user?.color || "#39AEA9";
+                return (
+                  <div
+                    key={c.clientId || idx}
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "50%",
+                      background: color,
+                      color: "#ffffff",
+                      fontSize: "0.74rem",
+                      fontWeight: "700",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "2px solid var(--bg-card)",
+                      marginLeft: idx > 0 ? "-8px" : "0",
+                      boxShadow: "var(--shadow-sm)",
+                      zIndex: 5 + idx,
+                    }}
+                    title={`${c.user?.name || c.user?.email || "Collaborator"} (${c.user?.email || ""})`}
+                  >
+                    {initial}
+                  </div>
+                );
+              })}
+              {collaborators.length > 4 && (
+                <div
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "50%",
+                    background: "var(--bg-chip)",
+                    color: "var(--text-secondary)",
+                    fontSize: "0.7rem",
+                    fontWeight: "700",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "2px solid var(--bg-card)",
+                    marginLeft: "-8px",
+                    zIndex: 10,
+                  }}
+                >
+                  +{collaborators.length - 4}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* User Role Badge */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "4px 8px",
+              borderRadius: "6px",
+              fontSize: "0.72rem",
+              fontWeight: "700",
+              background:
+                currentUserRole === "OWNER"
+                  ? "rgba(16, 185, 129, 0.15)"
+                  : currentUserRole === "EDITOR"
+                  ? "rgba(59, 130, 246, 0.15)"
+                  : "rgba(245, 158, 11, 0.15)",
+              color:
+                currentUserRole === "OWNER"
+                  ? "var(--accent-emerald)"
+                  : currentUserRole === "EDITOR"
+                  ? "var(--accent-blue)"
+                  : "var(--accent-amber)",
+              border: `1px solid ${
+                currentUserRole === "OWNER"
+                  ? "rgba(16, 185, 129, 0.3)"
+                  : currentUserRole === "EDITOR"
+                  ? "rgba(59, 130, 246, 0.3)"
+                  : "rgba(245, 158, 11, 0.3)"
+              }`,
+            }}
+            title={`Your permission role: ${currentUserRole}`}
+          >
+            {currentUserRole === "OWNER" ? (
+              <Shield size={12} />
+            ) : currentUserRole === "EDITOR" ? (
+              <Users size={12} />
+            ) : (
+              <Eye size={12} />
+            )}
+            <span>{currentUserRole}</span>
+          </div>
+
+          {/* Version History Button */}
+          <button
+            onClick={() => setIsVersionHistoryOpen(true)}
+            title="Inspect and restore previous workflow versions"
+            style={{
+              padding: "6px 12px",
+              background: isVersionHistoryOpen
+                ? "rgba(57, 174, 169, 0.15)"
+                : "var(--bg-secondary)",
+              border: `1px solid ${
+                isVersionHistoryOpen
+                  ? "var(--brand-border)"
+                  : "var(--border-subtle)"
+              }`,
+              borderRadius: "var(--radius-sm)",
+              color: isVersionHistoryOpen
+                ? "var(--brand)"
+                : "var(--text-secondary)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "0.82rem",
+              fontWeight: "600",
+              flexShrink: 0,
+            }}
+          >
+            <History size={14} color="var(--brand)" />
+            <span>Versions</span>
+          </button>
+
+          <button
+            onClick={() => void handleSave()}
+            disabled={isSaving || currentUserRole === "VIEWER"}
+            title={
+              currentUserRole === "VIEWER"
+                ? "Viewers cannot save changes"
+                : "Save workflow definition"
+            }
+            style={{
+              padding: "7px 14px",
+              background:
+                currentUserRole === "VIEWER"
+                  ? "var(--bg-chip)"
+                  : isDirty
+                  ? "var(--brand)"
+                  : "var(--bg-secondary)",
+              border: `1px solid ${
+                currentUserRole === "VIEWER"
+                  ? "var(--border-subtle)"
+                  : isDirty
+                  ? "var(--brand-border)"
+                  : "var(--border-subtle)"
+              }`,
+              borderRadius: "var(--radius-sm)",
+              color:
+                currentUserRole === "VIEWER"
+                  ? "var(--text-muted)"
+                  : isDirty
+                  ? "#ffffff"
+                  : "var(--text-secondary)",
+              fontSize: "0.85rem",
+              fontWeight: "600",
+              cursor:
+                isSaving || currentUserRole === "VIEWER"
+                  ? "not-allowed"
+                  : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow:
+                isDirty && currentUserRole !== "VIEWER"
+                  ? "0 0 14px var(--brand-glow)"
+                  : "none",
               flexShrink: 0,
             }}
           >
@@ -1956,6 +2421,8 @@ export default function WorkflowEditor({
                 size={14}
                 className="animate-spin"
               />
+            ) : currentUserRole === "VIEWER" ? (
+              <Lock size={14} />
             ) : (
               <Save size={14} />
             )}
@@ -1964,21 +2431,63 @@ export default function WorkflowEditor({
           </button>
 
           <button
-            onClick={() => setIsRunModalOpen(true)}
+            onClick={() => {
+              if (currentUserRole === "VIEWER") {
+                alert("Forbidden: Viewers cannot execute workflows.");
+                return;
+              }
+              setIsRunModalOpen(true);
+            }}
+            disabled={currentUserRole === "VIEWER"}
+            title={
+              currentUserRole === "VIEWER"
+                ? "Viewers cannot execute workflows"
+                : "Run workflow"
+            }
             className="btn btn-primary"
             style={{
               padding: "7px 18px",
               fontSize: "0.88rem",
               height: "36px",
               borderRadius: "var(--radius-full)",
+              opacity: currentUserRole === "VIEWER" ? 0.45 : 1,
+              cursor: currentUserRole === "VIEWER" ? "not-allowed" : "pointer",
               flexShrink: 0,
             }}
           >
-            <Play size={14} fill="#ffffff" />
+            <Play size={14} fill={currentUserRole === "VIEWER" ? "none" : "#ffffff"} />
             Run
           </button>
         </div>
       </div>
+
+      {/* Viewer Read-Only Banner */}
+      {currentUserRole === "VIEWER" && (
+        <div
+          style={{
+            background: "rgba(245, 158, 11, 0.12)",
+            borderBottom: "1px solid rgba(245, 158, 11, 0.25)",
+            padding: "6px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: "0.8rem",
+            color: "var(--accent-amber)",
+            fontWeight: "600",
+            zIndex: 22,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Eye size={15} />
+            <span>
+              Viewer Mode (Read-Only) — You have view-only access to this workflow. Modifications and execution are restricted.
+            </span>
+          </div>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+            Contact the workspace owner to request Editor access.
+          </span>
+        </div>
+      )}
 
       {/* Main workspace */}
       <div
@@ -2512,6 +3021,8 @@ export default function WorkflowEditor({
                     connectingSourceNodeId={
                       connectingSource?.nodeId
                     }
+                    collaboratorSelection={remoteSelectedNodes[node.id] || null}
+                    readOnly={currentUserRole === "VIEWER"}
                   />
                 );
               })}
@@ -2533,6 +3044,7 @@ export default function WorkflowEditor({
                 ? runResult.tasks[selectedNode.id]
                 : null
             }
+            readOnly={currentUserRole === "VIEWER"}
           />
         )}
       </div>
@@ -2620,6 +3132,16 @@ export default function WorkflowEditor({
         isLoadingHistory={isLoadingHistory}
         onRefresh={() => fetchRecentRuns(workflowId)}
         onOpenReport={onOpenReport}
+      />
+
+      {/* Version history drawer */}
+      <VersionHistoryDrawer
+        isOpen={isVersionHistoryOpen}
+        onClose={() => setIsVersionHistoryOpen(false)}
+        workflowId={workflowId}
+        currentVersion={workflowVersion}
+        userRole={currentUserRole}
+        onRestoreVersion={handleRestoreVersion}
       />
     </div>
   );

@@ -43,6 +43,8 @@ export default function NodeCard({
   executionTask = null,
   isConnecting = false,
   connectingSourceNodeId = null,
+  collaboratorSelection = null,
+  readOnly = false,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const cardRef = useRef(null);
@@ -102,13 +104,39 @@ export default function NodeCard({
         left: `${node.position.x}px`,
         top: `${node.position.y}px`,
         width: `${CARD_WIDTH}px`,
-        zIndex: isSelected ? 15 : 10,
+        zIndex: isSelected || collaboratorSelection ? 15 : 10,
         transform: "translate3d(0, 0, 0)",
         opacity: execStatus === "SKIPPED" ? 0.65 : 1,
         transition: "opacity 0.2s ease, box-shadow 0.2s ease",
+        boxShadow: collaboratorSelection
+          ? `0 0 0 2px ${collaboratorSelection.color}, 0 4px 16px ${collaboratorSelection.color}44`
+          : undefined,
       }}
       className={`workflow-node ${isSelected ? "selected" : ""} ${hasErrors ? "has-error" : ""}`}
     >
+      {/* Remote Collaborator Name Pill */}
+      {collaboratorSelection && (
+        <div
+          style={{
+            position: "absolute",
+            top: "-22px",
+            left: "6px",
+            background: collaboratorSelection.color,
+            color: "#ffffff",
+            fontSize: "0.68rem",
+            fontWeight: "700",
+            padding: "1px 7px",
+            borderRadius: "4px",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+            whiteSpace: "nowrap",
+            zIndex: 30,
+            pointerEvents: "none",
+          }}
+        >
+          {collaboratorSelection.name}
+        </div>
+      )}
+
       {/* Category accent bar (4px) */}
       <div 
         style={{
@@ -123,6 +151,7 @@ export default function NodeCard({
       {/* Node Header (draggable, total height 47px + 4px accent = 51px) */}
       <div
         onMouseDown={(e) => {
+          if (readOnly) return;
           if (e.target.closest("button") || e.target.closest(".port-handle")) return;
           onStartDrag(node.id, e);
         }}
@@ -133,7 +162,7 @@ export default function NodeCard({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          cursor: "grab",
+          cursor: readOnly ? "default" : "grab",
           borderBottom: "1px solid var(--border-subtle)",
         }}
       >
@@ -214,7 +243,7 @@ export default function NodeCard({
             </div>
           )}
 
-          {outputEntries.length > 0 && onQuickConnect && (
+          {!readOnly && outputEntries.length > 0 && onQuickConnect && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -249,28 +278,30 @@ export default function NodeCard({
             </button>
           )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(node.id);
-            }}
-            title="Delete Node"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: "2px",
-              display: "flex",
-              alignItems: "center",
-              borderRadius: "4px",
-              transition: "color 0.15s ease",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "#f43f5e")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
-          >
-            <Trash2 size={13} />
-          </button>
+          {!readOnly && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(node.id);
+              }}
+              title="Delete Node"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: "2px",
+                display: "flex",
+                alignItems: "center",
+                borderRadius: "4px",
+                transition: "color 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#f43f5e")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -399,16 +430,18 @@ export default function NodeCard({
                       alignItems: "center",
                       gap: "6px",
                       position: "relative",
-                      cursor: "crosshair",
+                      cursor: readOnly ? "default" : "crosshair",
                       padding: "2px 4px",
                       borderRadius: "4px",
                     }}
                     title={`Output Port: ${outPortName} (${outPortDef.type}) - Click or Drag to connect`}
                     onMouseDown={(e) => {
+                      if (readOnly) return;
                       e.stopPropagation();
                       onStartConnection(node.id, outPortName, e);
                     }}
                     onClick={(e) => {
+                      if (readOnly) return;
                       e.stopPropagation();
                       onStartConnection(node.id, outPortName, e);
                     }}
@@ -439,13 +472,16 @@ export default function NodeCard({
                         top: "7px",
                         backgroundColor: outTypeColor,
                         color: outTypeColor,
+                        cursor: readOnly ? "default" : "crosshair",
                       }}
                       title={`Output: ${outPortName} (${outPortDef.type}) - Click or Drag to connect`}
                       onMouseDown={(e) => {
+                        if (readOnly) return;
                         e.stopPropagation();
                         onStartConnection(node.id, outPortName, e);
                       }}
                       onClick={(e) => {
+                        if (readOnly) return;
                         e.stopPropagation();
                         onStartConnection(node.id, outPortName, e);
                       }}

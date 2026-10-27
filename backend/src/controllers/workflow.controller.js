@@ -9,8 +9,8 @@ class WorkflowController {
   async createWorkflow(req, res, next) {
     try {
       const userId = req.user.id;
-      const { name, description, definition } = req.body;
-      const workflow = await workflowService.createWorkflow(userId, { name, description, definition });
+      const { name, description, definition, workspaceId } = req.body;
+      const workflow = await workflowService.createWorkflow(userId, { name, description, definition, workspaceId });
       return res.status(201).json({
         success: true,
         data: workflow,
@@ -23,7 +23,8 @@ class WorkflowController {
   async listWorkflows(req, res, next) {
     try {
       const userId = req.user.id;
-      const workflows = await workflowService.listWorkflows(userId);
+      const { workspaceId } = req.query;
+      const workflows = await workflowService.listWorkflows(userId, workspaceId);
       return res.status(200).json({
         success: true,
         data: workflows,
@@ -235,6 +236,50 @@ class WorkflowController {
       next(err);
     }
   }
+
+  async listWorkflowVersions(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      const versions = await workflowService.listWorkflowVersions(userId, id);
+      return res.status(200).json({
+        success: true,
+        data: versions,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getWorkflowVersion(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id, version } = req.params;
+      const versionRecord = await workflowService.getWorkflowVersion(userId, id, version);
+      return res.status(200).json({
+        success: true,
+        data: versionRecord,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async restoreWorkflowVersion(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id, version } = req.params;
+      const restored = await workflowService.restoreWorkflowVersion(userId, id, version);
+      return res.status(200).json({
+        success: true,
+        message: `Restored version ${version} as new active version`,
+        data: restored,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new WorkflowController();
+

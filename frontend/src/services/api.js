@@ -252,10 +252,93 @@ class ApiService {
     return this.request(`/sessions/history?page=${page}&limit=${limit}`, { method: "GET" });
   }
 
+  // --- Workspaces & Invitations ---
+
+  async listWorkspaces() {
+    return this.request("/workspaces", { method: "GET" });
+  }
+
+  async getWorkspace(id) {
+    return this.request(`/workspaces/${id}`, { method: "GET" });
+  }
+
+  async createWorkspace({ name, description }) {
+    return this.request("/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+  }
+
+  async updateWorkspace(id, { name, description }) {
+    return this.request(`/workspaces/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, description }),
+    });
+  }
+
+  async deleteWorkspace(id) {
+    return this.request(`/workspaces/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listWorkspaceWorkflows(id) {
+    return this.request(`/workspaces/${id}/workflows`, { method: "GET" });
+  }
+
+  async inviteWorkspaceMember(id, { email, role }) {
+    return this.request(`/workspaces/${id}/invitations`, {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    });
+  }
+
+  async listWorkspaceInvitations(id) {
+    return this.request(`/workspaces/${id}/invitations`, { method: "GET" });
+  }
+
+  async revokeWorkspaceInvitation(id, invitationId) {
+    return this.request(`/workspaces/${id}/invitations/${invitationId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listUserInvitations() {
+    return this.request("/workspaces/invitations/me", { method: "GET" });
+  }
+
+  async acceptWorkspaceInvitation(token) {
+    return this.request("/workspaces/invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  async rejectWorkspaceInvitation(token) {
+    return this.request("/workspaces/invitations/reject", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  async removeWorkspaceMember(id, memberUserId) {
+    return this.request(`/workspaces/${id}/members/${memberUserId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async updateWorkspaceMemberRole(id, memberUserId, role) {
+    return this.request(`/workspaces/${id}/members/${memberUserId}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    });
+  }
+
   // --- Workflows, Nodes & Runs ---
 
-  async listWorkflows() {
-    return this.request("/workflows", { method: "GET" });
+  async listWorkflows(workspaceId = null) {
+    const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+    return this.request(`/workflows${query}`, { method: "GET" });
   }
 
   async getWorkflow(id) {
@@ -340,6 +423,31 @@ class ApiService {
 
   async getNodeMetadata(type) {
     return this.request(`/nodes/${type}`, { method: "GET" });
+  }
+
+  // --- Workflow Version History & Restoration ---
+
+  async listWorkflowVersions(workflowId) {
+    return this.request(`/workflows/${workflowId}/versions`, { method: "GET" });
+  }
+
+  async getWorkflowVersion(workflowId, version) {
+    return this.request(`/workflows/${workflowId}/versions/${version}`, { method: "GET" });
+  }
+
+  async restoreWorkflowVersion(workflowId, version) {
+    return this.request(`/workflows/${workflowId}/versions/${version}/restore`, {
+      method: "POST",
+    });
+  }
+
+  // --- Real-Time Collaboration WebSocket URL ---
+
+  getCollaborationWsUrl(workflowId) {
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = BACKEND_URL.replace(/^https?:\/\//, "");
+    const token = this.accessToken ? encodeURIComponent(this.accessToken) : "";
+    return `${wsProtocol}//${host}/ws/collaboration?workflowId=${encodeURIComponent(workflowId)}&token=${token}`;
   }
 
   getRunEventsUrl(runId) {

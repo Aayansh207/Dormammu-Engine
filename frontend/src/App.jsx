@@ -7,6 +7,7 @@ import WorkflowList from "./components/workflow/WorkflowList";
 import WorkflowEditor from "./components/workflow/WorkflowEditor";
 import ExecutionReportsList from "./components/workflow/ExecutionReportsList";
 import ExecutionReportDetail from "./components/workflow/ExecutionReportDetail";
+import WorkspaceModal from "./components/workflow/WorkspaceModal";
 import { api, BACKEND_URL } from "./services/api";
 
 export default function App() {
@@ -19,6 +20,12 @@ export default function App() {
   const [authModalError, setAuthModalError] = useState(null);
   const [authModalSuccess, setAuthModalSuccess] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
+
+  // Shared Workspace Collaboration State
+  const [activeWorkspace, setActiveWorkspace] = useState(null);
+  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
+  const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
 
   const resolveRoute = () => {
     const pathname = window.location.pathname;
@@ -156,6 +163,11 @@ export default function App() {
         });
     }
 
+    const inviteToken = params.get("inviteToken");
+    if (inviteToken) {
+      setWorkspaceModalOpen(true);
+    }
+
     if (api.accessToken) {
       api.getProfile()
         .then((res) => setUser(res.data))
@@ -167,6 +179,40 @@ export default function App() {
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
+
+  const refreshWorkspaces = async () => {
+    if (!api.accessToken) {
+      setWorkspaces([]);
+      setPendingInvitesCount(0);
+      return;
+    }
+    try {
+      const [wsRes, invitesRes] = await Promise.all([
+        api.listWorkspaces().catch(() => ({ data: [] })),
+        api.listUserInvitations().catch(() => ({ data: [] })),
+      ]);
+      const list = wsRes.data || [];
+      setWorkspaces(list);
+      setPendingInvitesCount((invitesRes.data || []).length);
+      setActiveWorkspace((prev) => {
+        if (!prev) return list[0] || null;
+        const found = list.find((w) => w.id === prev.id);
+        return found || list[0] || null;
+      });
+    } catch (err) {
+      console.warn("Failed to refresh workspaces:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      refreshWorkspaces();
+    } else {
+      setActiveWorkspace(null);
+      setWorkspaces([]);
+      setPendingInvitesCount(0);
+    }
+  }, [user?.id]);
 
   const handleOpenAuth = (tab = "login") => {
     setAuthModalTab(tab);
@@ -183,6 +229,8 @@ export default function App() {
   const handleLogout = async () => {
     await api.logout();
     setUser(null);
+    setActiveWorkspace(null);
+    setWorkspaces([]);
     setSelectedWorkflowId(null);
     setSelectedRunId(null);
     handleNavigateView("home");
@@ -253,6 +301,11 @@ export default function App() {
           onOpenAuth={handleOpenAuth}
           onLogout={handleLogout}
           backendHealth={backendHealth}
+          activeWorkspace={activeWorkspace}
+          workspaces={workspaces}
+          onSelectWorkspace={setActiveWorkspace}
+          onOpenWorkspaceModal={() => setWorkspaceModalOpen(true)}
+          pendingInvitesCount={pendingInvitesCount}
         />
       )}
 
@@ -273,12 +326,15 @@ export default function App() {
         ) : activeView === "workflows" ? (
           <WorkflowList
             user={user}
+            activeWorkspace={activeWorkspace}
+            onOpenWorkspaceModal={() => setWorkspaceModalOpen(true)}
             onOpenWorkflow={handleOpenWorkflow}
             onOpenAuth={handleOpenAuth}
           />
         ) : activeView === "workflow-editor" ? (
           <WorkflowEditor
             workflowId={selectedWorkflowId}
+            activeWorkspace={activeWorkspace}
             onBack={handleBackToWorkflows}
             onOpenReport={handleOpenReport}
           />
@@ -298,6 +354,14 @@ export default function App() {
           />
         ) : null}
       </main>
+
+      <WorkspaceModal
+        isOpen={workspaceModalOpen}
+        onClose={() => setWorkspaceModalOpen(false)}
+        activeWorkspace={activeWorkspace}
+        onSelectWorkspace={(ws) => setActiveWorkspace(ws)}
+        onWorkspacesChanged={refreshWorkspaces}
+      />
 
       <AuthModal 
         isOpen={authModalOpen}

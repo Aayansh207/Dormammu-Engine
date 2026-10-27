@@ -14,7 +14,9 @@ import {
   FileJson,
   X,
   Check,
-  Zap
+  Zap,
+  Users,
+  Shield
 } from "lucide-react";
 import { api } from "../../services/api";
 
@@ -978,7 +980,13 @@ const STARTER_TEMPLATES = [
   },
 ];
 
-export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
+export default function WorkflowList({ 
+  onOpenWorkflow, 
+  user, 
+  onOpenAuth,
+  activeWorkspace,
+  onOpenWorkspaceModal
+}) {
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -989,7 +997,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   useEffect(() => {
     loadWorkflows();
-  }, [user?.id]);
+  }, [user?.id, activeWorkspace?.id]);
 
   const loadWorkflows = async () => {
     if (!user) {
@@ -998,7 +1006,12 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
     }
     setLoading(true);
     try {
-      const res = await api.listWorkflows();
+      let res;
+      if (activeWorkspace?.id) {
+        res = await api.listWorkspaceWorkflows(activeWorkspace.id);
+      } else {
+        res = await api.listWorkflows();
+      }
       if (res && res.data) {
         setWorkflows(res.data);
       }
@@ -1011,11 +1024,16 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   // Instant 1-click Blank Workflow creation
   const handleCreateBlankWorkflow = async () => {
+    if (activeWorkspace?.currentUserRole === "VIEWER") {
+      alert("Forbidden: Viewers cannot create new workflows in this workspace.");
+      return;
+    }
     setIsCreating(true);
     try {
       const res = await api.createWorkflow({
         name: "Untitled Workflow",
         description: "",
+        workspaceId: activeWorkspace?.id || null,
         definition: {
           schemaVersion: 1,
           name: "Untitled Workflow",
@@ -1046,6 +1064,10 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   // Create workflow from selected template with custom name
   const handleConfirmCreate = async () => {
+    if (activeWorkspace?.currentUserRole === "VIEWER") {
+      alert("Forbidden: Viewers cannot create new workflows in this workspace.");
+      return;
+    }
     setIsCreating(true);
     try {
       const selectedTmpl = STARTER_TEMPLATES.find((t) => t.id === selectedTemplateId) || STARTER_TEMPLATES[0];
@@ -1053,6 +1075,7 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
       const res = await api.createWorkflow({
         name: wfName,
         description: selectedTmpl.description,
+        workspaceId: activeWorkspace?.id || null,
         definition: {
           ...selectedTmpl.definition,
           name: wfName,
@@ -1073,11 +1096,16 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   // Direct create from template item
   const handleCreateFromTemplate = async (template) => {
+    if (activeWorkspace?.currentUserRole === "VIEWER") {
+      alert("Forbidden: Viewers cannot create new workflows in this workspace.");
+      return;
+    }
     setIsCreating(true);
     try {
       const res = await api.createWorkflow({
         name: template.name,
         description: template.description,
+        workspaceId: activeWorkspace?.id || null,
         definition: template.definition,
       });
 
@@ -1133,6 +1161,83 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
 
   return (
     <div style={{ maxWidth: "1200px", margin: "30px auto", padding: "0 24px" }}>
+      {/* Workspace Banner */}
+      <div 
+        style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between", 
+          marginBottom: "20px", 
+          padding: "12px 18px", 
+          background: "var(--bg-card)", 
+          border: "1px solid var(--border-subtle)", 
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-sm)",
+          flexWrap: "wrap",
+          gap: "12px"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div
+            style={{
+              width: "36px",
+              height: "36px",
+              borderRadius: "10px",
+              background: "var(--brand-light)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--brand)",
+            }}
+          >
+            <Users size={18} />
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontWeight: "700", fontSize: "0.98rem", color: "var(--text-primary)" }}>
+                {activeWorkspace ? activeWorkspace.name : "Personal Space (Private Workflows)"}
+              </span>
+              {activeWorkspace?.currentUserRole && (
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: "700",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    background:
+                      activeWorkspace.currentUserRole === "OWNER"
+                        ? "rgba(16, 185, 129, 0.15)"
+                        : activeWorkspace.currentUserRole === "EDITOR"
+                        ? "rgba(59, 130, 246, 0.15)"
+                        : "rgba(245, 158, 11, 0.15)",
+                    color:
+                      activeWorkspace.currentUserRole === "OWNER"
+                        ? "var(--accent-emerald)"
+                        : activeWorkspace.currentUserRole === "EDITOR"
+                        ? "var(--accent-blue)"
+                        : "var(--accent-amber)",
+                  }}
+                >
+                  {activeWorkspace.currentUserRole}
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+              {activeWorkspace?.description || (activeWorkspace ? "Collaborative shared workspace" : "Workflows created here are private to your account")}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onOpenWorkspaceModal}
+          className="btn btn-secondary"
+          style={{ fontSize: "0.82rem", padding: "7px 15px", height: "34px", display: "flex", alignItems: "center", gap: "6px" }}
+        >
+          <Users size={14} color="var(--brand)" />
+          Manage Workspaces &amp; Members
+        </button>
+      </div>
+
       {/* Page Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
         <div>
@@ -1323,6 +1428,45 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                       <h3 style={{ fontSize: "1.05rem", fontWeight: "700", color: "var(--text-primary)", margin: 0 }}>
                         {wf.name}
                       </h3>
+                      {wf.currentUserRole && (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: "700",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            background:
+                              wf.currentUserRole === "OWNER"
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : wf.currentUserRole === "EDITOR"
+                                ? "rgba(59, 130, 246, 0.15)"
+                                : "rgba(245, 158, 11, 0.15)",
+                            color:
+                              wf.currentUserRole === "OWNER"
+                                ? "var(--accent-emerald)"
+                                : wf.currentUserRole === "EDITOR"
+                                ? "var(--accent-blue)"
+                                : "var(--accent-amber)",
+                          }}
+                        >
+                          {wf.currentUserRole}
+                        </span>
+                      )}
+                      {wf.workspace?.name && (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: "600",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            background: "var(--bg-chip)",
+                            color: "var(--text-secondary)",
+                            border: "1px solid var(--border-subtle)",
+                          }}
+                        >
+                          {wf.workspace.name}
+                        </span>
+                      )}
                     </div>
 
                     <span
@@ -1362,24 +1506,26 @@ export default function WorkflowList({ onOpenWorkflow, user, onOpenAuth }) {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <button
-                    onClick={(e) => handleDelete(wf.id, e)}
-                    title="Delete Workflow"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "var(--text-muted)",
-                      cursor: "pointer",
-                      padding: "4px",
-                      borderRadius: "4px",
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-rose)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  {wf.currentUserRole !== "VIEWER" && (
+                    <button
+                      onClick={(e) => handleDelete(wf.id, e)}
+                      title="Delete Workflow"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        padding: "4px",
+                        borderRadius: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-rose)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
 
                   <div
                     style={{

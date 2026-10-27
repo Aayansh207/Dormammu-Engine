@@ -4,9 +4,14 @@ const prisma = require("./src/config/db");
 
 const nodeService = require("./src/services/node.service");
 const { defaultCronScheduler } = require("./src/services/cron.service");
+const { defaultCollaborationServer } = require("./src/collaboration/yjs.server");
 
 const server = app.listen(env.PORT, async () => {
   console.log(`Server is running on port ${env.PORT}`);
+
+  // Attach real-time Yjs CRDT WebSocket collaboration server
+  defaultCollaborationServer.init(server);
+
   try {
     const syncRes = await nodeService.seedNodeDefinitions();
     console.log(`✅ Synchronized ${syncRes.upserted} node definitions with PostgreSQL.`);

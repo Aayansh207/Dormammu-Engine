@@ -9,6 +9,7 @@ const { defaultRegistry } = require("../engine/registry/node.registry");
 const { ErrorCodes } = require("../engine/contracts/errors");
 const { defaultSseService } = require("./sse.service");
 const { defaultCronScheduler } = require("./cron.service");
+const workspaceService = require("./workspace.service");
 
 /**
  * Recursively sanitizes payloads to ensure sensitive credentials, tokens, and secrets
@@ -116,11 +117,69 @@ function buildExecutionReport({
 
 class WorkflowService {
   /**
+   * Resolves a workflow by ID and determines the caller's role (OWNER, EDITOR, VIEWER).
+   * Supports both workspace-assigned workflows and private author workflows.
+   */
+  async resolveWorkflowAccess(userId, workflowId) {
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      include: {
+        workspace: {
+          select: { id: true, name: true, ownerId: true },
+        },
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!workflow) {
+      const err = new Error("Workflow not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    let role = null;
+    if (workflow.workspaceId) {
+      role = await workspaceService.getUserWorkspaceRole(userId, workflow.workspaceId);
+    }
+
+    // Direct workflow owner always has OWNER role
+    if (!role && workflow.ownerId === userId) {
+      role = "OWNER";
+    }
+
+    if (!role) {
+      const err = new Error("Forbidden: You do not have permission to access this workflow");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    return {
+      workflow,
+      role,
+      canModify: role === "OWNER" || role === "EDITOR",
+      canExecute: role === "OWNER" || role === "EDITOR",
+      canDelete: role === "OWNER",
+    };
+  }
+
+  /**
    * Creates a new workflow with version 1 in a database transaction.
    * @param {string} userId - Authenticated user ID (owner)
-   * @param {Object} data - { name, description, definition }
+   * @param {Object} data - { name, description, definition, workspaceId }
    */
-  async createWorkflow(userId, { name, description = "", definition = null }) {
+  async createWorkflow(userId, { name, description = "", definition = null, workspaceId = null }) {
+    if (workspaceId) {
+      const role = await workspaceService.getUserWorkspaceRole(userId, workspaceId);
+      if (!role || role === "VIEWER") {
+        const err = new Error("Forbidden: You must be an Owner or Editor in this workspace to create workflows");
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+
     const workflowName = (name || (definition && definition.name) || "Untitled Workflow").trim();
 
     const initialDefinition = definition || {
@@ -137,6 +196,7 @@ class WorkflowService {
       const workflow = await tx.workflow.create({
         data: {
           ownerId: userId,
+          workspaceId: workspaceId || null,
           name: workflowName,
           description: description || null,
         },
@@ -157,6 +217,7 @@ class WorkflowService {
         schemaVersion: versionRecord.schemaVersion,
         definition: versionRecord.definitionJson,
         validation,
+        currentUserRole: "OWNER",
       };
     });
 
@@ -167,14 +228,46 @@ class WorkflowService {
   }
 
   /**
-   * Lists all workflows owned by the user.
+   * Lists all workflows accessible to the user (personal and workspace shared).
    * @param {string} userId
+   * @param {string} [workspaceId=null]
    */
-  async listWorkflows(userId) {
+  async listWorkflows(userId, workspaceId = null) {
+    let whereClause;
+
+    if (workspaceId) {
+      const role = await workspaceService.getUserWorkspaceRole(userId, workspaceId);
+      if (!role) {
+        const err = new Error("Forbidden: You do not have access to this workspace");
+        err.statusCode = 403;
+        throw err;
+      }
+      whereClause = { workspaceId };
+    } else {
+      const userMemberships = await prisma.workspaceMember.findMany({
+        where: { userId },
+        select: { workspaceId: true },
+      });
+      const memberWorkspaceIds = userMemberships.map((m) => m.workspaceId);
+
+      whereClause = {
+        OR: [
+          { ownerId: userId },
+          ...(memberWorkspaceIds.length > 0 ? [{ workspaceId: { in: memberWorkspaceIds } }] : []),
+        ],
+      };
+    }
+
     const workflows = await prisma.workflow.findMany({
-      where: { ownerId: userId },
+      where: whereClause,
       orderBy: { updatedAt: "desc" },
       include: {
+        workspace: {
+          select: { id: true, name: true },
+        },
+        user: {
+          select: { id: true, name: true, email: true },
+        },
         versions: {
           orderBy: { version: "desc" },
           take: 1,
@@ -194,15 +287,32 @@ class WorkflowService {
       },
     });
 
+    // Batch resolve roles for memberships
+    const memberships = await prisma.workspaceMember.findMany({
+      where: { userId },
+      select: { workspaceId: true, role: true },
+    });
+    const roleMap = new Map(memberships.map((m) => [m.workspaceId, m.role]));
+
     return workflows.map((wf) => {
       const latestVersion = wf.versions[0] || null;
       const def = latestVersion ? latestVersion.definitionJson : null;
       const nodesCount = def && Array.isArray(def.nodes) ? def.nodes.length : 0;
       const edgesCount = def && Array.isArray(def.edges) ? def.edges.length : 0;
 
+      let role = "VIEWER";
+      if (wf.ownerId === userId) {
+        role = "OWNER";
+      } else if (wf.workspaceId && roleMap.has(wf.workspaceId)) {
+        role = roleMap.get(wf.workspaceId);
+      }
+
       return {
         id: wf.id,
         ownerId: wf.ownerId,
+        owner: wf.user,
+        workspaceId: wf.workspaceId,
+        workspace: wf.workspace,
         name: wf.name,
         description: wf.description,
         createdAt: wf.createdAt,
@@ -212,37 +322,18 @@ class WorkflowService {
         nodesCount,
         edgesCount,
         totalVersions: wf._count.versions,
+        currentUserRole: role,
       };
     });
   }
 
   /**
-   * Retrieves a workflow by ID, ensuring user ownership.
+   * Retrieves a workflow by ID with caller's permission role.
    * @param {string} userId
    * @param {string} workflowId
    */
   async getWorkflowById(userId, workflowId) {
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      include: {
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-        },
-      },
-    });
-
-    if (!workflow) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (workflow.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to access this workflow");
-      err.statusCode = 403;
-      throw err;
-    }
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
     const latestVersion = workflow.versions[0] || null;
     const definition = latestVersion ? latestVersion.definitionJson : null;
@@ -251,6 +342,8 @@ class WorkflowService {
     return {
       id: workflow.id,
       ownerId: workflow.ownerId,
+      workspaceId: workflow.workspaceId,
+      workspace: workflow.workspace,
       name: workflow.name,
       description: workflow.description,
       createdAt: workflow.createdAt,
@@ -260,34 +353,22 @@ class WorkflowService {
       schemaVersion: latestVersion ? latestVersion.schemaVersion : "1.0",
       definition,
       validation,
+      currentUserRole: role,
     };
   }
 
   /**
    * Saves an updated workflow definition as a new immutable version.
+   * Viewers are forbidden from modifying.
    * @param {string} userId
    * @param {string} workflowId
    * @param {Object} data - { name, description, definition }
    */
   async updateWorkflow(userId, workflowId, { name, description, definition }) {
-    const existing = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      include: {
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-        },
-      },
-    });
+    const { workflow: existing, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
-    if (!existing) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (existing.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to edit this workflow");
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Viewers do not have permission to modify workflows");
       err.statusCode = 403;
       throw err;
     }
@@ -329,6 +410,8 @@ class WorkflowService {
       return {
         id: updatedWorkflow.id,
         ownerId: updatedWorkflow.ownerId,
+        workspaceId: updatedWorkflow.workspaceId,
+        workspace: existing.workspace,
         name: updatedWorkflow.name,
         description: updatedWorkflow.description,
         createdAt: updatedWorkflow.createdAt,
@@ -338,6 +421,7 @@ class WorkflowService {
         schemaVersion: versionRecord.schemaVersion,
         definition: versionRecord.definitionJson,
         validation,
+        currentUserRole: role,
       };
     });
 
@@ -349,22 +433,15 @@ class WorkflowService {
 
   /**
    * Deletes a workflow and all associated versions/runs.
+   * Only Owners can delete workflows.
    * @param {string} userId
    * @param {string} workflowId
    */
   async deleteWorkflow(userId, workflowId) {
-    const existing = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-    });
+    const { workflow: existing, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
-    if (!existing) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (existing.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to delete this workflow");
+    if (role !== "OWNER") {
+      const err = new Error("Forbidden: Only workspace owners can delete workflows");
       err.statusCode = 403;
       throw err;
     }
@@ -377,6 +454,139 @@ class WorkflowService {
     defaultCronScheduler.unregisterSchedule(workflowId);
 
     return { success: true, message: "Workflow deleted successfully" };
+  }
+
+  /**
+   * Lists all immutable versions of a workflow.
+   */
+  async listWorkflowVersions(userId, workflowId) {
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
+
+    const versions = await prisma.workflowVersion.findMany({
+      where: { workflowId },
+      orderBy: { version: "desc" },
+      select: {
+        id: true,
+        version: true,
+        schemaVersion: true,
+        createdAt: true,
+        definitionJson: true,
+      },
+    });
+
+    return versions.map((v) => {
+      const def = v.definitionJson || {};
+      return {
+        id: v.id,
+        version: v.version,
+        schemaVersion: v.schemaVersion,
+        createdAt: v.createdAt,
+        name: def.name || workflow.name,
+        nodesCount: Array.isArray(def.nodes) ? def.nodes.length : 0,
+        edgesCount: Array.isArray(def.edges) ? def.edges.length : 0,
+        currentUserRole: role,
+      };
+    });
+  }
+
+  /**
+   * Retrieves a specific version definition of a workflow.
+   */
+  async getWorkflowVersion(userId, workflowId, versionNumberOrId) {
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
+
+    const isNum = !isNaN(Number(versionNumberOrId));
+    const versionRecord = await prisma.workflowVersion.findFirst({
+      where: {
+        workflowId,
+        ...(isNum ? { version: Number(versionNumberOrId) } : { id: String(versionNumberOrId) }),
+      },
+    });
+
+    if (!versionRecord) {
+      const err = new Error(`Workflow version '${versionNumberOrId}' not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    return {
+      ...versionRecord,
+      currentUserRole: role,
+    };
+  }
+
+  /**
+   * Restores an earlier workflow version as a new incremented version.
+   * Viewers cannot restore versions.
+   */
+  async restoreWorkflowVersion(userId, workflowId, targetVersionNumber) {
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
+
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Viewers do not have permission to restore workflow versions");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const targetVersion = await prisma.workflowVersion.findUnique({
+      where: {
+        workflowId_version: {
+          workflowId,
+          version: Number(targetVersionNumber),
+        },
+      },
+    });
+
+    if (!targetVersion) {
+      const err = new Error(`Target version ${targetVersionNumber} not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const latest = await prisma.workflowVersion.findFirst({
+      where: { workflowId },
+      orderBy: { version: "desc" },
+    });
+
+    const nextVersion = (latest ? latest.version : 0) + 1;
+    const definition = targetVersion.definitionJson;
+
+    // Validate restored definition
+    const validation = validateWorkflow(definition, defaultRegistry);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const newVersionRecord = await tx.workflowVersion.create({
+        data: {
+          workflowId,
+          version: nextVersion,
+          schemaVersion: targetVersion.schemaVersion,
+          definitionJson: definition,
+        },
+      });
+
+      const updatedWorkflow = await tx.workflow.update({
+        where: { id: workflowId },
+        data: {
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        id: updatedWorkflow.id,
+        name: updatedWorkflow.name,
+        restoredFromVersion: targetVersion.version,
+        newVersion: newVersionRecord.version,
+        versionId: newVersionRecord.id,
+        definition: newVersionRecord.definitionJson,
+        validation,
+        currentUserRole: role,
+      };
+    });
+
+    // Sync schedule
+    defaultCronScheduler.syncWorkflowDefinition(workflowId, userId, definition);
+
+    return result;
   }
 
   /**
@@ -438,29 +648,17 @@ class WorkflowService {
    * @param {Object} [options={}] - { versionId, triggerData, triggerType, triggerMetadata, existingRunId }
    */
   async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {}, existingRunId = null } = {}) {
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      include: {
-        versions: {
-          orderBy: { version: "desc" },
-          ...(versionId ? { where: { id: versionId } } : { take: 1 }),
-        },
-      },
-    });
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
-    if (!workflow) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (workflow.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to execute this workflow");
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Viewers do not have permission to execute workflows");
       err.statusCode = 403;
       throw err;
     }
 
-    const versionRecord = workflow.versions[0];
+    const versionRecord = versionId
+      ? await prisma.workflowVersion.findFirst({ where: { workflowId, id: versionId } })
+      : workflow.versions[0];
     if (!versionRecord) {
       const err = new Error("No saved version found for this workflow");
       err.statusCode = 400;
@@ -641,7 +839,7 @@ class WorkflowService {
         workflowVersion: {
           include: {
             workflow: {
-              select: { id: true, name: true, ownerId: true },
+              select: { id: true, name: true, ownerId: true, workspaceId: true },
             },
           },
         },
@@ -654,11 +852,18 @@ class WorkflowService {
       throw err;
     }
 
-    const ownerId = run.workflowVersion?.workflow?.ownerId;
-    if (ownerId && ownerId !== userId && userRole !== "ADMIN") {
-      const err = new Error("Forbidden: You do not have permission to view this execution run");
-      err.statusCode = 403;
-      throw err;
+    const wf = run.workflowVersion?.workflow;
+    if (wf) {
+      let isAuthorized = wf.ownerId === userId || userRole === "ADMIN";
+      if (!isAuthorized && wf.workspaceId) {
+        const wsRole = await workspaceService.getUserWorkspaceRole(userId, wf.workspaceId);
+        if (wsRole) isAuthorized = true;
+      }
+      if (!isAuthorized) {
+        const err = new Error("Forbidden: You do not have permission to view this execution run");
+        err.statusCode = 403;
+        throw err;
+      }
     }
 
     let report = run.report;
@@ -739,22 +944,7 @@ class WorkflowService {
    * @param {Object} [options={}] - { page, limit, status, triggerType }
    */
   async listRunsForWorkflow(userId, workflowId, options = {}) {
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      select: { id: true, ownerId: true, name: true },
-    });
-
-    if (!workflow) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (workflow.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to view runs for this workflow");
-      err.statusCode = 403;
-      throw err;
-    }
+    await this.resolveWorkflowAccess(userId, workflowId);
 
     const page = Math.max(1, parseInt(options.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));

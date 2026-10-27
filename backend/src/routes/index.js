@@ -7,12 +7,14 @@ const nodeRoutes = require("./node.routes");
 const runRoutes = require("./run.routes");
 const webhookRoutes = require("./webhook.routes");
 const mockRoutes = require("./mock.routes");
+const workspaceRoutes = require("./workspace.routes");
 
 const router = express.Router();
 
 router.use("/auth", authRoutes);
 router.use("/sessions", sessionRoutes);
 router.use("/users", userRoutes);
+router.use("/workspaces", workspaceRoutes);
 router.use("/workflows", workflowRoutes);
 router.use("/nodes", nodeRoutes);
 router.use("/runs", runRoutes);
@@ -20,3 +22,4 @@ router.use("/webhooks", webhookRoutes);
 router.use("/mock", mockRoutes);
 
 module.exports = router;
+

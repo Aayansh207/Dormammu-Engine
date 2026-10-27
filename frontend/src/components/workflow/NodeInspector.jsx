@@ -27,6 +27,7 @@ export default function NodeInspector({
   onClose,
   errors = [],
   executionTask = null,
+  readOnly = false,
 }) {
   if (!selectedNode) return null;
 
@@ -596,34 +597,36 @@ export default function NodeInspector({
         })()}
 
         {/* Delete Node Button */}
-        <button
-          onClick={() => onDeleteNode(selectedNode.id)}
-          style={{
-            marginTop: "10px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            padding: "8px 12px",
-            background: "rgba(244, 63, 94, 0.1)",
-            border: "1px solid rgba(244, 63, 94, 0.25)",
-            borderRadius: "8px",
-            color: "#f43f5e",
-            fontSize: "0.82rem",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(244, 63, 94, 0.2)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "rgba(244, 63, 94, 0.1)";
-          }}
-        >
-          <Trash2 size={14} />
-          Delete Node
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => onDeleteNode(selectedNode.id)}
+            style={{
+              marginTop: "10px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              padding: "8px 12px",
+              background: "rgba(244, 63, 94, 0.1)",
+              border: "1px solid rgba(244, 63, 94, 0.25)",
+              borderRadius: "8px",
+              color: "#f43f5e",
+              fontSize: "0.82rem",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(244, 63, 94, 0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(244, 63, 94, 0.1)";
+            }}
+          >
+            <Trash2 size={14} />
+            Delete Node
+          </button>
+        )}
       </div>
     </div>
   );

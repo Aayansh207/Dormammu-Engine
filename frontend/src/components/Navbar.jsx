@@ -14,7 +14,8 @@ import {
   Sparkles,
   ArrowRight,
   ExternalLink,
-  FileText
+  FileText,
+  Users
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
@@ -67,7 +68,12 @@ export default function Navbar({
   setActiveView, 
   onOpenAuth, 
   onLogout,
-  backendHealth 
+  backendHealth,
+  activeWorkspace,
+  workspaces,
+  onSelectWorkspace,
+  onOpenWorkspaceModal,
+  pendingInvitesCount
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -386,6 +392,79 @@ export default function Navbar({
                 </div>
               </div>
 
+              <button
+                onClick={onOpenWorkspaceModal}
+                className="btn btn-ghost"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  padding: "6px 12px",
+                  height: "36px",
+                  borderRadius: "var(--radius-full)",
+                  background: "var(--bg-chip)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-primary)",
+                  fontSize: "0.82rem",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  position: "relative",
+                  transition: "all 0.15s ease"
+                }}
+                title="Manage shared workspaces and members"
+              >
+                <Users size={15} color="var(--brand)" />
+                <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activeWorkspace ? activeWorkspace.name : "Personal Space"}
+                </span>
+                {activeWorkspace?.currentUserRole && (
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      fontWeight: "700",
+                      padding: "1px 6px",
+                      borderRadius: "4px",
+                      background:
+                        activeWorkspace.currentUserRole === "OWNER"
+                          ? "rgba(16, 185, 129, 0.15)"
+                          : activeWorkspace.currentUserRole === "EDITOR"
+                          ? "rgba(59, 130, 246, 0.15)"
+                          : "rgba(245, 158, 11, 0.15)",
+                      color:
+                        activeWorkspace.currentUserRole === "OWNER"
+                          ? "var(--accent-emerald)"
+                          : activeWorkspace.currentUserRole === "EDITOR"
+                          ? "var(--accent-blue)"
+                          : "var(--accent-amber)",
+                    }}
+                  >
+                    {activeWorkspace.currentUserRole}
+                  </span>
+                )}
+                {pendingInvitesCount > 0 && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "-4px",
+                      right: "-4px",
+                      background: "var(--accent-rose)",
+                      color: "#fff",
+                      borderRadius: "50%",
+                      width: "18px",
+                      height: "18px",
+                      fontSize: "0.68rem",
+                      fontWeight: "700",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "0 0 6px var(--accent-rose)",
+                    }}
+                  >
+                    {pendingInvitesCount}
+                  </span>
+                )}
+              </button>
+
               <button 
                 onClick={() => handleNavClick("workflows")}
                 className="btn btn-primary"
@@ -623,6 +702,51 @@ export default function Navbar({
                 >
                   <FileText size={18} />
                   <span>Execution Reports</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenWorkspaceModal();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    width: "100%",
+                    padding: "11px 14px",
+                    background: "transparent",
+                    border: "1px solid transparent",
+                    borderRadius: "var(--radius-md)",
+                    color: "var(--text-primary)",
+                    fontWeight: "500",
+                    fontSize: "0.92rem",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <Users size={18} color="var(--brand)" />
+                  <span style={{ flex: 1 }}>
+                    Workspace: {activeWorkspace ? activeWorkspace.name : "Personal Space"}
+                  </span>
+                  {pendingInvitesCount > 0 && (
+                    <span
+                      style={{
+                        background: "var(--accent-rose)",
+                        color: "#fff",
+                        borderRadius: "50%",
+                        width: "18px",
+                        height: "18px",
+                        fontSize: "0.68rem",
+                        fontWeight: "700",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {pendingInvitesCount}
+                    </span>
+                  )}
                 </button>
 
                 <button

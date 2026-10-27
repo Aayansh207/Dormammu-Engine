@@ -28,4 +28,9 @@ router.post("/:id/validate", workflowController.validateSavedWorkflow);
 router.post("/:id/runs", workflowController.executeWorkflowRun);
 router.get("/:id/runs", workflowController.listWorkflowRuns);
 
+// Workflow version history & restoration
+router.get("/:id/versions", workflowController.listWorkflowVersions);
+router.get("/:id/versions/:version", workflowController.getWorkflowVersion);
+router.post("/:id/versions/:version/restore", workflowController.restoreWorkflowVersion);
+
 module.exports = router;
