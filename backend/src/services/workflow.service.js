@@ -213,6 +213,7 @@ class WorkflowService {
 
       return {
         ...workflow,
+        version: versionRecord.version,
         currentVersion: versionRecord.version,
         schemaVersion: versionRecord.schemaVersion,
         definition: versionRecord.definitionJson,
@@ -576,10 +577,16 @@ class WorkflowService {
         name: updatedWorkflow.name,
         restoredFromVersion: targetVersion.version,
         newVersion: newVersionRecord.version,
+        version: newVersionRecord.version,
         versionId: newVersionRecord.id,
         definition: newVersionRecord.definitionJson,
         validation,
         currentUserRole: role,
+        workflow: {
+          ...updatedWorkflow,
+          version: newVersionRecord.version,
+          definition: newVersionRecord.definitionJson,
+        },
       };
     });
 
@@ -944,7 +951,7 @@ class WorkflowService {
    * @param {Object} [options={}] - { page, limit, status, triggerType }
    */
   async listRunsForWorkflow(userId, workflowId, options = {}) {
-    await this.resolveWorkflowAccess(userId, workflowId);
+    const { workflow } = await this.resolveWorkflowAccess(userId, workflowId);
 
     const page = Math.max(1, parseInt(options.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));

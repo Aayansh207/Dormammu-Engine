@@ -235,6 +235,14 @@ function validateWorkflow(workflow, registry = defaultRegistry) {
       ? targetDef.getDynamicInputs(targetNode.config)
       : targetDef.inputs;
 
+    // Normalize sourceHandle / targetHandle from graph editor
+    if (!edge.sourcePort && edge.sourceHandle) {
+      edge.sourcePort = edge.sourceHandle;
+    }
+    if (!edge.targetPort && edge.targetHandle) {
+      edge.targetPort = edge.targetHandle;
+    }
+
     // Normalize legacy port aliases for seamless backward compatibility
     if (edge.sourcePort && !sourceOutputs[edge.sourcePort]) {
       if (edge.sourcePort === "result" && sourceOutputs["output"]) {
