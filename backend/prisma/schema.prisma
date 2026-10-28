@@ -120,6 +120,8 @@ model WorkflowRun {
   workflowVersionId String
   status            String    @default("PENDING") // "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
   triggerType       String    @default("MANUAL")  // "MANUAL" | "WEBHOOK" | "CRON" | "API"
+  idempotencyKey    String?
+  idempotencyHash   String?
   durationMs        Int?
   input             Json?
   output            Json?
@@ -130,11 +132,77 @@ model WorkflowRun {
   createdAt         DateTime  @default(now())
 
   workflowVersion WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
+  tasks           TaskExecution[]
 
+  @@unique([workflowId, idempotencyKey])
   @@index([workflowId, createdAt])
   @@index([workflowVersionId])
+  @@index([status])
   @@map("workflow_runs")
 }
+
+model TaskExecution {
+  id             String    @id @default(uuid())
+  runId          String
+  nodeId         String
+  nodeType       String
+  nodeName       String?
+  status         String    @default("PENDING") // "PENDING" | "READY" | "RUNNING" | "SUCCEEDED" | "FAILED" | "BLOCKED" | "SKIPPED" | "CANCELLED"
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(1)
+  input          Json?
+  output         Json?
+  error          Json?
+  claimedBy      String?
+  claimExpiresAt DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  durationMs     Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  run      WorkflowRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attemptsList TaskAttempt[]
+
+  @@unique([runId, nodeId])
+  @@index([runId, status])
+  @@index([status, claimExpiresAt])
+  @@map("task_executions")
+}
+
+model TaskAttempt {
+  id              String    @id @default(uuid())
+  taskExecutionId String
+  attemptNumber   Int
+  status          String    // "RUNNING" | "SUCCEEDED" | "FAILED"
+  error           Json?
+  durationMs      Int?
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  taskExecution TaskExecution @relation(fields: [taskExecutionId], references: [id], onDelete: Cascade)
+
+  @@unique([taskExecutionId, attemptNumber])
+  @@index([taskExecutionId])
+  @@map("task_attempts")
+}
+
+model OutboxMessage {
+  id           String    @id @default(uuid())
+  queueName    String
+  jobName      String
+  payload      Json
+  status       String    @default("PENDING") // "PENDING" | "DISPATCHED" | "FAILED"
+  retryCount   Int       @default(0)
+  error        String?
+  createdAt    DateTime  @default(now())
+  dispatchedAt DateTime?
+
+  @@index([status, createdAt])
+  @@map("outbox_messages")
+}
+
 
 model NodeDefinition {
   id           String   @id @default(uuid())

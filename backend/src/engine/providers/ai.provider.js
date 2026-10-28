@@ -287,8 +287,7 @@ async function executeAiTask(taskType, payload, options = {}) {
   const groqKey = options.apiKey || payload.apiKey || process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
 
   if (!groqKey) {
-    // Isolated automated unit test environments (NODE_ENV === "test") may use mock AI if explicitly permitted
-    if (process.env.NODE_ENV === "test" && (process.env.ALLOW_OFFLINE_MOCK === "true" || options.allowMock)) {
+    if (!options.strict && (process.env.NODE_ENV === "test" || process.env.ALLOW_OFFLINE_MOCK === "true") && (process.env.ALLOW_OFFLINE_MOCK === "true" || options.allowMock)) {
       return callMockAi(taskType, payload);
     }
 

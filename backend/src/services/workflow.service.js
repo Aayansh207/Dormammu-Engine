@@ -10,47 +10,10 @@ const { ErrorCodes } = require("../engine/contracts/errors");
 const { defaultSseService } = require("./sse.service");
 const { defaultCronScheduler } = require("./cron.service");
 const workspaceService = require("./workspace.service");
+const { checkTriggerIdempotency, hashPayload } = require("../queue/idempotency.utils");
+const { defaultDagCoordinator } = require("../queue/dag.coordinator");
+const { sanitizePayload } = require("../utils/payload.sanitizer");
 
-/**
- * Recursively sanitizes payloads to ensure sensitive credentials, tokens, and secrets
- * are masked before persistence in execution reports.
- * Also enforces safety boundaries on unbounded payloads.
- */
-function sanitizePayload(data, depth = 0) {
-  if (depth > 10) return "[Max Depth Reached]";
-  if (data === null || data === undefined) return data;
-  if (typeof data !== "object") {
-    if (typeof data === "string" && data.length > 50000) {
-      return data.slice(0, 50000) + "... [Truncated]";
-    }
-    return data;
-  }
-  if (Array.isArray(data)) {
-    if (data.length > 500) {
-      return data.slice(0, 500).map((item) => sanitizePayload(item, depth + 1)).concat(["... [Truncated array]"]);
-    }
-    return data.map((item) => sanitizePayload(item, depth + 1));
-  }
-  const sanitized = {};
-  for (const [key, val] of Object.entries(data)) {
-    const lower = key.toLowerCase();
-    if (
-      lower.includes("password") ||
-      lower.includes("secret") ||
-      lower.includes("cookie") ||
-      lower === "authorization" ||
-      lower === "apikey" ||
-      lower === "api_key" ||
-      lower === "x-webhook-token" ||
-      lower === "x-api-key"
-    ) {
-      sanitized[key] = "[REDACTED]";
-    } else {
-      sanitized[key] = sanitizePayload(val, depth + 1);
-    }
-  }
-  return sanitized;
-}
 
 /**
  * Assembles a complete, self-contained, durable execution report for a workflow run.
@@ -611,7 +574,12 @@ class WorkflowService {
    * @param {string} workflowId
    * @param {Object} [options={}]
    */
-  async createInitialRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = "MANUAL" } = {}) {
+  async createInitialRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = "MANUAL", idempotencyKey = null } = {}) {
+    if (idempotencyKey) {
+      const existing = await checkTriggerIdempotency(workflowId, idempotencyKey, triggerData);
+      if (existing) return existing;
+    }
+
     const workflow = await prisma.workflow.findUnique({
       where: { id: workflowId },
       include: {
@@ -636,12 +604,16 @@ class WorkflowService {
     }
 
     const sanitizedInput = sanitizePayload(triggerData) || {};
+    const idempotencyHash = idempotencyKey ? hashPayload(triggerData) : null;
+
     return prisma.workflowRun.create({
       data: {
         workflowId: workflow.id,
         workflowVersionId: versionRecord.id,
         status: "RUNNING",
         triggerType,
+        idempotencyKey: idempotencyKey ? String(idempotencyKey).trim() : null,
+        idempotencyHash,
         input: sanitizedInput,
         startedAt: new Date(),
       },
@@ -649,12 +621,130 @@ class WorkflowService {
   }
 
   /**
+   * Dispatches a workflow execution through the distributed BullMQ task queue.
+   * Initializes durable run and task execution states in PostgreSQL,
+   * enqueues entry tasks to BullMQ, and returns immediately.
+   * @param {string} userId
+   * @param {string} workflowId
+   * @param {Object} [options={}]
+   */
+  async dispatchWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = "MANUAL", triggerMetadata = {}, idempotencyKey = null, existingRunId = null } = {}) {
+    // 1. Trigger Idempotency Check
+    if (idempotencyKey) {
+      const existing = await checkTriggerIdempotency(workflowId, idempotencyKey, triggerData);
+      if (existing) {
+        return {
+          id: existing.id,
+          runId: existing.id,
+          workflowId: existing.workflowId,
+          status: existing.status,
+          triggerType: existing.triggerType,
+          duplicate: true,
+          message: "Idempotent execution acknowledged. Existing run returned.",
+        };
+      }
+    }
+
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      include: {
+        versions: {
+          orderBy: { version: "desc" },
+          ...(versionId ? { where: { id: versionId } } : { take: 1 }),
+        },
+      },
+    });
+
+    if (!workflow) {
+      const err = new Error("Workflow not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (workflow.ownerId !== userId) {
+      const err = new Error("Forbidden: You do not have permission to execute this workflow");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const versionRecord = workflow.versions[0];
+    if (!versionRecord) {
+      const err = new Error("No saved version found for this workflow");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const definition = versionRecord.definitionJson;
+    const validation = validateWorkflow(definition, defaultRegistry);
+    if (!validation.valid) {
+      const primary = validation.errors[0];
+      const err = new Error(`Cannot execute invalid workflow: ${primary.message}`);
+      err.statusCode = 400;
+      err.details = validation;
+      throw err;
+    }
+
+    const resolvedTriggerType = triggerType ||
+      triggerData?.$triggerType ||
+      (triggerData?.$webhook ? "WEBHOOK" : (triggerData?.$cron ? "CRON" : "MANUAL"));
+
+    const sanitizedInput = sanitizePayload(triggerData) || {};
+    const idempotencyHash = idempotencyKey ? hashPayload(triggerData) : null;
+
+    let runRecord = null;
+    if (existingRunId) {
+      runRecord = await prisma.workflowRun.findUnique({ where: { id: existingRunId } });
+    }
+    if (!runRecord) {
+      runRecord = await prisma.workflowRun.create({
+        data: {
+          workflowId: workflow.id,
+          workflowVersionId: versionRecord.id,
+          status: "RUNNING",
+          triggerType: resolvedTriggerType,
+          idempotencyKey: idempotencyKey ? String(idempotencyKey).trim() : null,
+          idempotencyHash,
+          input: sanitizedInput,
+          startedAt: new Date(),
+        },
+      });
+    }
+
+    // 2. Initialize durable task state and enqueue entry nodes
+    await defaultDagCoordinator.initializeRun({
+      run: runRecord,
+      workflow,
+      versionRecord,
+      definition,
+      triggerData,
+    });
+
+    return {
+      id: runRecord.id,
+      runId: runRecord.id,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      status: "RUNNING",
+      triggerType: resolvedTriggerType,
+      message: "Workflow accepted and executing via distributed task queue",
+    };
+  }
+
+  /**
    * Executes a workflow version and records complete run and task state in PostgreSQL.
    * @param {string} userId
    * @param {string} workflowId
-   * @param {Object} [options={}] - { versionId, triggerData, triggerType, triggerMetadata, existingRunId }
+   * @param {Object} [options={}] - { versionId, triggerData, triggerType, triggerMetadata, existingRunId, idempotencyKey }
    */
-  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {}, existingRunId = null } = {}) {
+  async executeWorkflowRun(userId, workflowId, { versionId = null, triggerData = {}, triggerType = null, triggerMetadata = {}, existingRunId = null, idempotencyKey = null } = {}) {
+    // 1. Idempotency Check
+    if (idempotencyKey) {
+      const existing = await checkTriggerIdempotency(workflowId, idempotencyKey, triggerData);
+      if (existing) {
+        return this.getRunById(userId, existing.id);
+      }
+    }
+
     const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
     if (role !== "OWNER" && role !== "EDITOR") {
@@ -674,7 +764,7 @@ class WorkflowService {
 
     const definition = versionRecord.definitionJson;
 
-    // 1. Level 1-4 validation check before run creation
+    // Level 1-4 validation check before run creation
     const validation = validateWorkflow(definition, defaultRegistry);
     if (!validation.valid) {
       const primary = validation.errors[0];
@@ -690,6 +780,7 @@ class WorkflowService {
 
     const startedAt = new Date().toISOString();
     const sanitizedInput = sanitizePayload(triggerData) || {};
+    const idempotencyHash = idempotencyKey ? hashPayload(triggerData) : null;
 
     // 2. Obtain or create durable WorkflowRun record in RUNNING state
     let runRecord = null;
@@ -703,6 +794,8 @@ class WorkflowService {
           workflowVersionId: versionRecord.id,
           status: "RUNNING",
           triggerType: resolvedTriggerType,
+          idempotencyKey: idempotencyKey ? String(idempotencyKey).trim() : null,
+          idempotencyHash,
           input: sanitizedInput,
           startedAt: new Date(startedAt),
         },
@@ -795,6 +888,31 @@ class WorkflowService {
       },
     });
 
+    // Persist durable task execution records in PostgreSQL
+    const taskRows = Object.values(execSummary.tasks || {}).map((t) => ({
+      id: `${runRecord.id}_${t.nodeId}`,
+      runId: runRecord.id,
+      nodeId: t.nodeId,
+      nodeType: t.nodeType || "unknown",
+      nodeName: t.nodeName || t.nodeId,
+      status: t.status,
+      attempts: t.attempts || 1,
+      maxAttempts: 1,
+      input: sanitizePayload(t.inputs !== undefined ? t.inputs : t.input),
+      output: sanitizePayload(t.outputs !== undefined ? t.outputs : t.output),
+      error: t.error || null,
+      startedAt: t.startedAt ? new Date(t.startedAt) : null,
+      finishedAt: t.completedAt ? new Date(t.completedAt) : null,
+      durationMs: t.durationMs !== undefined ? t.durationMs : null,
+    }));
+
+    if (taskRows.length > 0) {
+      await prisma.taskExecution.createMany({
+        data: taskRows,
+        skipDuplicates: true,
+      });
+    }
+
     // Emit workflow terminal state via SSE
     defaultSseService.emitRunEvent(runRecord.id, "workflow:completed", {
       runId: runRecord.id,
@@ -850,6 +968,14 @@ class WorkflowService {
             },
           },
         },
+        tasks: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            attemptsList: {
+              orderBy: { attemptNumber: "asc" },
+            },
+          },
+        },
       },
     });
 
@@ -876,7 +1002,28 @@ class WorkflowService {
     let report = run.report;
     const nodeResults = {};
 
-    if (report && Array.isArray(report.nodes)) {
+    if (run.tasks && run.tasks.length > 0) {
+      for (const t of run.tasks) {
+        nodeResults[t.nodeId] = {
+          nodeId: t.nodeId,
+          nodeType: t.nodeType,
+          nodeName: t.nodeName || t.nodeId,
+          status: t.status,
+          attempts: t.attempts || 1,
+          input: t.input,
+          inputs: t.input,
+          output: t.output,
+          outputs: t.output,
+          error: t.error,
+          startedAt: t.startedAt ? t.startedAt.toISOString() : null,
+          completedAt: t.finishedAt ? t.finishedAt.toISOString() : null,
+          finishedAt: t.finishedAt ? t.finishedAt.toISOString() : null,
+          durationMs: t.durationMs,
+          attemptsList: t.attemptsList || [],
+          logs: [],
+        };
+      }
+    } else if (report && Array.isArray(report.nodes)) {
       for (const n of report.nodes) {
         nodeResults[n.nodeId] = {
           nodeId: n.nodeId,

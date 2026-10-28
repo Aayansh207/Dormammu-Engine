@@ -1,11 +1,43 @@
-/**
- * Webster Execution Engine - Server-Sent Events (SSE) Execution Broadcaster
- * Streams real-time node transitions and workflow lifecycle events to connected clients.
- */
+const { CHANNELS } = require("../queue/queue.constants");
 
 class SseService {
   constructor() {
     this._clients = new Map(); // runId -> Set<Response>
+    this._isRedisSubscribed = false;
+  }
+
+  /**
+   * Initializes Redis subscriber for cross-process event broadcasting.
+   */
+  initRedisSubscriber() {
+    if (this._isRedisSubscribed) return;
+    try {
+      const { getSharedSubscriberClient } = require("../queue/redis.connection");
+      const subscriber = getSharedSubscriberClient();
+
+      subscriber.subscribe(CHANNELS.SSE_EVENTS, (err) => {
+        if (err) {
+          console.warn("[SseService] Redis subscription warning:", err.message);
+        } else {
+          this._isRedisSubscribed = true;
+        }
+      });
+
+      subscriber.on("message", (channel, message) => {
+        if (channel === CHANNELS.SSE_EVENTS) {
+          try {
+            const parsed = JSON.parse(message);
+            if (parsed && parsed.runId && parsed.event) {
+              this._broadcastLocal(parsed.runId, parsed.event, parsed.data);
+            }
+          } catch (e) {
+            // Ignore parse error
+          }
+        }
+      });
+    } catch (e) {
+      // Redis might not be initialized yet
+    }
   }
 
   /**
@@ -14,6 +46,8 @@ class SseService {
    * @param {import('express').Response} res
    */
   subscribe(runId, res) {
+    this.initRedisSubscriber();
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -52,17 +86,41 @@ class SseService {
   }
 
   /**
-   * Broadcasts an event to all subscribers listening to runId.
-   * @param {string} runId
-   * @param {string} event
-   * @param {Object} data
+   * Internal helper to broadcast to local connected responses in this process.
+   * @private
    */
-  emitRunEvent(runId, event, data) {
+  _broadcastLocal(runId, event, data) {
     const clients = this._clients.get(runId);
     if (!clients || clients.size === 0) return;
 
     for (const res of clients) {
       this.sendRaw(res, event, data);
+    }
+  }
+
+  /**
+   * Broadcasts an event to all subscribers listening to runId.
+   * Also publishes to Redis Pub/Sub for other worker/API processes.
+   * @param {string} runId
+   * @param {string} event
+   * @param {Object} data
+   */
+  emitRunEvent(runId, event, data) {
+    // 1. Broadcast to local clients in current process
+    this._broadcastLocal(runId, event, data);
+
+    // 2. Publish to Redis Pub/Sub for other processes
+    try {
+      const { getSharedRedisClient } = require("../queue/redis.connection");
+      const publisher = getSharedRedisClient();
+      if (publisher && publisher.status === "ready") {
+        publisher.publish(
+          CHANNELS.SSE_EVENTS,
+          JSON.stringify({ runId, event, data })
+        ).catch(() => {});
+      }
+    } catch (e) {
+      // Non-fatal if Redis is not configured or in unit test environment
     }
   }
 
@@ -80,3 +138,4 @@ module.exports = {
   SseService,
   defaultSseService,
 };
+

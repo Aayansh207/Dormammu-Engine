@@ -110,7 +110,38 @@ class WorkflowController {
       const userId = req.user.id;
       const { id } = req.params;
       const { versionId, triggerData } = req.body || {};
-      const runResult = await workflowService.executeWorkflowRun(userId, id, { versionId, triggerData });
+      const idempotencyKey = req.headers["idempotency-key"] || req.headers["x-idempotency-key"] || req.body?.idempotencyKey;
+      const isAsync = req.query.async === "true" || req.headers["x-execution-mode"] === "async" || req.body?.mode === "async";
+
+      if (isAsync) {
+        const dispatchResult = await workflowService.dispatchWorkflowRun(userId, id, {
+          versionId,
+          triggerData,
+          triggerType: "MANUAL",
+          idempotencyKey,
+        });
+
+        const host = (typeof req.get === "function" ? req.get("host") : req.headers?.host) || "localhost:5001";
+        const protocol = req.headers?.["x-forwarded-proto"] || req.protocol || "http";
+        const apiBase = `${protocol}://${host}`;
+
+        return res.status(202).json({
+          success: true,
+          data: {
+            ...dispatchResult,
+            resultUrl: `${apiBase}/api/runs/${dispatchResult.runId}`,
+            reportUrl: `${apiBase}/api/runs/${dispatchResult.runId}/report`,
+            eventsUrl: `${apiBase}/api/runs/${dispatchResult.runId}/events`,
+          },
+        });
+      }
+
+      const runResult = await workflowService.executeWorkflowRun(userId, id, {
+        versionId,
+        triggerData,
+        idempotencyKey,
+      });
+
       return res.status(200).json({
         success: true,
         data: runResult,

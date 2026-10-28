@@ -48,8 +48,16 @@ async function gracefulShutdown(signal) {
   server.close(async () => {
     try {
       defaultCronScheduler.stop();
+      try {
+        const { closeRedisConnections } = require("./src/queue/redis.connection");
+        const { closeTaskQueue } = require("./src/queue/queue.producer");
+        await closeTaskQueue();
+        await closeRedisConnections();
+      } catch (qErr) {
+        // Ignore if queue wasn't initialized
+      }
       await prisma.$disconnect();
-      console.log("Database disconnected. Server stopped.");
+      console.log("Database and Redis disconnected. Server stopped.");
       process.exit(0);
     } catch (error) {
       console.error("Error disconnecting Prisma:", error.message);

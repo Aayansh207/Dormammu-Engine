@@ -12,6 +12,7 @@ const { executeWorkflow, WorkflowRunStatus, TaskRunStatus } = require("./src/eng
 const { ErrorCodes } = require("./src/engine/contracts/errors");
 const { createExecutionContext } = require("./src/engine/contracts/context");
 
+process.env.NODE_ENV = "test";
 process.env.ALLOW_OFFLINE_MOCK = "true";
 
 let passed = 0;

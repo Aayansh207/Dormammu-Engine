@@ -141,18 +141,17 @@ class WebhookController {
       const apiBase = `${protocol}://${host}`;
       const frontendBase = process.env.FRONTEND_URL || (host.includes(":5001") ? `${protocol}://${host.replace(":5001", ":5173")}` : apiBase);
 
+      const idempotencyKey = req.headers["idempotency-key"] ||
+        req.headers["x-idempotency-key"] ||
+        req.headers["x-event-id"] ||
+        req.query?.idempotencyKey ||
+        req.body?.idempotencyKey ||
+        req.body?.eventId;
+
       const isAsync = req.query.async === "true" || req.headers["x-execution-mode"] === "async";
 
       if (isAsync) {
-        // Durably initialize the run record in RUNNING state
-        const initialRun = await workflowService.createInitialRun(workflow.ownerId, workflow.id, {
-          versionId: versionRecord.id,
-          triggerData,
-          triggerType: "WEBHOOK",
-        });
-
-        // Trigger execution asynchronously without waiting
-        workflowService.executeWorkflowRun(workflow.ownerId, workflow.id, {
+        const dispatchResult = await workflowService.dispatchWorkflowRun(workflow.ownerId, workflow.id, {
           versionId: versionRecord.id,
           triggerData,
           triggerType: "WEBHOOK",
@@ -161,19 +160,17 @@ class WebhookController {
             remoteIp: req.ip || req.connection?.remoteAddress,
             userAgent: req.headers["user-agent"],
           },
-          existingRunId: initialRun.id,
-        }).catch((err) => {
-          console.error(`Async execution error for run ${initialRun.id}:`, err);
+          idempotencyKey,
         });
 
         return res.status(202).json({
           success: true,
-          runId: initialRun.id,
-          status: "RUNNING",
-          message: "Workflow accepted and executing in background",
-          resultUrl: `${apiBase}/api/runs/${initialRun.id}`,
-          reportUrl: `${apiBase}/api/runs/${initialRun.id}/report`,
-          reportPageUrl: `${frontendBase}/runs/${initialRun.id}`,
+          runId: dispatchResult.runId,
+          status: dispatchResult.status,
+          message: dispatchResult.message || "Workflow accepted and executing in background",
+          resultUrl: `${apiBase}/api/runs/${dispatchResult.runId}`,
+          reportUrl: `${apiBase}/api/runs/${dispatchResult.runId}/report`,
+          reportPageUrl: `${frontendBase}/runs/${dispatchResult.runId}`,
         });
       }
 
@@ -187,6 +184,7 @@ class WebhookController {
           remoteIp: req.ip || req.connection?.remoteAddress,
           userAgent: req.headers["user-agent"],
         },
+        idempotencyKey,
       });
 
       const httpStatus = runResult.status === "SUCCEEDED" ? 200 : 422;
