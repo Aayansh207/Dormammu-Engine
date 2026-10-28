@@ -111,6 +111,45 @@ export default function AutoIncidentTriggerModal({
     }
   }, [externalActiveState]);
 
+  // Helper to infer appropriate default payload from workflow definition
+  const resolveDefaultWorkflowPayload = () => {
+    const sample = workflow?.definition?.samplePayload || workflow?.samplePayload;
+    if (sample && typeof sample === "object" && Object.keys(sample).length > 0) {
+      return sample;
+    }
+    const allNodes = workflow?.definition?.nodes || workflow?.nodes || [];
+    const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual");
+    if (manualTriggers.length > 1) {
+      const multi = { $multiTrigger: true, $triggerIds: [], $triggers: [] };
+      manualTriggers.forEach((trig, idx) => {
+        const val = trig.config?.defaultPayload !== undefined && trig.config.defaultPayload !== ""
+          ? trig.config.defaultPayload
+          : (idx + 1) * 10;
+        multi[trig.id] = val;
+        multi[`trigger_${idx}`] = val;
+        multi.$triggerIds.push(trig.id);
+        multi.$triggers.push(val);
+      });
+      return multi;
+    }
+    if (manualTriggers.length === 1) {
+      const defVal = manualTriggers[0]?.config?.defaultPayload !== undefined && manualTriggers[0]?.config?.defaultPayload !== ""
+        ? manualTriggers[0].config.defaultPayload
+        : 10;
+      return defVal;
+    }
+    const dataInputs = allNodes.filter((n) => n.type === "data.input");
+    if (dataInputs.length > 0) {
+      const inObj = {};
+      dataInputs.forEach((din) => {
+        const k = din.config?.key || "input";
+        inObj[k] = din.config?.defaultValue !== undefined ? din.config.defaultValue : 10;
+      });
+      return inObj;
+    }
+    return PAYLOAD_PRESETS.standard;
+  };
+
   // Initial load: fetch schedule from backend or populate from sample payload
   useEffect(() => {
     if (!isOpen || !workflowId) return;
@@ -138,17 +177,17 @@ export default function AutoIncidentTriggerModal({
             if (onActiveStateChange) onActiveStateChange(Boolean(s.enabled));
           }
           if (s.lastError) setLastError(s.lastError);
-          if (s.payload) {
-            setPayloadInput(JSON.stringify(s.payload, null, 2));
+          if (s.payload !== undefined && s.payload !== null && (typeof s.payload === "number" || Object.keys(s.payload).length > 0)) {
+            setPayloadInput(typeof s.payload === "object" ? JSON.stringify(s.payload, null, 2) : String(s.payload));
           } else {
-            const sample = workflow?.definition?.samplePayload || workflow?.samplePayload || PAYLOAD_PRESETS.standard;
-            setPayloadInput(JSON.stringify(sample, null, 2));
+            const defSample = resolveDefaultWorkflowPayload();
+            setPayloadInput(typeof defSample === "object" ? JSON.stringify(defSample, null, 2) : String(defSample));
           }
         }
       } catch (err) {
-        // Fallback to sample payload
-        const sample = workflow?.definition?.samplePayload || workflow?.samplePayload || PAYLOAD_PRESETS.standard;
-        setPayloadInput(JSON.stringify(sample, null, 2));
+        // Fallback to sample or trigger payload
+        const defSample = resolveDefaultWorkflowPayload();
+        setPayloadInput(typeof defSample === "object" ? JSON.stringify(defSample, null, 2) : String(defSample));
       }
     }
 
@@ -197,10 +236,13 @@ export default function AutoIncidentTriggerModal({
     if (isExecutingNow) return;
     setIsExecutingNow(true);
 
+    const allNodes = workflow?.definition?.nodes || workflow?.nodes || [];
+    const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual");
+
     let parsedPayload;
     const trimmedInput = payloadInput ? payloadInput.trim() : "";
     if (trimmedInput === "") {
-      parsedPayload = {};
+      parsedPayload = resolveDefaultWorkflowPayload();
     } else {
       try {
         parsedPayload = JSON.parse(trimmedInput);
@@ -208,9 +250,7 @@ export default function AutoIncidentTriggerModal({
         if (!isNaN(Number(trimmedInput))) {
           parsedPayload = Number(trimmedInput);
         } else {
-          setJsonError("Invalid JSON or number in incident payload: " + parseErr.message);
-          setIsExecutingNow(false);
-          return;
+          parsedPayload = trimmedInput;
         }
       }
     }
@@ -222,7 +262,7 @@ export default function AutoIncidentTriggerModal({
     if (typeof parsedPayload === "object" && parsedPayload !== null && !Array.isArray(parsedPayload)) {
       finalPayload = {
         ...parsedPayload,
-        ...(autoRotateIncidentId
+        ...(autoRotateIncidentId && (parsedPayload.incident_id || manualTriggers.length === 0)
           ? {
               incident_id: `${parsedPayload.incident_id ? parsedPayload.incident_id.replace(/-T\d+$/, "") : "INC-AUTO"}-T${String(tickSeq).padStart(3, "0")}`,
               timestamp: nowIso,
@@ -232,6 +272,24 @@ export default function AutoIncidentTriggerModal({
         $scheduledIncident: true,
         $intervalSeconds: intervalSeconds,
       };
+
+      // If workflow has multiple manual triggers and finalPayload is not partitioned, ensure multiTrigger mappings
+      if (manualTriggers.length > 1 && !finalPayload.$multiTrigger) {
+        finalPayload.$multiTrigger = true;
+        if (!finalPayload.$triggerIds) finalPayload.$triggerIds = [];
+        if (!finalPayload.$triggers) finalPayload.$triggers = [];
+        manualTriggers.forEach((trig, idx) => {
+          if (finalPayload[trig.id] === undefined) {
+            const val = trig.config?.defaultPayload !== undefined && trig.config.defaultPayload !== ""
+              ? trig.config.defaultPayload
+              : (idx + 1) * 10;
+            finalPayload[trig.id] = val;
+            finalPayload[`trigger_${idx}`] = val;
+            finalPayload.$triggerIds.push(trig.id);
+            finalPayload.$triggers.push(val);
+          }
+        });
+      }
     } else {
       finalPayload = parsedPayload;
     }
@@ -369,9 +427,20 @@ export default function AutoIncidentTriggerModal({
     // Sync to backend scheduler
     try {
       let parsed = {};
-      try {
-        parsed = payloadInput ? JSON.parse(payloadInput) : {};
-      } catch (e) {}
+      const trimmed = payloadInput ? payloadInput.trim() : "";
+      if (trimmed === "") {
+        parsed = resolveDefaultWorkflowPayload();
+      } else {
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch (e) {
+          if (!isNaN(Number(trimmed))) {
+            parsed = Number(trimmed);
+          } else {
+            parsed = trimmed;
+          }
+        }
+      }
 
       await api.updateWorkflowSchedule(workflowId, {
         enabled: nextState,

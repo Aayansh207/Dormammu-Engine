@@ -54,23 +54,75 @@ function resolveNodeInputs(node, registry, nodeOutputsStore, incomingEdges = [])
 
     if (portDef && portDef.type === "number") {
       if (typeof effectiveValue === "object" && effectiveValue !== null && !Array.isArray(effectiveValue)) {
-        if (effectiveValue.value !== undefined) {
-          effectiveValue = effectiveValue.value;
-        } else if (effectiveValue.output !== undefined) {
-          effectiveValue = effectiveValue.output;
-        } else if (effectiveValue.payload !== undefined) {
-          effectiveValue = effectiveValue.payload;
-        } else if (Object.keys(effectiveValue).length === 0) {
-          // If empty object {}, fallback to node config or default value if defined
-          if (node.config && node.config[targetPort] !== undefined && node.config[targetPort] !== "") {
-            effectiveValue = node.config[targetPort];
-          } else if (portDef.defaultValue !== undefined) {
-            effectiveValue = portDef.defaultValue;
-          }
+        if (effectiveValue[targetPort] !== undefined && (typeof effectiveValue[targetPort] === "number" || (!isNaN(Number(effectiveValue[targetPort])) && effectiveValue[targetPort] !== ""))) {
+          effectiveValue = Number(effectiveValue[targetPort]);
+        } else if (effectiveValue.value !== undefined && (typeof effectiveValue.value === "number" || (!isNaN(Number(effectiveValue.value)) && effectiveValue.value !== ""))) {
+          effectiveValue = Number(effectiveValue.value);
+        } else if (effectiveValue.output !== undefined && (typeof effectiveValue.output === "number" || (!isNaN(Number(effectiveValue.output)) && effectiveValue.output !== ""))) {
+          effectiveValue = Number(effectiveValue.output);
+        } else if (effectiveValue.payload !== undefined && (typeof effectiveValue.payload === "number" || (!isNaN(Number(effectiveValue.payload)) && effectiveValue.payload !== ""))) {
+          effectiveValue = Number(effectiveValue.payload);
+        } else if (effectiveValue.result !== undefined && (typeof effectiveValue.result === "number" || (!isNaN(Number(effectiveValue.result)) && effectiveValue.result !== ""))) {
+          effectiveValue = Number(effectiveValue.result);
+        } else if (effectiveValue.data !== undefined && (typeof effectiveValue.data === "number" || (!isNaN(Number(effectiveValue.data)) && effectiveValue.data !== ""))) {
+          effectiveValue = Number(effectiveValue.data);
+        } else if (effectiveValue.val !== undefined && (typeof effectiveValue.val === "number" || (!isNaN(Number(effectiveValue.val)) && effectiveValue.val !== ""))) {
+          effectiveValue = Number(effectiveValue.val);
+        } else if (effectiveValue.amount !== undefined && (typeof effectiveValue.amount === "number" || (!isNaN(Number(effectiveValue.amount)) && effectiveValue.amount !== ""))) {
+          effectiveValue = Number(effectiveValue.amount);
+        } else if (node.config && node.config[targetPort] !== undefined && node.config[targetPort] !== "" && !isNaN(Number(node.config[targetPort]))) {
+          effectiveValue = Number(node.config[targetPort]);
+        } else if (targetPort === "b" && node.config && node.config.factor !== undefined && !isNaN(Number(node.config.factor))) {
+          effectiveValue = Number(node.config.factor);
+        } else if (portDef.defaultValue !== undefined && typeof portDef.defaultValue === "number") {
+          effectiveValue = portDef.defaultValue;
         }
       }
       if (typeof effectiveValue === "string" && effectiveValue.trim() !== "" && !isNaN(Number(effectiveValue))) {
         effectiveValue = Number(effectiveValue);
+      }
+    } else if (portDef && portDef.type === "string") {
+      if (typeof effectiveValue === "object" && effectiveValue !== null) {
+        if (effectiveValue[targetPort] !== undefined && typeof effectiveValue[targetPort] === "string") {
+          effectiveValue = effectiveValue[targetPort];
+        } else if (effectiveValue.text !== undefined && typeof effectiveValue.text === "string") {
+          effectiveValue = effectiveValue.text;
+        } else if (effectiveValue.message !== undefined && typeof effectiveValue.message === "string") {
+          effectiveValue = effectiveValue.message;
+        } else if (effectiveValue.value !== undefined && typeof effectiveValue.value === "string") {
+          effectiveValue = effectiveValue.value;
+        } else if (effectiveValue.output !== undefined && typeof effectiveValue.output === "string") {
+          effectiveValue = effectiveValue.output;
+        } else if (effectiveValue.payload !== undefined && typeof effectiveValue.payload === "string") {
+          effectiveValue = effectiveValue.payload;
+        } else if (effectiveValue.incident_id !== undefined) {
+          effectiveValue = String(effectiveValue.incident_id);
+        } else if (node.config && node.config[targetPort] !== undefined && node.config[targetPort] !== "") {
+          effectiveValue = String(node.config[targetPort]);
+        } else if (portDef.defaultValue !== undefined) {
+          effectiveValue = portDef.defaultValue;
+        }
+      }
+      if (effectiveValue !== undefined && effectiveValue !== null && typeof effectiveValue !== "string") {
+        if (typeof effectiveValue === "number" || typeof effectiveValue === "boolean") {
+          effectiveValue = String(effectiveValue);
+        }
+      }
+    } else if (portDef && portDef.type === "boolean") {
+      if (typeof effectiveValue === "string") {
+        const lower = effectiveValue.trim().toLowerCase();
+        if (lower === "true") effectiveValue = true;
+        else if (lower === "false") effectiveValue = false;
+      } else if (typeof effectiveValue === "object" && effectiveValue !== null) {
+        if (effectiveValue[targetPort] !== undefined) {
+          effectiveValue = Boolean(effectiveValue[targetPort]);
+        } else if (effectiveValue.value !== undefined) {
+          effectiveValue = Boolean(effectiveValue.value);
+        } else if (node.config && node.config[targetPort] !== undefined) {
+          effectiveValue = Boolean(node.config[targetPort]);
+        } else if (portDef.defaultValue !== undefined) {
+          effectiveValue = portDef.defaultValue;
+        }
       }
     }
 

@@ -49,9 +49,11 @@ module.exports = {
     const key = node.config && node.config.key;
     const triggerData = (context && context.triggerData !== undefined && context.triggerData !== null) ? context.triggerData : {};
 
-    let result;
+    const isScheduledEnvelope = typeof triggerData === "object" && triggerData !== null &&
+      (triggerData.$interval === true || triggerData.$scheduledIncident === true || triggerData.$cron === true);
+
     const isTriggerDataEmpty = (typeof triggerData === "object" && triggerData !== null && !Array.isArray(triggerData))
-      ? Object.keys(triggerData).length === 0
+      ? (Object.keys(triggerData).length === 0 || isScheduledEnvelope)
       : false;
 
     if (!key || key.trim() === "") {
@@ -61,6 +63,8 @@ module.exports = {
     } else {
       if (typeof triggerData === "object" && triggerData !== null && key in triggerData) {
         result = triggerData[key];
+      } else if (triggerData.payload && typeof triggerData.payload === "object" && key in triggerData.payload) {
+        result = triggerData.payload[key];
       } else {
         result = (node.config && node.config.defaultValue !== undefined) ? node.config.defaultValue : null;
       }

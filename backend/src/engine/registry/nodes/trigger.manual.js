@@ -111,13 +111,47 @@ module.exports = {
           return { output: 0 };
         }
 
-        // 6. If triggerData is an empty object ({}) and node has configured defaultPayload,
+        // 6. Check if triggerData has a nested .payload (e.g. from interval/cron scheduler)
+        if (triggerData.payload !== undefined && triggerData.payload !== null) {
+          if (typeof triggerData.payload === "object" && !Array.isArray(triggerData.payload)) {
+            if (triggerData.payload[node.id] !== undefined) {
+              return { output: normalizePayload(triggerData.payload[node.id]) };
+            }
+            const trigKey = node.config && node.config.triggerKey;
+            if (trigKey && trigKey.trim() !== "" && triggerData.payload[trigKey] !== undefined) {
+              return { output: normalizePayload(triggerData.payload[trigKey]) };
+            }
+            if (node.name && triggerData.payload[node.name] !== undefined) {
+              return { output: normalizePayload(triggerData.payload[node.name]) };
+            }
+            if (triggerData.payload.value !== undefined) {
+              return { output: normalizePayload(triggerData.payload.value) };
+            }
+          } else {
+            return { output: normalizePayload(triggerData.payload) };
+          }
+        }
+
+        // 7. If triggerData is an interval or scheduled trigger execution:
+        const isScheduledEnvelope = triggerData.$interval === true ||
+          triggerData.$scheduledIncident === true ||
+          triggerData.$cron === true ||
+          triggerData.$triggerType === "INTERVAL" ||
+          triggerData.$triggerType === "CRON";
+
+        if (isScheduledEnvelope) {
+          if (node.config && node.config.defaultPayload !== undefined && node.config.defaultPayload !== "") {
+            return { output: normalizePayload(node.config.defaultPayload) };
+          }
+        }
+
+        // 8. If triggerData is an empty object ({}) and node has configured defaultPayload,
         // use defaultPayload
         if (Object.keys(triggerData).length === 0 && node.config && node.config.defaultPayload !== undefined && node.config.defaultPayload !== "") {
           return { output: normalizePayload(node.config.defaultPayload) };
         }
 
-        // 7. Direct convenience wrappers: { value: x } or { payload: x }
+        // 9. Direct convenience wrappers: { value: x } or { payload: x }
         if (Object.keys(triggerData).length === 1) {
           if (triggerData.value !== undefined) return { output: normalizePayload(triggerData.value) };
           if (triggerData.payload !== undefined) return { output: normalizePayload(triggerData.payload) };

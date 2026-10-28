@@ -241,7 +241,7 @@ class CronSchedulerService {
     const scheduledAt = triggerTime.toISOString();
 
     try {
-      // Build incident payload
+      // Build incident/execution payload
       const customPayload = schedule.payload && typeof schedule.payload === "object" ? { ...schedule.payload } : {};
       
       // Auto-refresh dynamic timestamp or incident ID if not explicitly fixed
@@ -258,6 +258,11 @@ class CronSchedulerService {
         scheduledAt,
         cronExpression: schedule.cronExpression,
       };
+
+      if (schedule.payload !== undefined && schedule.payload !== null && typeof schedule.payload !== "object") {
+        triggerData.payload = schedule.payload;
+        triggerData.value = schedule.payload;
+      }
 
       const workflowService = require("../services/workflow.service");
       const { defaultSseService } = require("./sse.service");
