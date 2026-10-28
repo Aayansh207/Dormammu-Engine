@@ -1038,6 +1038,17 @@ class WorkflowService {
 
     if (run.tasks && run.tasks.length > 0) {
       for (const t of run.tasks) {
+        const taskStarted = t.startedAt ? (t.startedAt.toISOString ? t.startedAt.toISOString() : String(t.startedAt)) : null;
+        const taskFinished = t.finishedAt ? (t.finishedAt.toISOString ? t.finishedAt.toISOString() : String(t.finishedAt)) : null;
+        let dMs = t.durationMs !== null && t.durationMs !== undefined ? t.durationMs : null;
+        if (dMs === null && taskFinished && taskStarted) {
+          const diff = new Date(taskFinished).getTime() - new Date(taskStarted).getTime();
+          if (!isNaN(diff) && diff >= 0) dMs = diff;
+        }
+        if (dMs === null && ["SUCCEEDED", "SKIPPED", "BLOCKED"].includes(t.status)) {
+          dMs = 0;
+        }
+
         nodeResults[t.nodeId] = {
           nodeId: t.nodeId,
           nodeType: t.nodeType,
@@ -1049,16 +1060,27 @@ class WorkflowService {
           output: t.output,
           outputs: t.output,
           error: t.error,
-          startedAt: t.startedAt ? t.startedAt.toISOString() : null,
-          completedAt: t.finishedAt ? t.finishedAt.toISOString() : null,
-          finishedAt: t.finishedAt ? t.finishedAt.toISOString() : null,
-          durationMs: t.durationMs,
+          startedAt: taskStarted,
+          completedAt: taskFinished,
+          finishedAt: taskFinished,
+          durationMs: dMs,
           attemptsList: t.attemptsList || [],
           logs: [],
         };
       }
     } else if (report && Array.isArray(report.nodes)) {
       for (const n of report.nodes) {
+        const started = n.startedAt;
+        const finished = n.completedAt || n.finishedAt;
+        let dMs = n.durationMs !== null && n.durationMs !== undefined ? n.durationMs : null;
+        if (dMs === null && finished && started) {
+          const diff = new Date(finished).getTime() - new Date(started).getTime();
+          if (!isNaN(diff) && diff >= 0) dMs = diff;
+        }
+        if (dMs === null && ["SUCCEEDED", "SKIPPED", "BLOCKED"].includes(n.status)) {
+          dMs = 0;
+        }
+
         nodeResults[n.nodeId] = {
           nodeId: n.nodeId,
           nodeType: n.nodeType,
@@ -1070,20 +1092,66 @@ class WorkflowService {
           output: n.output,
           outputs: n.output,
           error: n.error,
-          startedAt: n.startedAt,
-          completedAt: n.completedAt,
-          finishedAt: n.completedAt,
-          durationMs: n.durationMs,
+          startedAt: started,
+          completedAt: finished,
+          finishedAt: finished,
+          durationMs: dMs,
           logs: n.logs || [],
         };
       }
+    }
+
+    // If report exists, patch report.nodes with live task execution timings and data
+    if (report && Array.isArray(report.nodes)) {
+      report.nodes = report.nodes.map((n) => {
+        const live = nodeResults[n.nodeId];
+        return live ? { ...n, ...live } : n;
+      });
     }
 
     const durationMs = run.durationMs !== null && run.durationMs !== undefined
       ? run.durationMs
       : (run.finishedAt && run.startedAt
           ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
-          : 0);
+          : (report?.execution?.durationMs ?? 0));
+
+    // Ensure report execution metadata has accurate timings
+    if (report) {
+      if (!report.execution) report.execution = {};
+      if (report.execution.durationMs === null || report.execution.durationMs === undefined) {
+        report.execution.durationMs = durationMs;
+      }
+      if (!report.execution.startedAt && run.startedAt) {
+        report.execution.startedAt = run.startedAt.toISOString ? run.startedAt.toISOString() : String(run.startedAt);
+      }
+      if (!report.execution.completedAt && run.finishedAt) {
+        report.execution.completedAt = run.finishedAt.toISOString ? run.finishedAt.toISOString() : String(run.finishedAt);
+      }
+      if (report.finalOutput === undefined && run.output !== undefined) {
+        report.finalOutput = run.output;
+      }
+      if (report.output === undefined && run.output !== undefined) {
+        report.output = run.output;
+      }
+    }
+
+    // Cleanly unnest finalOutput if wrapped under single terminal node ID
+    let resolvedFinalOutput = run.output;
+    if (
+      resolvedFinalOutput &&
+      typeof resolvedFinalOutput === "object" &&
+      !Array.isArray(resolvedFinalOutput) &&
+      !resolvedFinalOutput.serviceTelemetry &&
+      !resolvedFinalOutput.aiAnalysis &&
+      !resolvedFinalOutput.result &&
+      !resolvedFinalOutput.output &&
+      !resolvedFinalOutput.actionPlan
+    ) {
+      const keys = Object.keys(resolvedFinalOutput);
+      if (keys.length === 1 && typeof resolvedFinalOutput[keys[0]] === "object" && resolvedFinalOutput[keys[0]] !== null) {
+        resolvedFinalOutput = resolvedFinalOutput[keys[0]];
+      }
+    }
 
     const triggerType = run.triggerType ||
       (run.input?.$triggerType || (run.input?.$webhook ? "WEBHOOK" : (run.input?.$cron ? "CRON" : "MANUAL")));
@@ -1099,15 +1167,15 @@ class WorkflowService {
       status: run.status,
       triggerType,
       input: run.input,
-      output: run.output,
-      finalOutput: run.output,
+      output: resolvedFinalOutput,
+      finalOutput: resolvedFinalOutput,
       error: run.error,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
       completedAt: run.finishedAt,
       durationMs,
       createdAt: run.createdAt,
-      report: run.report,
+      report,
       taskRuns: taskList,
       tasks: nodeResults,
       nodeResults,

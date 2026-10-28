@@ -80,21 +80,35 @@ function assembleRunReport({
   finalOutput,
   error,
 }) {
-  const nodes = tasks.map((t) => ({
-    id: t.nodeId,
-    nodeId: t.nodeId,
-    nodeType: t.nodeType || null,
-    nodeName: t.nodeName || t.nodeId,
-    status: t.status,
-    attempts: t.attempts || 1,
-    input: sanitizePayload(t.input),
-    output: sanitizePayload(t.output),
-    startedAt: t.startedAt ? t.startedAt.toISOString() : null,
-    completedAt: t.finishedAt ? t.finishedAt.toISOString() : null,
-    durationMs: t.durationMs !== undefined ? t.durationMs : null,
-    error: t.error || null,
-    logs: [],
-  }));
+  const nodes = tasks.map((t) => {
+    const started = t.startedAt ? (t.startedAt.toISOString ? t.startedAt.toISOString() : String(t.startedAt)) : null;
+    const completed = t.finishedAt ? (t.finishedAt.toISOString ? t.finishedAt.toISOString() : String(t.finishedAt)) : null;
+    let nodeDurationMs = t.durationMs !== undefined && t.durationMs !== null ? t.durationMs : null;
+    if (nodeDurationMs === null && started && completed) {
+      const diff = new Date(completed).getTime() - new Date(started).getTime();
+      if (!isNaN(diff) && diff >= 0) nodeDurationMs = diff;
+    }
+    if (nodeDurationMs === null && ["SUCCEEDED", "SKIPPED", "BLOCKED"].includes(t.status)) {
+      nodeDurationMs = 0;
+    }
+
+    return {
+      id: t.nodeId,
+      nodeId: t.nodeId,
+      nodeType: t.nodeType || null,
+      nodeName: t.nodeName || t.nodeId,
+      status: t.status,
+      attempts: t.attempts || 1,
+      input: sanitizePayload(t.input),
+      output: sanitizePayload(t.output),
+      startedAt: started,
+      completedAt: completed,
+      finishedAt: completed,
+      durationMs: nodeDurationMs,
+      error: t.error || null,
+      logs: [],
+    };
+  });
 
   return {
     schemaVersion: 1,
@@ -112,13 +126,14 @@ function assembleRunReport({
     input: sanitizePayload(run.input),
     execution: {
       status,
-      startedAt: startedAt ? (startedAt.toISOString ? startedAt.toISOString() : startedAt) : null,
-      completedAt: completedAt ? (completedAt.toISOString ? completedAt.toISOString() : completedAt) : null,
+      startedAt: startedAt ? (startedAt.toISOString ? startedAt.toISOString() : String(startedAt)) : null,
+      completedAt: completedAt ? (completedAt.toISOString ? completedAt.toISOString() : String(completedAt)) : null,
       durationMs,
     },
     nodes,
     events: [],
     finalOutput: sanitizePayload(finalOutput),
+    output: sanitizePayload(finalOutput),
     error: error || null,
   };
 }
@@ -230,7 +245,7 @@ class DistributedDagCoordinator {
     const definition = versionRecord.definitionJson;
     const plan = getExecutionPlan(versionRecord.id, definition);
 
-    // 2. Fetch all current task executions for this run in one targeted select (lightweight columns)
+    // 2. Fetch all current task executions for this run
     const allTasks = await prisma.taskExecution.findMany({
       where: { runId },
       select: {
@@ -239,7 +254,13 @@ class DistributedDagCoordinator {
         nodeType: true,
         nodeName: true,
         status: true,
+        attempts: true,
+        input: true,
         output: true,
+        error: true,
+        startedAt: true,
+        finishedAt: true,
+        durationMs: true,
       },
     });
 
@@ -530,9 +551,16 @@ class DistributedDagCoordinator {
     const startedAt = run.startedAt ? new Date(run.startedAt) : completedAt;
     const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
 
+    // Fetch fresh, complete task records from PostgreSQL to ensure all timings and outputs are fully synced
+    const fullTasks = await prisma.taskExecution.findMany({
+      where: { runId: run.id },
+      orderBy: { createdAt: "asc" },
+    });
+    const tasksToUse = fullTasks.length > 0 ? fullTasks : tasks;
+
     // Resolve final output: check if output.return node succeeded
     let finalOutput = null;
-    const returnTask = tasks.find((t) => t.nodeType === "output.return" && t.status === "SUCCEEDED");
+    const returnTask = tasksToUse.find((t) => t.nodeType === "output.return" && t.status === "SUCCEEDED");
     if (returnTask && returnTask.output) {
       if (returnTask.output.output !== undefined) {
         finalOutput = returnTask.output.output;
@@ -545,14 +573,37 @@ class DistributedDagCoordinator {
 
     // Fallback: collect outputs of succeeded terminal nodes
     if (finalOutput === null) {
-      const terminalOutputs = {};
-      for (const termId of plan.terminalNodeIds) {
-        const t = tasks.find((task) => task.nodeId === termId);
-        if (t && t.status === "SUCCEEDED" && t.output !== null) {
-          terminalOutputs[termId] = t.output;
+      if (plan.terminalNodeIds && plan.terminalNodeIds.length === 1) {
+        const singleTermId = plan.terminalNodeIds[0];
+        const t = tasksToUse.find((task) => task.nodeId === singleTermId);
+        if (t && t.status === "SUCCEEDED" && t.output !== null && t.output !== undefined) {
+          finalOutput = t.output.output !== undefined
+            ? t.output.output
+            : (t.output.result !== undefined ? t.output.result : t.output);
         }
+      } else if (plan.terminalNodeIds && plan.terminalNodeIds.length > 1) {
+        const terminalOutputs = {};
+        for (const termId of plan.terminalNodeIds) {
+          const t = tasksToUse.find((task) => task.nodeId === termId);
+          if (t && t.status === "SUCCEEDED" && t.output !== null && t.output !== undefined) {
+            terminalOutputs[termId] = t.output.output !== undefined
+              ? t.output.output
+              : (t.output.result !== undefined ? t.output.result : t.output);
+          }
+        }
+        finalOutput = Object.keys(terminalOutputs).length > 0 ? terminalOutputs : null;
       }
-      finalOutput = Object.keys(terminalOutputs).length > 0 ? terminalOutputs : null;
+    }
+
+    // Fallback 2: if still null, pick the output from the last succeeded task
+    if (finalOutput === null) {
+      const succeededTasks = tasksToUse.filter((t) => t.status === "SUCCEEDED" && t.output !== null && t.output !== undefined);
+      if (succeededTasks.length > 0) {
+        const lastTask = succeededTasks[succeededTasks.length - 1];
+        finalOutput = lastTask.output.output !== undefined
+          ? lastTask.output.output
+          : (lastTask.output.result !== undefined ? lastTask.output.result : lastTask.output);
+      }
     }
 
     const report = assembleRunReport({
@@ -560,7 +611,7 @@ class DistributedDagCoordinator {
       workflow: run.workflowVersion?.workflow,
       versionRecord,
       definition: versionRecord.definitionJson,
-      tasks,
+      tasks: tasksToUse,
       status: "SUCCEEDED",
       startedAt,
       completedAt,
@@ -575,6 +626,7 @@ class DistributedDagCoordinator {
         status: "SUCCEEDED",
         output: finalOutput !== undefined ? finalOutput : null,
         durationMs,
+        startedAt,
         finishedAt: completedAt,
         report,
       },

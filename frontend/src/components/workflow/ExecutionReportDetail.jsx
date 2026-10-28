@@ -80,16 +80,24 @@ export default function ExecutionReportDetail({
     return cleanup;
   }, [runId]);
 
-  // Handle live polling/SSE if run is RUNNING
+  // Handle live polling/SSE if run is active (PENDING or RUNNING)
   useEffect(() => {
-    if (!run || run.status !== "RUNNING") return;
+    if (!run || !["PENDING", "RUNNING"].includes(run.status)) return;
 
     // SSE subscription for live events
     try {
       unsubscribeRef.current = api.subscribeToRunEvents(
         runId,
         (eventType, payload) => {
-          if (eventType === "workflow:completed") {
+          if (
+            eventType === "workflow:completed" ||
+            eventType === "task:succeeded" ||
+            eventType === "task:failed" ||
+            eventType === "task:skipped" ||
+            eventType === "task:blocked" ||
+            eventType === "task:running" ||
+            eventType === "task:ready"
+          ) {
             fetchRun(true);
           }
         },
@@ -101,10 +109,10 @@ export default function ExecutionReportDetail({
       // ignore
     }
 
-    // Polling fallback every 2.5s while RUNNING
+    // Polling fallback every 2s while PENDING or RUNNING
     pollIntervalRef.current = setInterval(() => {
       fetchRun(true);
-    }, 2500);
+    }, 2000);
 
     return () => {
       if (unsubscribeRef.current) {
@@ -147,9 +155,57 @@ export default function ExecutionReportDetail({
 
   // Derive report, nodes, and stats from the persisted run
   const report = run?.report || null;
-  const nodes = Array.isArray(report?.nodes)
+
+  // Build task runs lookup map for reliable timings and data
+  const taskRunsMap = new Map();
+  if (Array.isArray(run?.taskRuns)) {
+    for (const t of run.taskRuns) {
+      taskRunsMap.set(t.nodeId, t);
+    }
+  } else if (run?.tasks && typeof run.tasks === "object") {
+    for (const [k, v] of Object.entries(run.tasks)) {
+      taskRunsMap.set(k, v);
+    }
+  }
+
+  const rawNodes = Array.isArray(report?.nodes) && report.nodes.length > 0
     ? report.nodes
     : (run?.taskRuns || Object.values(run?.tasks || {}));
+
+  const nodes = rawNodes.map((n) => {
+    const fromTask = taskRunsMap.get(n.nodeId || n.id);
+    const startedAt = n.startedAt || fromTask?.startedAt || null;
+    const completedAt = n.completedAt || n.finishedAt || fromTask?.completedAt || fromTask?.finishedAt || null;
+
+    let durationMs = (n.durationMs !== null && n.durationMs !== undefined)
+      ? n.durationMs
+      : ((fromTask?.durationMs !== null && fromTask?.durationMs !== undefined)
+          ? fromTask.durationMs
+          : null);
+
+    if ((durationMs === null || durationMs === undefined) && completedAt && startedAt) {
+      const diff = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+      if (!isNaN(diff) && diff >= 0) {
+        durationMs = diff;
+      }
+    }
+    if ((durationMs === null || durationMs === undefined) && (n.status === "SUCCEEDED" || fromTask?.status === "SUCCEEDED")) {
+      durationMs = 0;
+    }
+
+    return {
+      ...fromTask,
+      ...n,
+      startedAt,
+      completedAt,
+      finishedAt: completedAt,
+      durationMs,
+      input: n.input !== undefined && n.input !== null ? n.input : fromTask?.input,
+      inputs: n.inputs !== undefined && n.inputs !== null ? n.inputs : (fromTask?.inputs || fromTask?.input),
+      output: n.output !== undefined && n.output !== null ? n.output : fromTask?.output,
+      outputs: n.outputs !== undefined && n.outputs !== null ? n.outputs : (fromTask?.outputs || fromTask?.output),
+    };
+  });
 
   // Chronological order for timeline
   const orderedNodes = [...nodes].sort((a, b) => {
@@ -163,12 +219,45 @@ export default function ExecutionReportDetail({
   const failedCount = nodes.filter((n) => n.status === "FAILED").length;
   const skippedCount = nodes.filter((n) => n.status === "SKIPPED" || n.status === "BLOCKED").length;
 
-  const durationMs = run?.durationMs ?? report?.execution?.durationMs ?? 0;
+  const calculatedRunDuration = (run?.finishedAt && run?.startedAt)
+    ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
+    : 0;
+
+  const durationMs = (run?.durationMs !== null && run?.durationMs !== undefined)
+    ? run.durationMs
+    : ((report?.execution?.durationMs !== null && report?.execution?.durationMs !== undefined)
+      ? report.execution.durationMs
+      : calculatedRunDuration);
+
   const isRunning = run?.status === "RUNNING";
   const isSucceeded = run?.status === "SUCCEEDED";
   const isFailed = run?.status === "FAILED";
 
-  const finalOutput = run?.finalOutput !== undefined ? run.finalOutput : (run?.output !== undefined ? run.output : report?.output);
+  const rawFinalOutput = run?.finalOutput !== undefined && run.finalOutput !== null
+    ? run.finalOutput
+    : (run?.output !== undefined && run.output !== null
+        ? run.output
+        : (report?.finalOutput !== undefined && report.finalOutput !== null
+            ? report.finalOutput
+            : report?.output));
+
+  // If finalOutput was wrapped under a single terminal node id { "nodeId": { ... } }, unnest it
+  let finalOutput = rawFinalOutput;
+  if (
+    finalOutput &&
+    typeof finalOutput === "object" &&
+    !Array.isArray(finalOutput) &&
+    !finalOutput.serviceTelemetry &&
+    !finalOutput.aiAnalysis &&
+    !finalOutput.result &&
+    !finalOutput.output &&
+    !finalOutput.actionPlan
+  ) {
+    const keys = Object.keys(finalOutput);
+    if (keys.length === 1 && typeof finalOutput[keys[0]] === "object" && finalOutput[keys[0]] !== null) {
+      finalOutput = finalOutput[keys[0]];
+    }
+  }
 
   // Helper to extract node output consistently
   const getNodeOutput = (node) => {
@@ -1123,7 +1212,7 @@ export default function ExecutionReportDetail({
                     </div>
 
                     <div style={{ textAlign: "right", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                      <div>{n.durationMs !== undefined ? `${n.durationMs} ms` : "—"}</div>
+                      <div>{n.durationMs !== undefined && n.durationMs !== null ? `${n.durationMs} ms` : (n.status === "SUCCEEDED" ? "0 ms" : "—")}</div>
                       {n.completedAt && <div>{formatTimestamp(n.completedAt)}</div>}
                     </div>
                   </div>
@@ -1268,7 +1357,7 @@ export default function ExecutionReportDetail({
 
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                        {node.durationMs !== undefined ? `${node.durationMs} ms` : "—"}
+                        {node.durationMs !== undefined && node.durationMs !== null ? `${node.durationMs} ms` : (node.status === "SUCCEEDED" ? "0 ms" : "—")}
                       </span>
                       <span
                         style={{
