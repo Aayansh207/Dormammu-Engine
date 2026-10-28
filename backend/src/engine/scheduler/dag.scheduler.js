@@ -68,7 +68,7 @@ function findDownstreamDescendants(startNodeId, adjacencyList) {
  */
 async function executeWorkflow(workflow, options = {}) {
   const runId = options.runId || `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-  const triggerData = options.triggerData || {};
+  const triggerData = (options.triggerData !== undefined && options.triggerData !== null) ? options.triggerData : {};
   const registry = options.registry || defaultRegistry;
   const logger = options.logger || createSafeLogger(runId, "system");
   const abortSignal = options.abortSignal || null;

@@ -689,7 +689,8 @@ class WorkflowService {
       (triggerData?.$webhook ? "WEBHOOK" : (triggerData?.$cron ? "CRON" : "MANUAL"));
 
     const startedAt = new Date().toISOString();
-    const sanitizedInput = sanitizePayload(triggerData) || {};
+    const sanitizedInput = sanitizePayload(triggerData);
+    const finalInput = (sanitizedInput !== undefined && sanitizedInput !== null) ? sanitizedInput : {};
 
     // 2. Obtain or create durable WorkflowRun record in RUNNING state
     let runRecord = null;
@@ -703,7 +704,7 @@ class WorkflowService {
           workflowVersionId: versionRecord.id,
           status: "RUNNING",
           triggerType: resolvedTriggerType,
-          input: sanitizedInput,
+          input: finalInput,
           startedAt: new Date(startedAt),
         },
       });
@@ -1118,6 +1119,102 @@ class WorkflowService {
         totalPages: Math.ceil(total / limit),
       },
     });
+  }
+
+  /**
+   * Retrieves the active schedule details for a workflow.
+   * @param {string} userId
+   * @param {string} workflowId
+   */
+  async getWorkflowSchedule(userId, workflowId) {
+    const { workflow } = await this.resolveWorkflowAccess(userId, workflowId);
+    let schedule = defaultCronScheduler.getSchedule(workflowId);
+    if (!schedule) {
+      const latestVersion = workflow.versions && workflow.versions[0];
+      const def = latestVersion?.definitionJson;
+      if (def?.schedule) {
+        schedule = defaultCronScheduler.registerSchedule(workflowId, {
+          ownerId: workflow.ownerId,
+          ...def.schedule,
+        });
+      }
+    }
+    return schedule;
+  }
+
+  /**
+   * Configures, updates, or activates an automated interval or cron schedule on a workflow.
+   * @param {string} userId
+   * @param {string} workflowId
+   * @param {Object} scheduleOptions
+   */
+  async updateWorkflowSchedule(userId, workflowId, scheduleOptions = {}) {
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Insufficient permissions to modify workflow schedule");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const schedule = defaultCronScheduler.registerSchedule(workflowId, {
+      ownerId: workflow.ownerId,
+      ...scheduleOptions,
+    });
+
+    try {
+      const latestVersion = workflow.versions && workflow.versions[0];
+      if (latestVersion?.definitionJson) {
+        const updatedDef = {
+          ...latestVersion.definitionJson,
+          schedule: {
+            type: schedule.type,
+            intervalSeconds: schedule.intervalSeconds,
+            cronExpression: schedule.cronExpression,
+            enabled: schedule.enabled,
+            stopOnError: schedule.stopOnError,
+            payload: schedule.payload,
+          },
+        };
+        await prisma.workflowVersion.update({
+          where: { id: latestVersion.id },
+          data: { definitionJson: updatedDef },
+        });
+      }
+    } catch (e) {
+      // Non-fatal if DB definition update fails
+    }
+
+    return schedule;
+  }
+
+  /**
+   * Deletes and unregisters a workflow schedule.
+   * @param {string} userId
+   * @param {string} workflowId
+   */
+  async deleteWorkflowSchedule(userId, workflowId) {
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Insufficient permissions to modify workflow schedule");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    defaultCronScheduler.unregisterSchedule(workflowId);
+
+    try {
+      const latestVersion = workflow.versions && workflow.versions[0];
+      if (latestVersion?.definitionJson && latestVersion.definitionJson.schedule) {
+        const updatedDef = { ...latestVersion.definitionJson };
+        delete updatedDef.schedule;
+        await prisma.workflowVersion.update({
+          where: { id: latestVersion.id },
+          data: { definitionJson: updatedDef },
+        });
+      }
+    } catch (e) {}
+
+    return { success: true, message: "Schedule deleted successfully" };
   }
 }
 

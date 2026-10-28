@@ -20,6 +20,7 @@ const ErrorCodes = {
   NO_ENTRY_NODES: "NO_ENTRY_NODES",
   DISCONNECTED_GRAPH_WARNING: "DISCONNECTED_GRAPH_WARNING",
   UNSUPPORTED_CONSTRUCT: "UNSUPPORTED_CONSTRUCT",
+  VALIDATION_FAILED: "VALIDATION_FAILED",
 
   // Runtime & Execution Errors
   DEADLOCK_DETECTED: "DEADLOCK_DETECTED",
@@ -45,6 +46,7 @@ const ErrorCodes = {
 
   // HTTP & Security Errors
   SSRF_BLOCKED: "SSRF_BLOCKED",
+  UNAUTHORIZED: "UNAUTHORIZED",
   HTTP_REQUEST_FAILED: "HTTP_REQUEST_FAILED",
   HTTP_TIMEOUT: "HTTP_TIMEOUT",
   HTTP_RESPONSE_TOO_LARGE: "HTTP_RESPONSE_TOO_LARGE",
@@ -65,7 +67,7 @@ class EngineError extends Error {
   constructor(code, message, details = {}) {
     super(message);
     this.name = "EngineError";
-    this.code = code;
+    this.code = code || ErrorCodes.HANDLER_EXECUTION_FAILED;
     this.details = details;
     Error.captureStackTrace(this, this.constructor);
   }

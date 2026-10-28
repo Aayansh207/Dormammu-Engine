@@ -259,6 +259,39 @@ export default function NodeInspector({
                         resize: "vertical",
                       }}
                     />
+                  ) : schema.type === "any" ? (
+                    <input
+                      type="text"
+                      value={typeof val === "object" ? JSON.stringify(val) : String(val !== undefined && val !== null ? val : "")}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          handleConfigChange(key, "");
+                        } else if (!isNaN(Number(raw)) && raw.trim() !== "") {
+                          handleConfigChange(key, Number(raw));
+                        } else if (raw === "true") {
+                          handleConfigChange(key, true);
+                        } else if (raw === "false") {
+                          handleConfigChange(key, false);
+                        } else {
+                          try {
+                            handleConfigChange(key, JSON.parse(raw));
+                          } catch {
+                            handleConfigChange(key, raw);
+                          }
+                        }
+                      }}
+                      placeholder="e.g. 10, true, or string/JSON"
+                      style={{
+                        padding: "8px 10px",
+                        background: "var(--bg-input)",
+                        border: `1px solid ${fieldError ? "#f43f5e" : "var(--border-subtle)"}`,
+                        borderRadius: "8px",
+                        color: "var(--text-primary)",
+                        fontSize: "0.85rem",
+                        outline: "none",
+                      }}
+                    />
                   ) : (
                     <input
                       type="text"
@@ -292,21 +325,51 @@ export default function NodeInspector({
           )}
         </div>
 
-        {/* Ports summary */}
+        {/* Ports summary & Manual Input Fallbacks */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--text-muted)", textTransform: "uppercase" }}>
-            Declared Ports
-          </span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--text-muted)", textTransform: "uppercase" }}>
+              Input Ports (Manual Overrides)
+            </span>
+          </div>
 
-          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "8px 12px", display: "flex", flexDirection: "column", gap: "6px" }}>
-            <span style={{ fontSize: "0.72rem", fontWeight: "600", color: "var(--text-secondary)" }}>Inputs:</span>
+          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "8px 12px", display: "flex", flexDirection: "column", gap: "8px" }}>
             {metadata && Object.keys(metadata.inputs || {}).length > 0 ? (
-              Object.entries(metadata.inputs).map(([k, def]) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                  <span>{k}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent-cyan)" }}>{def.type}</span>
-                </div>
-              ))
+              Object.entries(metadata.inputs).map(([k, def]) => {
+                const manualPortVal = currentConfig[k];
+                const hasDirectConfig = Boolean(configSchema[k]);
+
+                return (
+                  <div key={k} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.72rem" }}>
+                      <span style={{ fontWeight: "600", color: "var(--text-secondary)" }}>{k}</span>
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent-cyan)", fontSize: "0.68rem" }}>{def.type}</span>
+                    </div>
+
+                    {!hasDirectConfig && (
+                      <input
+                        type={def.type === "number" ? "number" : "text"}
+                        placeholder={`Manual value for '${k}'`}
+                        value={manualPortVal !== undefined && manualPortVal !== null ? manualPortVal : ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const valToSet = raw === "" ? undefined : (def.type === "number" ? (isNaN(Number(raw)) ? raw : Number(raw)) : raw);
+                          handleConfigChange(k, valToSet);
+                        }}
+                        style={{
+                          padding: "5px 8px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "6px",
+                          color: "var(--text-primary)",
+                          fontSize: "0.76rem",
+                          outline: "none",
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })
             ) : (
               <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>None (Trigger / Entry)</span>
             )}

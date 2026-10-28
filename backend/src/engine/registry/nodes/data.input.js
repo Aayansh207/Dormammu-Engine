@@ -47,11 +47,15 @@ module.exports = {
   },
   handler: async (inputs, node, context) => {
     const key = node.config && node.config.key;
-    const triggerData = (context && context.triggerData) || {};
+    const triggerData = (context && context.triggerData !== undefined && context.triggerData !== null) ? context.triggerData : {};
 
     let result;
+    const isTriggerDataEmpty = (typeof triggerData === "object" && triggerData !== null && !Array.isArray(triggerData))
+      ? Object.keys(triggerData).length === 0
+      : false;
+
     if (!key || key.trim() === "") {
-      result = (node.config && node.config.defaultValue !== undefined && Object.keys(triggerData).length === 0)
+      result = (node.config && node.config.defaultValue !== undefined && isTriggerDataEmpty)
         ? node.config.defaultValue
         : triggerData;
     } else {

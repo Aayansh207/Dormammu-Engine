@@ -29,7 +29,14 @@ function isValueCompatibleWithType(value, declaredType) {
     case PortTypes.STRING:
       return typeof value === "string";
     case PortTypes.NUMBER:
-      return typeof value === "number" ? !Number.isNaN(value) : (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value)));
+      if (typeof value === "number") return !Number.isNaN(value);
+      if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) return true;
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const inner = value.value !== undefined ? value.value : (value.output !== undefined ? value.output : value.payload);
+        if (typeof inner === "number" && !Number.isNaN(inner)) return true;
+        if (typeof inner === "string" && inner.trim() !== "" && !Number.isNaN(Number(inner))) return true;
+      }
+      return false;
     case PortTypes.BOOLEAN:
       return typeof value === "boolean";
     case PortTypes.OBJECT:

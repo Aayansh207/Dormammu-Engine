@@ -38,12 +38,22 @@ module.exports = {
   },
   capabilities: { pure: true, sideEffects: false, retryable: true },
   handler: async (inputs, node) => {
-    const valA = inputs.a !== undefined ? inputs.a : inputs.input;
-    const addend = inputs.b !== undefined
+    let rawA = inputs.a !== undefined ? inputs.a : inputs.input;
+    let rawB = inputs.b !== undefined
       ? inputs.b
       : (node.config && node.config.addend !== undefined ? node.config.addend : 0);
 
-    const sum = Number(valA || 0) + Number(addend || 0);
+    if (typeof rawA === "object" && rawA !== null && !Array.isArray(rawA)) {
+      rawA = rawA.value !== undefined ? rawA.value : (rawA.output !== undefined ? rawA.output : (rawA.payload !== undefined ? rawA.payload : (node.config?.a ?? 0)));
+    }
+    if (typeof rawB === "object" && rawB !== null && !Array.isArray(rawB)) {
+      rawB = rawB.value !== undefined ? rawB.value : (rawB.output !== undefined ? rawB.output : (rawB.payload !== undefined ? rawB.payload : (node.config?.b ?? node.config?.addend ?? 0)));
+    }
+
+    const numA = Number(rawA !== undefined && rawA !== null && rawA !== "" ? rawA : (node.config?.a ?? 0));
+    const numB = Number(rawB !== undefined && rawB !== null && rawB !== "" ? rawB : (node.config?.b ?? node.config?.addend ?? 0));
+
+    const sum = (Number.isNaN(numA) ? 0 : numA) + (Number.isNaN(numB) ? 0 : numB);
     return { output: sum };
   },
 };

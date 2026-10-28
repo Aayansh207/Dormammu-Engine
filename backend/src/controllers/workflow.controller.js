@@ -279,6 +279,52 @@ class WorkflowController {
       next(err);
     }
   }
+
+  async getWorkflowSchedule(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      const schedule = await workflowService.getWorkflowSchedule(userId, id);
+      return res.status(200).json({
+        success: true,
+        data: schedule,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateWorkflowSchedule(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      const scheduleOptions = req.body || {};
+      const schedule = await workflowService.updateWorkflowSchedule(userId, id, scheduleOptions);
+      return res.status(200).json({
+        success: true,
+        message: schedule.enabled
+          ? `Automated incident trigger active (${schedule.type === "interval" ? `every ${schedule.intervalSeconds}s` : schedule.cronExpression})`
+          : "Automated incident trigger paused",
+        data: schedule,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteWorkflowSchedule(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      const result = await workflowService.deleteWorkflowSchedule(userId, id);
+      return res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new WorkflowController();

@@ -50,16 +50,40 @@ function resolveNodeInputs(node, registry, nodeOutputsStore, incomingEdges = [])
     }
 
     const portDef = nodeDef.inputs[targetPort];
+    let effectiveValue = value;
+
+    if (portDef && portDef.type === "number") {
+      if (typeof effectiveValue === "object" && effectiveValue !== null && !Array.isArray(effectiveValue)) {
+        if (effectiveValue.value !== undefined) {
+          effectiveValue = effectiveValue.value;
+        } else if (effectiveValue.output !== undefined) {
+          effectiveValue = effectiveValue.output;
+        } else if (effectiveValue.payload !== undefined) {
+          effectiveValue = effectiveValue.payload;
+        } else if (Object.keys(effectiveValue).length === 0) {
+          // If empty object {}, fallback to node config or default value if defined
+          if (node.config && node.config[targetPort] !== undefined && node.config[targetPort] !== "") {
+            effectiveValue = node.config[targetPort];
+          } else if (portDef.defaultValue !== undefined) {
+            effectiveValue = portDef.defaultValue;
+          }
+        }
+      }
+      if (typeof effectiveValue === "string" && effectiveValue.trim() !== "" && !isNaN(Number(effectiveValue))) {
+        effectiveValue = Number(effectiveValue);
+      }
+    }
+
     if (portDef && portDef.allowMultiple) {
       if (resolvedInputs[targetPort] === undefined) {
-        resolvedInputs[targetPort] = [value];
+        resolvedInputs[targetPort] = [effectiveValue];
       } else if (Array.isArray(resolvedInputs[targetPort])) {
-        resolvedInputs[targetPort].push(value);
+        resolvedInputs[targetPort].push(effectiveValue);
       } else {
-        resolvedInputs[targetPort] = [resolvedInputs[targetPort], value];
+        resolvedInputs[targetPort] = [resolvedInputs[targetPort], effectiveValue];
       }
     } else {
-      resolvedInputs[targetPort] = value;
+      resolvedInputs[targetPort] = effectiveValue;
     }
   }
 
