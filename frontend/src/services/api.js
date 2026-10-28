@@ -405,6 +405,10 @@ class ApiService {
     });
   }
 
+  async getRun(runId) {
+    return this.getRunDetails(runId);
+  }
+
   async getRunReport(runId) {
     return this.request(`/runs/${runId}/report`, {
       method: "GET",
@@ -487,7 +491,8 @@ class ApiService {
       eventSource.addEventListener(evt, (e) => {
         try {
           const parsed = JSON.parse(e.data);
-          onEvent?.(evt, parsed);
+          const eventObj = parsed && typeof parsed === "object" ? { ...parsed, type: evt } : { type: evt, data: parsed };
+          onEvent?.(evt, eventObj);
         } catch (err) {
           console.error("SSE parse error for", evt, err);
         }
@@ -497,14 +502,16 @@ class ApiService {
     eventSource.addEventListener("workflow:started", (e) => {
       try {
         const parsed = JSON.parse(e.data);
-        onEvent?.("workflow:started", parsed);
+        const eventObj = parsed && typeof parsed === "object" ? { ...parsed, type: "workflow:started" } : { type: "workflow:started", data: parsed };
+        onEvent?.("workflow:started", eventObj);
       } catch (err) {}
     });
 
     eventSource.addEventListener("workflow:completed", (e) => {
       try {
         const parsed = JSON.parse(e.data);
-        onEvent?.("workflow:completed", parsed);
+        const eventObj = parsed && typeof parsed === "object" ? { ...parsed, type: "workflow:completed" } : { type: "workflow:completed", data: parsed };
+        onEvent?.("workflow:completed", eventObj);
       } catch (err) {}
       eventSource.close();
     });
@@ -512,7 +519,8 @@ class ApiService {
     eventSource.addEventListener("connected", (e) => {
       try {
         const parsed = JSON.parse(e.data);
-        onEvent?.("connected", parsed);
+        const eventObj = parsed && typeof parsed === "object" ? { ...parsed, type: "connected" } : { type: "connected", data: parsed };
+        onEvent?.("connected", eventObj);
       } catch (err) {}
     });
 

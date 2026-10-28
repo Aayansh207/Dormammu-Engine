@@ -636,7 +636,7 @@ export default function RunExecutionModal({
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {isRunning ? (
+              {isRunning && !runResult ? (
                 <div style={{ textAlign: "center", padding: "40px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
                   <Loader2 size={32} color="var(--primary-light)" className="animate-spin" />
                   <span style={{ fontSize: "0.95rem", fontWeight: "600" }}>
@@ -659,8 +659,18 @@ export default function RunExecutionModal({
                     style={{
                       padding: "12px 16px",
                       borderRadius: "10px",
-                      background: runResult.status === "SUCCEEDED" ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)",
-                      border: `1px solid ${runResult.status === "SUCCEEDED" ? "rgba(16, 185, 129, 0.3)" : "rgba(244, 63, 94, 0.3)"}`,
+                      background: runResult.status === "SUCCEEDED"
+                        ? "rgba(16, 185, 129, 0.12)"
+                        : (runResult.status === "RUNNING" || isRunning)
+                        ? "rgba(57, 174, 169, 0.12)"
+                        : "rgba(244, 63, 94, 0.12)",
+                      border: `1px solid ${
+                        runResult.status === "SUCCEEDED"
+                          ? "rgba(16, 185, 129, 0.3)"
+                          : (runResult.status === "RUNNING" || isRunning)
+                          ? "rgba(57, 174, 169, 0.3)"
+                          : "rgba(244, 63, 94, 0.3)"
+                      }`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
@@ -669,13 +679,23 @@ export default function RunExecutionModal({
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       {runResult.status === "SUCCEEDED" ? (
                         <CheckCircle2 size={20} color="#10b981" />
+                      ) : (runResult.status === "RUNNING" || isRunning) ? (
+                        <Loader2 size={20} color="var(--brand)" className="animate-spin" />
                       ) : (
                         <XCircle size={20} color="#f43f5e" />
                       )}
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "0.92rem", fontWeight: "700", color: runResult.status === "SUCCEEDED" ? "#10b981" : (runResult.status === "RUNNING" ? "var(--brand)" : "#f43f5e") }}>
-                            Execution {runResult.status}
+                          <span style={{
+                            fontSize: "0.92rem",
+                            fontWeight: "700",
+                            color: runResult.status === "SUCCEEDED"
+                              ? "#10b981"
+                              : (runResult.status === "RUNNING" || isRunning)
+                              ? "var(--brand)"
+                              : "#f43f5e"
+                          }}>
+                            Execution {runResult.status || (isRunning ? "RUNNING" : "COMPLETED")}
                           </span>
                           {(executionEngine === "async" || runResult.message?.includes("distributed") || runResult.duplicate) && (
                             <span
@@ -745,7 +765,14 @@ export default function RunExecutionModal({
                                 </span>
                               </div>
                               <div style={{ fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                Output: {task?.outputs?.output !== undefined ? JSON.stringify(task.outputs.output) : "—"}
+                                Output: {(() => {
+                                  const val = task?.outputs?.output !== undefined
+                                    ? task.outputs.output
+                                    : (task?.output?.output !== undefined
+                                      ? task.output.output
+                                      : (task?.output !== undefined ? task.output : task?.outputs));
+                                  return val !== undefined && val !== null ? JSON.stringify(val) : "—";
+                                })()}
                               </div>
                             </div>
                           );
@@ -1060,22 +1087,35 @@ export default function RunExecutionModal({
                         borderRadius: "8px",
                         fontFamily: "var(--font-mono)",
                         fontSize: "0.82rem",
-                        color: runResult.status === "SUCCEEDED" ? "#34d399" : "#fca5a5",
+                        color: runResult.status === "SUCCEEDED" ? "#34d399" : (runResult.status === "RUNNING" || isRunning ? "var(--brand)" : "#fca5a5"),
                         overflowX: "auto",
                         maxHeight: "160px",
                       }}
                     >
-                      {JSON.stringify(runResult.finalOutput, null, 2)}
+                      {runResult.status === "RUNNING" || (isRunning && runResult.status !== "SUCCEEDED" && runResult.status !== "FAILED")
+                        ? "Workflow execution in progress... Streaming node outputs in real time."
+                        : (runResult.finalOutput !== undefined && runResult.finalOutput !== null
+                            ? JSON.stringify(runResult.finalOutput, null, 2)
+                            : (runResult.output !== undefined && runResult.output !== null
+                                ? JSON.stringify(runResult.output, null, 2)
+                                : (runResult.error
+                                    ? JSON.stringify(runResult.error, null, 2)
+                                    : "No final output recorded for this run.")))}
                     </pre>
                   </div>
 
                   {/* Tasks Breakdown - Comprehensive Node Execution Box Sequence */}
-                  {runResult.tasks && (() => {
-                    const tasksList = Object.values(runResult.tasks);
+                  {(() => {
+                    const rawTasks = runResult.tasks || runResult.taskRuns || {};
+                    const tasksList = Array.isArray(rawTasks) ? rawTasks : Object.values(rawTasks);
+                    if (tasksList.length === 0) {
+                      return null;
+                    }
                     const succeededCount = tasksList.filter((t) => t.status === "SUCCEEDED").length;
                     const failedCount = tasksList.filter((t) => t.status === "FAILED").length;
                     const skippedCount = tasksList.filter((t) => t.status === "SKIPPED").length;
                     const blockedCount = tasksList.filter((t) => t.status === "BLOCKED").length;
+                    const runningCount = tasksList.filter((t) => t.status === "RUNNING" || t.status === "READY").length;
 
                     const allExpanded = tasksList.every((t) => Boolean(expandedNodes[t.nodeId]));
                     const handleToggleAll = () => {
@@ -1104,6 +1144,11 @@ export default function RunExecutionModal({
                               <span style={{ color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
                                 {succeededCount} Pass
                               </span>
+                              {runningCount > 0 && (
+                                <span style={{ color: "var(--brand)", background: "rgba(57, 174, 169, 0.15)", padding: "2px 6px", borderRadius: "4px" }}>
+                                  {runningCount} Active
+                                </span>
+                              )}
                               {failedCount > 0 && (
                                 <span style={{ color: "#f43f5e", background: "rgba(244, 63, 94, 0.12)", padding: "2px 6px", borderRadius: "4px" }}>
                                   {failedCount} Fail
@@ -1154,6 +1199,7 @@ export default function RunExecutionModal({
                               SKIPPED: { color: "#9ca3af", bg: "rgba(156, 163, 175, 0.12)", border: "rgba(156, 163, 175, 0.2)" },
                               CANCELLED: { color: "#c084fc", bg: "rgba(192, 132, 252, 0.12)", border: "rgba(192, 132, 252, 0.3)" },
                               RUNNING: { color: "#38bdf8", bg: "rgba(56, 189, 248, 0.12)", border: "rgba(56, 189, 248, 0.3)" },
+                              READY: { color: "#a855f7", bg: "rgba(168, 85, 247, 0.12)", border: "rgba(168, 85, 247, 0.3)" },
                             };
                             const st = statusTheme[task.status] || { color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", border: "var(--border-subtle)" };
 
@@ -1161,10 +1207,10 @@ export default function RunExecutionModal({
                             const currentTab = taskTabs[task.nodeId] || "outputs";
 
                             const tabData = currentTab === "inputs"
-                              ? (task.inputs || { note: "No direct inputs mapped" })
+                              ? (task.inputs || task.input || { note: "No direct inputs mapped" })
                               : currentTab === "raw"
                               ? task
-                              : (task.outputs || { note: "No outputs emitted" });
+                              : (task.outputs || task.output || { note: "No outputs emitted" });
 
                             const handleCopyTaskData = (e) => {
                               e.stopPropagation();

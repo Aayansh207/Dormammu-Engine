@@ -26,6 +26,20 @@ const server = app.listen(env.PORT, async () => {
   } catch (err) {
     console.warn("⚠️  Could not initialize Cron Scheduler on startup:", err.message);
   }
+
+  // Auto-start background worker in development mode (or if EMBEDDED_WORKER=true)
+  if (process.env.NODE_ENV !== "production" || process.env.EMBEDDED_WORKER === "true") {
+    if (process.env.DISABLE_WORKER !== "true") {
+      try {
+        const { TaskWorker } = require("./src/queue/worker");
+        devWorker = new TaskWorker({ concurrency: env.WORKER_CONCURRENCY || 5 });
+        await devWorker.start();
+        console.log(`🚀 [Distributed Engine] Background TaskWorker active (concurrency: ${devWorker.concurrency}).`);
+      } catch (workerErr) {
+        console.warn("⚠️  Could not start background worker:", workerErr.message);
+      }
+    }
+  }
 });
 
 server.on("error", (error) => {
@@ -39,6 +53,7 @@ server.on("error", (error) => {
 });
 
 let shuttingDown = false;
+let devWorker = null;
 
 async function gracefulShutdown(signal) {
   if (shuttingDown) return;
@@ -48,6 +63,11 @@ async function gracefulShutdown(signal) {
   server.close(async () => {
     try {
       defaultCronScheduler.stop();
+      if (devWorker) {
+        try {
+          await devWorker.stop();
+        } catch (_) {}
+      }
       try {
         const { closeRedisConnections } = require("./src/queue/redis.connection");
         const { closeTaskQueue } = require("./src/queue/queue.producer");

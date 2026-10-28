@@ -186,7 +186,9 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
       status: "SUCCEEDED",
       attempt,
       inputs: sanitizePayload(execResult.inputs),
+      input: sanitizePayload(execResult.inputs),
       outputs: sanitizePayload(execResult.outputs),
+      output: sanitizePayload(execResult.outputs),
       durationMs,
       completedAt: finishedAt.toISOString(),
     });

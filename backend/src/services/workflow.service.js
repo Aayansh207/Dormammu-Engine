@@ -729,13 +729,28 @@ class WorkflowService {
     }
 
     // 2. Initialize durable task state and enqueue entry nodes
-    await defaultDagCoordinator.initializeRun({
+    const initResult = await defaultDagCoordinator.initializeRun({
       run: runRecord,
       workflow,
       versionRecord,
       definition,
       triggerData,
     });
+
+    const tasksMap = {};
+    if (initResult && Array.isArray(initResult.taskCreateData)) {
+      for (const t of initResult.taskCreateData) {
+        tasksMap[t.nodeId] = {
+          nodeId: t.nodeId,
+          nodeName: t.nodeName,
+          nodeType: t.nodeType,
+          status: t.status,
+          attempts: 0,
+          output: null,
+          durationMs: 0,
+        };
+      }
+    }
 
     return {
       id: runRecord.id,
@@ -745,6 +760,7 @@ class WorkflowService {
       status: "RUNNING",
       triggerType: resolvedTriggerType,
       message: "Workflow accepted and executing via distributed task queue",
+      tasks: tasksMap,
     };
   }
 

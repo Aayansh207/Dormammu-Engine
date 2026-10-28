@@ -112,6 +112,7 @@ export default function WorkflowEditor({
   const [activeRunId, setActiveRunId] = useState(null);
 
   const sseUnsubRef = useRef(null);
+  const pollTimerRef = useRef(null);
   const mountedRef = useRef(false);
   const validationTimerRef = useRef(null);
   const saveMessageTimerRef = useRef(null);
@@ -180,6 +181,11 @@ export default function WorkflowEditor({
 
   // Cleanup helpers
   const clearSSESubscription = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
     if (sseUnsubRef.current) {
       try {
         sseUnsubRef.current();
@@ -1475,10 +1481,76 @@ export default function WorkflowEditor({
 
       clearSSESubscription();
 
+      // Seed initial tasks and poll until terminal state to keep UI synchronized
+      const pollCurrentRun = async () => {
+        try {
+          const res = await api.getRunDetails(targetRunId);
+          if (res?.data) {
+            const run = res.data;
+            setRunResult((prev) => {
+              if (!prev) return prev;
+              const currentTasks = { ...(prev.tasks || {}) };
+              const dbTasks = Array.isArray(run.tasks)
+                ? run.tasks
+                : Array.isArray(run.taskRuns)
+                ? run.taskRuns
+                : (run.tasks && typeof run.tasks === "object" ? Object.values(run.tasks) : []);
+              dbTasks.forEach((t) => {
+                if (t.nodeId) {
+                  const out = t.output !== undefined ? t.output : t.outputs;
+                  const inp = t.input !== undefined ? t.input : t.inputs;
+                  currentTasks[t.nodeId] = {
+                    ...(currentTasks[t.nodeId] || {}),
+                    ...t,
+                    output: out,
+                    outputs: out,
+                    input: inp,
+                    inputs: inp,
+                  };
+                }
+              });
+              const isTerminal = ["SUCCEEDED", "FAILED", "CANCELLED"].includes(run.status);
+              if (isTerminal) {
+                setIsRunning(false);
+                if (pollTimerRef.current) {
+                  clearInterval(pollTimerRef.current);
+                  pollTimerRef.current = null;
+                }
+              }
+              const resolvedOut = run.output !== undefined && run.output !== null
+                ? run.output
+                : (run.finalOutput !== undefined && run.finalOutput !== null
+                  ? run.finalOutput
+                  : prev.finalOutput);
+              return {
+                ...prev,
+                ...run,
+                id: run.id || prev.id || targetRunId,
+                runId: run.id || prev.runId || targetRunId,
+                status: run.status || prev.status,
+                durationMs: run.durationMs ?? prev.durationMs,
+                finalOutput: resolvedOut,
+                output: resolvedOut,
+                error: run.error || prev.error,
+                tasks: currentTasks,
+              };
+            });
+          }
+        } catch (err) {
+          console.warn("Live run poll warning:", err);
+        }
+      };
+
+      pollCurrentRun();
+      pollTimerRef.current = setInterval(pollCurrentRun, 1500);
+
       const unsubscribe = api.subscribeToRunEvents(
         targetRunId,
-        (event) => {
-          if (!event?.type) {
+        (eventTypeOrEvent, maybePayload) => {
+          const type = typeof eventTypeOrEvent === "string" ? eventTypeOrEvent : eventTypeOrEvent?.type;
+          const event = (typeof eventTypeOrEvent === "string" ? maybePayload : eventTypeOrEvent) || {};
+
+          if (!type) {
             return;
           }
 
@@ -1491,16 +1563,29 @@ export default function WorkflowEditor({
               ...(previous.tasks || {}),
             };
 
-            if (
-              event.type === "task:running" &&
-              event.nodeId
-            ) {
+            if (type === "task:ready" && event.nodeId) {
               currentTasks[event.nodeId] = {
                 ...(currentTasks[event.nodeId] || {}),
                 nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
+                status: "READY",
+              };
+
+              return {
+                ...previous,
+                tasks: currentTasks,
+              };
+            }
+
+            if (type === "task:running" && event.nodeId) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
                 status: "RUNNING",
                 startedAt:
                   event.timestamp ||
+                  event.startedAt ||
                   new Date().toISOString(),
               };
 
@@ -1511,19 +1596,23 @@ export default function WorkflowEditor({
               };
             }
 
-            if (
-              event.type === "task:succeeded" &&
-              event.nodeId
-            ) {
+            if (type === "task:succeeded" && event.nodeId) {
+              const out = event.output !== undefined ? event.output : event.outputs;
+              const inp = event.input !== undefined ? event.input : event.inputs;
+
               currentTasks[event.nodeId] = {
                 ...(currentTasks[event.nodeId] || {}),
                 nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
                 status: "SUCCEEDED",
-                outputs: event.output,
-                output: event.output,
+                outputs: out,
+                output: out,
+                inputs: inp,
+                input: inp,
                 durationMs: event.durationMs,
                 completedAt:
                   event.timestamp ||
+                  event.completedAt ||
                   new Date().toISOString(),
               };
 
@@ -1533,18 +1622,21 @@ export default function WorkflowEditor({
               };
             }
 
-            if (
-              event.type === "task:failed" &&
-              event.nodeId
-            ) {
+            if (type === "task:failed" && event.nodeId) {
+              const inp = event.input !== undefined ? event.input : event.inputs;
+
               currentTasks[event.nodeId] = {
                 ...(currentTasks[event.nodeId] || {}),
                 nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
                 status: "FAILED",
                 error: event.error,
+                inputs: inp,
+                input: inp,
                 durationMs: event.durationMs,
                 completedAt:
                   event.timestamp ||
+                  event.completedAt ||
                   new Date().toISOString(),
               };
 
@@ -1554,13 +1646,11 @@ export default function WorkflowEditor({
               };
             }
 
-            if (
-              event.type === "task:skipped" &&
-              event.nodeId
-            ) {
+            if (type === "task:skipped" && event.nodeId) {
               currentTasks[event.nodeId] = {
                 ...(currentTasks[event.nodeId] || {}),
                 nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
                 status: "SKIPPED",
               };
 
@@ -1570,30 +1660,52 @@ export default function WorkflowEditor({
               };
             }
 
-            if (event.type === "workflow:completed") {
-              setIsRunning(false);
-              void fetchRecentRuns(workflowId);
+            if (type === "task:blocked" && event.nodeId) {
+              currentTasks[event.nodeId] = {
+                ...(currentTasks[event.nodeId] || {}),
+                nodeId: event.nodeId,
+                nodeName: event.nodeName || currentTasks[event.nodeId]?.nodeName || event.nodeId,
+                status: "BLOCKED",
+              };
 
               return {
                 ...previous,
-                status: "SUCCEEDED",
-                durationMs:
-                  event.durationMs ??
-                  previous.durationMs,
-                finalOutput:
-                  event.output !== undefined
-                    ? event.output
-                    : previous.finalOutput,
-                output:
-                  event.output !== undefined
-                    ? event.output
-                    : previous.output,
                 tasks: currentTasks,
               };
             }
 
-            if (event.type === "workflow:failed") {
+            if (type === "workflow:completed") {
               setIsRunning(false);
+              if (pollTimerRef.current) {
+                clearInterval(pollTimerRef.current);
+                pollTimerRef.current = null;
+              }
+              void fetchRecentRuns(workflowId);
+
+              const resolvedStatus = event.status || (event.error ? "FAILED" : "SUCCEEDED");
+              const resolvedOut = event.finalOutput !== undefined && event.finalOutput !== null
+                ? event.finalOutput
+                : (event.output !== undefined && event.output !== null ? event.output : previous.finalOutput);
+
+              return {
+                ...previous,
+                status: resolvedStatus,
+                durationMs:
+                  event.durationMs ??
+                  previous.durationMs,
+                finalOutput: resolvedOut,
+                output: resolvedOut,
+                error: event.error || previous.error,
+                tasks: currentTasks,
+              };
+            }
+
+            if (type === "workflow:failed") {
+              setIsRunning(false);
+              if (pollTimerRef.current) {
+                clearInterval(pollTimerRef.current);
+                pollTimerRef.current = null;
+              }
               void fetchRecentRuns(workflowId);
 
               return {
@@ -1611,7 +1723,6 @@ export default function WorkflowEditor({
           });
         },
         (err) => {
-          setIsRunning(false);
           console.warn(
             "SSE stream closed or completed:",
             err
@@ -1710,15 +1821,23 @@ export default function WorkflowEditor({
             ? runData.finalOutput
             : runData.output,
         tasks:
-          runData.tasks ||
-          (Array.isArray(runData.taskRuns)
-            ? Object.fromEntries(
-              runData.taskRuns.map((task) => [
-                task.nodeId,
-                task,
-              ])
-            )
-            : {}),
+          runData.tasks && !Array.isArray(runData.tasks)
+            ? runData.tasks
+            : (Array.isArray(runData.tasks)
+              ? Object.fromEntries(
+                runData.tasks.map((task) => [
+                  task.nodeId,
+                  task,
+                ])
+              )
+              : (Array.isArray(runData.taskRuns)
+                ? Object.fromEntries(
+                  runData.taskRuns.map((task) => [
+                    task.nodeId,
+                    task,
+                  ])
+                )
+                : {})),
       };
 
       setRunResult(normalized);
@@ -1744,6 +1863,7 @@ export default function WorkflowEditor({
           normalized.status === "QUEUED"
         )
       ) {
+        setIsRunning(true);
         startLiveRunTracking(normalized.runId);
       } else {
         setIsRunning(false);
@@ -1760,8 +1880,6 @@ export default function WorkflowEditor({
         finalOutput: null,
         tasks: {},
       });
-    } finally {
-      setIsRunning(false);
     }
   };
 

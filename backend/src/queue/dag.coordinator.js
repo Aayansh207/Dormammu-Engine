@@ -28,6 +28,10 @@ function getExecutionPlan(workflowVersionId, definition) {
     return planCache.get(workflowVersionId);
   }
 
+  if (!definition) {
+    return null;
+  }
+
   const plan = createExecutionPlan(definition, defaultRegistry);
 
   if (workflowVersionId) {
@@ -194,7 +198,7 @@ class DistributedDagCoordinator {
       });
     }
 
-    return { runId: run.id, readyCount: readyEntries.length };
+    return { runId: run.id, readyCount: readyEntries.length, taskCreateData };
   }
 
   /**
