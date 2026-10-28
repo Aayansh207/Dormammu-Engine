@@ -1,273 +1,432 @@
-# Dormammu Engine (Webster Workflow Automation)
+# 🌌 Dormammu Engine (NexFlow Workflow Automation)
 
-A production-grade, reliable visual workflow automation platform and DAG execution engine. Dormammu Engine enables users to construct graph workflows with interactive drag-and-drop nodes, save immutable versions in PostgreSQL, validate workflows across structural and graph integrity levels, and execute them deterministically using an in-process sequential DAG scheduler.
+[![Node.js](https://img.shields.io/badge/Node.js-v20+-68a063?style=flat-square&logo=node.js)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-19.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-7.10-2d3748?style=flat-square&logo=prisma)](https://www.prisma.io/)
+[![Yjs CRDT](https://img.shields.io/badge/Real--Time-Yjs%20CRDTs-orange?style=flat-square)](https://yjs.dev/)
+[![Groq AI](https://img.shields.io/badge/AI%20Inference-Groq%20LLaMA%203.3-f55036?style=flat-square)](https://groq.com/)
+[![License](https://img.shields.io/badge/License-ISC-blue?style=flat-square)](LICENSE)
+
+A production-grade, highly reliable visual workflow automation platform and DAG execution engine. Dormammu Engine (NexFlow) enables teams to build complex Directed Acyclic Graph (DAG) workflows on an interactive canvas, collaborate in real time with multi-user CRDT synchronization, manage team workspaces with role-based permissions, persist immutable version snapshots in PostgreSQL, and execute workflows deterministically with durable reporting and live SSE telemetry.
+
+---
+
+## 📑 Table of Contents
+
+1. [Key Highlights & Architecture](#-key-highlights--architecture)
+2. [Real-Time Collaboration & Workspaces](#-real-time-collaboration--workspaces)
+3. [Durable Execution Reports & Observability](#-durable-execution-reports--observability)
+4. [Autonomous Triggers & Cron Scheduling](#-autonomous-triggers--cron-scheduling)
+5. [The 4-Tier Workflow Validator](#-the-4-tier-workflow-validator)
+6. [Production Node Catalogue (35 Canonical Nodes)](#-production-node-catalogue-35-canonical-nodes)
+7. [Flagship Workflow: AI Operations Center](#-flagship-workflow-ai-operations-center)
+8. [Interactive Visual Canvas & UI Suite](#-interactive-visual-canvas--ui-suite)
+9. [REST & WebSocket API Reference](#-rest--websocket-api-reference)
+10. [Repository Structure](#-repository-structure)
+11. [Testing & Verification Suites](#-testing--verification-suites)
+12. [Running Locally & Environment Setup](#-running-locally--environment-setup)
 
 ---
 
 ## 🚀 Key Highlights & Architecture
 
-- **General-Purpose Workflow Automation Platform**: Build, configure, validate, and execute arbitrary DAG workflows for data processing, AI triage, webhook ingestion, external API integrations, and business logic.
-- **Canonical Workflow Standard**: Explicit, namespaced format featuring deterministic node instances, declared input/output ports, directed edges, visual editor positions, and schema-validated configuration.
-- **Authoritative Node Catalogue in PostgreSQL**: 35 production node definitions, port schemas, configuration constraints, and capability flags are persisted in PostgreSQL (`node_definitions`) and automatically synced with trusted execution handlers on startup.
-- **4-Level Unified Validator**:
-  1. *Level 1 (Structural)*: Schema version compatibility (`1`, `1.0`), non-empty unique IDs, object shapes.
-  2. *Level 2 (Graph Integrity)*: Source/target existence, port existence, duplicate edges, self-loop rejection, and cycle detection (3-color DFS).
-  3. *Level 3 (Configuration)*: Type-specific schema constraints (finite numbers, non-zero divisors, valid modes/paths).
-  4. *Level 4 (Semantic)*: Required input connections, defaults fallback, and port type compatibility.
-- **Deterministic O(V + E) Execution Planner**: Derives adjacency indexes, in-degrees, entry nodes, and terminal targets with reproducible ID tie-breaking.
-- **Isolated Node Runtime Contract**: Handlers execute with resolved input values, safe scoped logging, abort signals, and configurable execution timeouts.
-- **Sequential DAG Scheduler**: Manages dependency readiness, topological ordering, cascading branch skipping (`SKIPPED`), fail-fast blocking of downstream nodes on failure (`BLOCKED`), cancellation propagation, deadlock detection, and final output extraction.
-- **Live Observability & Durable History**:
-  - `Workflow`: Identity, ownership, metadata.
-  - `WorkflowVersion`: Immutable snapshot of definition JSON per version (`v1`, `v2`, ...).
-  - `WorkflowRun`: Execution run tracking status (`RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`), inputs, and final output.
-  - `TaskRun`: Granular per-node execution records storing attempt counts, start/finish timestamps, duration, resolved inputs, outputs, and errors.
-  - `SSE Streaming`: Live execution events pushed in real time via Server-Sent Events (`/api/runs/:id/events`).
-- **Interactive Visual Canvas**: React + Vite frontend with pan/zoom viewport, dynamic SVG Bezier connector curves, interactive port handles, node inspector, validation drawer, manual execution modal with custom JSON input, and webhook testing interface.
+- **Deterministic O(V + E) Execution Planner**: Derives adjacency indexes, in-degrees, entry nodes, and terminal targets with reproducible ID tie-breaking and Kahn's topological sort.
+- **Real-Time Multi-User Collaboration**: Built on Yjs CRDTs over WebSockets (`ws`), enabling concurrent graph editing, live remote cursor tracking, active node selection highlights, and presence awareness.
+- **Collaborative Workspaces & RBAC**: Organize workflows into workspaces with granular Role-Based Access Control (`OWNER`, `EDITOR`, `VIEWER`), email-based team invitations, and token verification.
+- **Immutable Versioning & Safe Rollback**: Every workflow save creates an immutable version snapshot (`WorkflowVersion`). Easily inspect past versions or perform a safe one-click rollback to create a new version while preserving complete history.
+- **Durable JSON Execution Reports**: High-performance execution trace storage. Complete run telemetry, resolved inputs/outputs, node durations, and failure trees are stored directly in `WorkflowRun.report`, avoiding table bloating from millions of isolated row inserts.
+- **Branch-Aware Control Flow**: Control-flow nodes (`logic.condition`, `logic.switch`) activate only selected paths while cascading `SKIPPED` statuses down unselected branches without causing graph deadlocks.
+- **Native Groq AI LPU Integration**: High-speed AI inference for classification (`ai.classify`), entity extraction (`ai.extract`), and summarization (`ai.summarize`) powered by `llama-3.3-70b-versatile` with transparent offline mock simulation fallbacks.
+- **Enterprise Security & SSRF Protection**: Outbound HTTP requests enforce RFC-compliant private CIDR blocking, cloud metadata IP guards (AWS/GCP/Azure 169.254.169.254), hop-by-hop redirect verification, and payload size limits.
+- **Authoritative Node Catalogue in PostgreSQL**: 35 production node definitions, port schemas, configuration constraints, and capability flags are synchronized into PostgreSQL (`node_definitions`) on server bootstrap.
+- **Multi-Channel Triggers**: Trigger workflows via manual execution modal, HTTP webhooks (synchronous or asynchronous `202 Accepted`), or background interval schedules (`node-cron`).
 
 ---
 
-## 📖 General-Purpose Workflow Product Guide
+## 👥 Real-Time Collaboration & Workspaces
 
-### 1. Creating or Opening a Workflow
-- **Workflow Listing**: Open the dashboard to view all saved workflows with their real execution status, node count, and last run time.
-- **New Workflow**: Click **"New Workflow"** to start with a blank canvas or select from starter templates.
-- **Open & Edit**: Click any workflow card to load the graph into the visual editor.
+Dormammu Engine features enterprise-grade real-time collaboration:
 
-### 2. Configuring Nodes and Wires
-- **Node Palette**: Drag any of the 35 available nodes from the searchable left palette onto the canvas.
-- **Wiring (Connections)**: Connect an output port of an upstream node to a compatible input port of a downstream node by dragging between port handles.
-- **Node Inspector**: Click any node to open the inspector panel on the right. Configure type-specific parameters, such as formulas, JSON paths, AI prompt instructions, HTTP target URLs, or switch cases.
-- **Validation**: Click **"Validate"** in the top bar or view the real-time validation indicator to ensure your graph is free of cycles, disconnected required inputs, or invalid configurations.
+### 1. Yjs CRDT Synchronization
+- Connected editors share a real-time Yjs document synchronized over WebSockets (`/ws/collaboration`).
+- Changes to node positions, configurations, wire connections, and viewport states merge automatically without merge conflicts or data loss.
+- **Awareness & Presence**: Collaborators see each other's custom color-coded cursors, user names, and selected nodes in real time.
 
-### 3. Saving Workflows
-- Click **"Save Workflow"** in the top bar.
-- Dormammu validates the workflow and creates an immutable new version snapshot in PostgreSQL (`WorkflowVersion`), preserving historical definitions while updating the active workflow state.
+### 2. Role-Based Access Control (RBAC)
+Workspaces support three distinct permission levels:
 
-### 4. Running a Workflow Manually
-- Click **"Execute Workflow"** (Run) in the top bar.
-- **Supplying Custom Input**: In the **Run Execution Modal**, supply any custom JSON payload or numeric input.
-- **Multi-Trigger Workflows**: If your workflow has multiple manual triggers, you can provide per-trigger inputs or broadcast the payload to all triggers.
-- Click **"Run Workflow"**. The engine validates the DAG, executes nodes in topological order, and streams real-time updates as nodes transition between `RUNNING`, `SUCCEEDED`, `SKIPPED`, or `FAILED`.
-- View individual node inputs, outputs, execution duration, and the final output payload returned by `output.return`.
+| Capability | OWNER | EDITOR | VIEWER |
+| :--- | :---: | :---: | :---: |
+| View workflows and execution reports | ✅ | ✅ | ✅ |
+| Real-time canvas inspection | ✅ | ✅ | ✅ (Read-Only) |
+| Edit workflow graph & configurations | ✅ | ✅ | ❌ |
+| Execute workflows manually / trigger runs | ✅ | ✅ | ❌ |
+| Roll back workflow versions | ✅ | ✅ | ❌ |
+| Invite & remove team members | ✅ | ❌ | ❌ |
+| Delete workspace & workflows | ✅ | ❌ | ❌ |
 
-### 5. Configuring Webhook Triggers
-- Any workflow containing a `trigger.webhook` node can be triggered via HTTP POST.
-- The webhook URL follows the canonical structure:
-  ```
-  POST http://localhost:5001/api/webhooks/:workflowId
-  ```
-- **Optional Secret Token**: Secure your webhook by specifying a secret token in the trigger node configuration or the `X-Webhook-Token` / `Bearer` header.
-- **Testing in the UI**: Open the **"Webhook Trigger"** modal from the editor top bar to test live payloads with one click, inspect HTTP status codes and responses, and navigate directly to the persisted execution run.
-
-### 6. Inspecting Failures and Run History
-- **Run History**: Open the **"History"** panel to inspect persisted execution records for the workflow.
-- **Failure Transparency**: If a node fails (e.g. an external HTTP service returns 500 or an invalid JSON payload is ingested), the engine records the exact error message, marks the failing task `FAILED`, and marks downstream nodes `BLOCKED`. No mock data or fake success states are ever fabricated.
+### 3. Team Member Invitations
+- Workspace owners can invite members via email with assigned roles (`EDITOR` or `VIEWER`).
+- Invitations generate cryptographically signed tokens delivered via email (`mail.service.js` with Nodemailer / Mailjet).
+- Invitees can accept or decline invitations directly from the web interface.
 
 ---
 
-## 💡 Example Saved Workflow: Dormammu AI Operations Center
+## 📊 Durable Execution Reports & Observability
 
-The repository includes a comprehensive 17-node example workflow saved at:
-[`backend/workflows/dormammu_ai_operations_center.json`](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/backend/workflows/dormammu_ai_operations_center.json)
+Workflow execution records are architected for enterprise durability and rapid query performance:
 
-This workflow demonstrates multi-stage orchestration on Dormammu:
-1. **Ingestion**: Accepts incident telemetry payloads via manual trigger or webhook.
-2. **Validation & Normalization**: Validates required fields (`errorRate`, `affectedUsers`, `service`) using `data.validate` and `data.object`.
-3. **Dual Analysis Pipeline**:
-   - Runs parallel **AI Incident Classification** via Groq AI (`ai.classify`) to determine severity (`critical`, `warning`, `normal`).
-   - Simultaneously calculates numerical business impact scores using mathematical nodes (`math.multiply`, `math.round`).
-4. **Service Enrichment**: Performs an outbound HTTP request (`http.request`) to fetch live infrastructure metrics.
-5. **3-Way Severity Routing**: Uses `logic.switch` to route execution down the active severity branch while cascading `SKIPPED` on alternative branches.
-6. **Report Assembly**: Merges action results using `flow.merge` and constructs a structured incident report returned via `output.return`.
+- **Durable Report Schema**: Instead of writing separate database rows for each individual task, the scheduler consolidates the entire execution graph into a single structured JSON report persisted in `WorkflowRun.report`.
+- **Granular Per-Node Telemetry**:
+  - `status`: `PENDING`, `RUNNING`, `SUCCEEDED`, `SKIPPED`, `FAILED`, or `BLOCKED`.
+  - `timing`: `startedAt`, `finishedAt`, and millisecond execution `durationMs`.
+  - `data`: Exact resolved inputs and emitted outputs per port.
+  - `error`: Structured error code, message, and stack trace if a failure occurs.
+- **Execution Reports Hub (`ExecutionReportsList` & `ExecutionReportDetail`)**:
+  - Filter and search past runs across all workflows by status, trigger type, or date range.
+  - Visual DAG replay highlighting active execution paths, skipped branches, and blocked failure cascades.
+  - JSON inspector for deep payload inspection with one-click clipboard copying.
+- **Live SSE Streaming**: Long-running executions stream real-time node transitions directly to the browser via Server-Sent Events (`/api/runs/:id/events`).
 
-You can open this workflow directly from your workflow list, inspect its nodes, edit its configuration, and execute it with any test payload.
+---
+
+## 🕒 Autonomous Triggers & Cron Scheduling
+
+Dormammu Engine includes an in-process, lifecycle-aware scheduler:
+
+- **Server-Managed Cron Lifecycle**: The `CronSchedulerService` starts alongside Express, loads active workflow interval schedules from PostgreSQL on startup, and dynamically manages cron timers.
+- **Interval Schedules & Webhooks**:
+  - Run workflows automatically every minute, hour, day, or on custom cron expressions (`*/5 * * * *`).
+  - Webhooks support both synchronous execution (returning final workflow output) and asynchronous ingestion (`202 Accepted` returning a report tracking URL).
+- **Auto Incident Trigger Modal (`AutoIncidentTriggerModal.jsx`)**:
+  - Built-in simulation tool for testing workflow resilience.
+  - Inject preconfigured incident scenarios (e.g. Critical Outage, Latency Spike, Invalid Telemetry).
+  - Simulate periodic cron sweeps and inspect automated recovery workflows in real time.
+
+---
+
+## 🛡️ The 4-Tier Workflow Validator
+
+Before execution or version snapshotting, workflows undergo rigorous 4-tier validation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Level 1: Structural Validation                                  │
+│ - Schema version compatibility ('1.0', 1)                       │
+│ - Non-empty unique node IDs, valid node types                   │
+└────────────────┬────────────────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Level 2: Graph Integrity Validation                             │
+│ - Source and target node existence in graph                     │
+│ - Port existence on declared node definitions                   │
+│ - Duplicate wire rejection & self-loop prevention               │
+│ - Zero-cycle guarantee via 3-color DFS cycle detection           │
+└────────────────┬────────────────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Level 3: Configuration Schema Validation                        │
+│ - Node-specific schema constraints                              │
+│ - Finite numbers, non-zero divisors, regex patterns             │
+│ - Valid HTTP URLs, methods, headers, and timeout bounds         │
+└────────────────┬────────────────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Level 4: Semantic Validation                                    │
+│ - Required input port connections or fallback defaults          │
+│ - Port type compatibility checking (e.g., number -> number)     │
+│ - Multi-wire input port enforcement (allowMultiple flags)       │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 📦 Production Node Catalogue (35 Canonical Nodes)
 
-| Category | Node Types |
-|----------|------------|
-| **Triggers** | `trigger.manual`, `trigger.webhook`, `trigger.cron`, `data.input` |
-| **Logic & Control Flow** | `logic.condition`, `logic.switch`, `flow.merge`, `flow.delay` |
-| **Data & Transformation** | `data.object`, `data.validate`, `data.array.map` |
-| **HTTP & Webhooks** | `http.request`, `http.respond` |
-| **AI / Machine Learning** | `ai.classify`, `ai.extract`, `ai.summarize` |
-| **Mathematical** | `math.add`, `math.subtract`, `math.multiply`, `math.divide`, `math.modulo`, `math.power`, `math.round`, `math.abs`, `math.min`, `math.max`, `math.average` |
-| **JSON & Text** | `json.parse`, `json.get`, `text.concat`, `text.template` |
-| **Utilities & Output** | `utility.uuid`, `utility.datetime`, `output.log`, `output.return` |
+All 35 production node definitions are persisted in PostgreSQL and synchronized on startup:
 
-> 📖 **Complete Node Reference & Port Guide**: Read [`docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md`](docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md) for full port specifications, configuration parameters, execution rules, and pipeline blueprints.
+| Category | Node Types | Purpose & Capabilities |
+| :--- | :--- | :--- |
+| **Triggers** | `trigger.manual`<br>`trigger.webhook`<br>`trigger.cron`<br>`data.input` | Ingest user payloads, HTTP webhook calls, cron timers, and structured pipeline inputs. |
+| **Logic & Control Flow** | `logic.condition`<br>`logic.switch`<br>`flow.merge`<br>`flow.delay` | Binary if/else routing, multi-case matching, branch joining (`first_available`, `all`, `coalesce`), and non-blocking timers. |
+| **Data & Transformation** | `data.object`<br>`data.validate`<br>`data.array.map` | JSON schema validation, nested object builder (with prototype pollution guards), and array item transformations. |
+| **HTTP & Webhooks** | `http.request`<br>`http.respond` | Outbound HTTP requests with SSRF guards and custom webhook responses. |
+| **AI / Machine Learning** | `ai.classify`<br>`ai.extract`<br>`ai.summarize` | Zero-shot intent classification, entity extraction, and document summarization powered by Groq LLaMA 3.3. |
+| **Mathematical** | `math.add`<br>`math.subtract`<br>`math.multiply`<br>`math.divide`<br>`math.modulo`<br>`math.power`<br>`math.round`<br>`math.abs`<br>`math.min`<br>`math.max`<br>`math.average` | Deterministic numerical computing, financial impact formulas, precision rounding, and division-by-zero safeguards. |
+| **JSON & Text** | `json.parse`<br>`json.get`<br>`text.concat`<br>`text.template` | Safe JSON parsing, dot/bracket object queries, string templating with variable substitution (`{{var}}`). |
+| **Utilities & Output** | `utility.uuid`<br>`utility.datetime`<br>`output.log`<br>`output.return` | RFC 4122 v4 UUIDs, ISO timestamps, safe scoped logging, and terminal workflow output return. |
+
+> 📖 **Full Specifications**: Refer to [`docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md`](docs/NODE_REFERENCE_AND_WORKFLOW_GUIDE.md) for full port contracts, input schemas, and configuration parameters.
 
 ---
 
-## 🛠️ Repository Structure
+## 💡 Flagship Workflow: AI Operations Center
+
+The repository includes a production-grade 17-node incident triage workflow located at:
+[`backend/workflows/dormammu_ai_operations_center.json`](backend/workflows/dormammu_ai_operations_center.json)
+
+```
+           [trigger.manual / trigger.webhook]
+                           │
+                           ▼
+                  [data.validate] (Incident Schema Guard)
+                           │
+                           ▼
+                  [data.object] (Normalized Incident)
+                     │           │
+        ┌────────────┘           └────────────┐
+        ▼                                     ▼
+[ai.classify] (Groq LLaMA 3.3)         [math.multiply] (affectedUsers * errorRate)
+        │                                     │
+        ▼                                     ▼
+[logic.switch] (critical/warning/normal) [math.round] (Impact Score)
+   │        │         │                       │
+   ▼        ▼         ▼                       │
+[Crit]   [Warn]    [Norm]                     │
+   │        │         │                       │
+   └────────┼─────────┘                       │
+            ▼                                 │
+      [flow.merge] (Active Action)            │
+            │                                 │
+            └───────────────┬─────────────────┘
+                            ▼
+                  [http.request] (Fetch Live Telemetry)
+                            │
+                            ▼
+                  [data.object] (Consolidated Report)
+                            │
+                            ▼
+                  [output.return] (Final Incident Payload)
+```
+
+### Operational Capabilities:
+1. **Payload Ingestion**: Accepts production incident alerts via manual triggers or authenticated webhooks.
+2. **Schema Validation**: Enforces numerical bounds on `errorRate` ($0 \le r \le 1.0$), required service names, and non-empty ticket identifiers.
+3. **Dual Pipeline Execution**: Concurrently evaluates AI severity classification while computing exact numerical business impact scores.
+4. **Dynamic 3-Way Branch Routing**: Directs execution down the active severity path while cleanly cascading `SKIPPED` statuses down alternative paths.
+5. **Infrastructure Telemetry Enrichment**: Queries external monitoring endpoints for live latency and connection pool metrics.
+6. **Structured Report Assembly**: Produces an actionable incident response plan returned via `output.return`.
+
+---
+
+## 🖥️ Interactive Visual Canvas & UI Suite
+
+Built with **React 19** and **Vite**, the frontend delivers a responsive, desktop-class experience:
+
+- **Infinite Canvas & Viewport**: Smooth panning, zoom-to-fit, grid snapping, and dynamic SVG Bezier connector curves (`EdgePath.jsx`) with live state coloring.
+- **Node Inspector Drawer (`NodeInspector.jsx`)**: Contextual property editor for configuring node parameters, switch cases, AI prompts, and validation schemas.
+- **Version History Drawer (`VersionHistoryDrawer.jsx`)**: Visual list of all immutable version snapshots with one-click restore and rollback capabilities.
+- **Past Runs Drawer (`PastRunsDrawer.jsx`)**: Quick slide-out drawer inside the editor displaying recent workflow runs, durations, and statuses.
+- **Execution Run Modal (`RunExecutionModal.jsx`)**: Interactive runner supporting custom test payloads, sample scenarios, multi-trigger broadcasting, and live step-by-step trace inspection.
+- **Webhook Testing Modal (`WebhookTestingModal.jsx`)**: Test live HTTP webhook endpoints with custom headers, sample bodies, and pre-formatted `curl` commands.
+- **Workspace Management Modal (`WorkspaceModal.jsx`)**: Create workspaces, invite team members by email, manage role permissions, and track pending invitations.
+- **QuickAdd Popover (`QuickAddPopover.jsx`)**: Rapid node creation keyboard shortcut directly at canvas cursor coordinates.
+- **Automatic Layout (`autoLayout.js`)**: Instant one-click topological DAG rearrangement.
+
+---
+
+## 🔌 REST & WebSocket API Reference
+
+### Workflows & Versions
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/workflows` | List workflows in active workspace or owned by user |
+| `POST` | `/api/workflows` | Create a new workflow |
+| `GET` | `/api/workflows/:id` | Get workflow definition and active version |
+| `PUT` | `/api/workflows/:id` | Update workflow (saves new immutable `WorkflowVersion`) |
+| `DELETE` | `/api/workflows/:id` | Delete workflow (Owner only) |
+| `GET` | `/api/workflows/:id/versions` | List all historical versions for workflow |
+| `POST` | `/api/workflows/:id/versions/:v/rollback` | Roll back to version `v` (appends new version) |
+
+### Execution & Observability
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/workflows/:id/run` | Execute workflow manually with optional `triggerData` |
+| `GET` | `/api/workflows/:id/runs` | List execution runs for a workflow |
+| `GET` | `/api/runs/:id` | Get full execution details and durable report |
+| `GET` | `/api/runs/:id/events` | Server-Sent Events (SSE) live execution stream |
+
+### Webhooks
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/webhooks/:workflowId` | Trigger workflow via HTTP webhook (sync or async `202`) |
+
+### Workspaces & Collaboration
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/workspaces` | List accessible workspaces |
+| `POST` | `/api/workspaces` | Create a new workspace |
+| `GET` | `/api/workspaces/:id` | Get workspace details and members list |
+| `POST` | `/api/workspaces/:id/invitations` | Invite a member by email (`EDITOR` or `VIEWER`) |
+| `POST` | `/api/workspaces/invitations/:token/accept` | Accept workspace invitation |
+| `DELETE` | `/api/workspaces/:id/members/:userId` | Remove member from workspace (Owner only) |
+| `WS` | `/ws/collaboration?workflowId=:id&token=:jwt` | Real-time Yjs CRDT WebSocket synchronization |
+
+---
+
+## 🗂️ Repository Structure
 
 ```
 Dormammu-Engine/
 ├── backend/
-│   ├── app.js                          # Express application configuration & error handling
-│   ├── server.js                       # HTTP server & startup synchronization
+│   ├── app.js                          # Express app configuration & middleware
+│   ├── server.js                       # HTTP server, WebSocket upgrade & cron bootstrap
 │   ├── env.js                          # Validated environment configuration
 │   ├── package.json                    # Backend dependencies & test scripts
-│   ├── workflows/                      # Saved canonical workflow definitions
-│   │   └── dormammu_ai_operations_center.json # 17-node multi-stage example workflow
+│   ├── workflows/                      # Preconfigured canonical workflows
+│   │   ├── dormammu_ai_operations_center.json # 17-node flagship operations workflow
+│   │   └── cron_health_check_workflow.json    # Periodic system health check workflow
 │   ├── prisma/
-│   │   ├── schema.prisma               # Prisma data models (Workflows, Runs, Nodes, Auth)
+│   │   ├── schema.prisma               # Prisma data models (Workspaces, Users, Workflows, Runs)
 │   │   └── migrations/                 # Safe reversible PostgreSQL migrations
 │   ├── src/
-│   │   ├── config/db.js                # Neon PostgreSQL connection pool & Prisma adapter
-│   │   ├── controllers/                # REST API controllers (Workflows, Nodes, Webhooks, Auth)
-│   │   ├── services/                   # Business logic, DB persistence & SSE services
+│   │   ├── collaboration/              # Real-time Yjs CRDT WebSocket server
+│   │   │   └── yjs.server.js           # Room management, awareness, and role guards
+│   │   ├── config/                     # PostgreSQL connection pool & Prisma client
+│   │   ├── controllers/                # Request handlers (Workflows, Workspaces, Webhooks, Auth)
+│   │   ├── middleware/                 # JWT auth, RBAC permissions, and session validation
 │   │   ├── routes/                     # Express API routes
+│   │   ├── services/                   # Business logic (Workflow, Workspace, Cron, SSE, Mail)
 │   │   └── engine/                     # Core Webster Execution Engine
-│   │       ├── contracts/              # Context, errors, and port type checking
-│   │       ├── validator/              # 4-level workflow validation engine
+│   │       ├── contracts/              # Context, structured errors, and port type definitions
+│   │       ├── validator/              # 4-level DAG validation engine
 │   │       ├── planner/                # O(V + E) deterministic execution planner
-│   │       ├── runtime/                # Node runtime & handler invocation
-│   │       ├── scheduler/              # Sequential DAG scheduler & branch orchestrator
+│   │       ├── runtime/                # Node runtime & input/output resolution
+│   │       ├── scheduler/              # Sequential DAG scheduler & branch pruning
 │   │       ├── providers/              # Groq AI provider abstraction (LPU Inference Engine)
-│   │       └── registry/               # Authoritative node registry & 35 trusted handlers
+│   │       └── registry/               # Authoritative registry with 35 production node handlers
 │   ├── test_workflow_engine.js         # Engine unit tests (all nodes, validator, scheduler)
-│   └── test_api_and_integration.js     # DB persistence, versioning & authorization integration tests
-└── frontend/
-    ├── src/
-    │   ├── components/workflow/        # Visual Workflow Editor components
-    │   │   ├── WorkflowEditor.jsx      # Canvas, pan/zoom, keyboard shortcuts, orchestrator
-    │   │   ├── NodeCard.jsx            # Canvas node card & port connectors
-    │   │   ├── NodePalette.jsx         # Searchable category sidebar
-    │   │   ├── NodeInspector.jsx       # Real-time config & port property inspector
-    │   │   ├── EdgePath.jsx            # Interactive SVG Bezier curve renderer
-    │   │   ├── ValidationDrawer.jsx    # Interactive validation error drawer
-    │   │   ├── RunExecutionModal.jsx   # Execution runner, custom JSON input & task breakdown
-    │   │   ├── WebhookTestingModal.jsx # Generic webhook testing & cURL inspector
-    │   │   └── WorkflowList.jsx        # General workflow dashboard & management
-    │   ├── services/api.js             # API client with token refresh & workflow endpoints
-    │   └── types/workflow.d.ts         # TypeScript contracts matching backend definitions
-    └── vite.config.js                  # Vite build & bundler configuration
+│   ├── test_api_and_integration.js     # Persistence, versioning & webhook integration tests
+│   └── test_collaboration_and_roles.js # Real-time Yjs CRDT, Workspaces & RBAC test suite
+│
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Navbar.jsx              # Navigation bar, workspace switcher, and user menu
+│   │   │   ├── Hero.jsx                # Landing page hero section
+│   │   │   └── workflow/               # Visual Workflow Canvas & Editor components
+│   │   │       ├── WorkflowEditor.jsx  # Main canvas, Yjs CRDT sync, and keyboard shortcuts
+│   │   │       ├── NodeCard.jsx        # Canvas node card with port connectors & presence
+│   │   │       ├── NodePalette.jsx     # Searchable 35-node categorized sidebar
+│   │   │       ├── NodeInspector.jsx   # Real-time configuration & port property inspector
+│   │   │       ├── EdgePath.jsx        # Dynamic SVG Bezier curves with glowing execution states
+│   │   │       ├── ValidationDrawer.jsx# Real-time graph validation drawer
+│   │   │       ├── RunExecutionModal.jsx# Manual run runner, custom JSON input & live trace
+│   │   │       ├── WebhookTestingModal.jsx # Webhook test tool with curl generator
+│   │   │       ├── AutoIncidentTriggerModal.jsx # Chaos simulator & cron trigger panel
+│   │   │       ├── ExecutionReportsList.jsx  # Searchable historical runs list
+│   │   │       ├── ExecutionReportDetail.jsx # Deep execution report telemetry viewer
+│   │   │       ├── VersionHistoryDrawer.jsx  # Immutable versions & rollback manager
+│   │   │       ├── PastRunsDrawer.jsx        # Quick slide-out run history
+│   │   │       ├── WorkspaceModal.jsx        # Workspace settings & team invitations
+│   │   │       └── WorkflowList.jsx    # Workflow dashboard & starter templates
+│   │   ├── services/api.js             # API client with token refresh & endpoint helpers
+│   │   ├── App.jsx                     # Application root routing & view coordinator
+│   │   └── main.jsx                    # Vite React application entrypoint
+│   └── vite.config.js                  # Vite configuration & dev proxy
+│
+└── docs/
+    ├── DORMAMMU_ENGINE_KNOWLEDGE_BOOK.md          # Complete project architectural guide
+    ├── FULL_ARCHITECTURE_AND_CODEBASE_REFERENCE.md# Deep dive codebase reference
+    └── NODE_REFERENCE_AND_WORKFLOW_GUIDE.md       # Comprehensive 35-node reference manual
 ```
 
 ---
 
-## 🧪 Testing & Verification
+## 🧪 Testing & Verification Suites
 
-The repository contains an automated test suite verifying node handlers, graph validation, topological DAG scheduling, control-flow branching, failure cascading, and PostgreSQL persistence:
+The repository contains automated test suites verifying node handlers, graph validation, topological DAG scheduling, control-flow branching, PostgreSQL persistence, and real-time collaboration:
+
+### 1. Run the Test Suites
 
 ```bash
-# Run backend test suites
 cd backend
-npm test
+
+# Run Engine Unit & Scheduling Tests
+node test_workflow_engine.js
+
+# Run PostgreSQL Persistence, Versioning & Webhook Tests
+node test_api_and_integration.js
+
+# Run Real-Time Yjs Collaboration, Workspaces & RBAC Tests
+node test_collaboration_and_roles.js
 ```
 
-### Verified Test Results (93 Tests, 0 Failures):
-```
-=======================================================
- Webster Engine Unit & Integration Test Suite
-=======================================================
---- 1. Node Handler Unit Tests (35 Canonical Nodes) ---
-  ✓ trigger.manual, data.input, trigger.webhook, trigger.cron
-  ✓ math.add, math.subtract, math.multiply, math.divide, math.modulo, math.power, math.round, math.abs, math.min, math.max, math.average
-  ✓ json.parse, json.get, text.concat, text.template
-  ✓ utility.uuid, utility.datetime, output.log, output.return
-  ✓ logic.condition, logic.switch, flow.merge, flow.delay
-  ✓ data.object, data.validate, data.array.map
-  ✓ http.request (with SSRF guard), http.respond
-  ✓ ai.classify, ai.provider (Groq LPU), ai.extract, ai.summarize
-
---- 2. Validation & Graph Integrity Tests ---
-  ✓ Validator: accepts valid linear workflow
-  ✓ Validator: detects self-loop and rejects with CYCLE_DETECTED
-  ✓ Validator: detects multi-node cycle (A -> B -> C -> A)
-  ✓ Validator: detects nonexistent source and target nodes
-  ✓ Validator: detects invalid configuration values
-  ✓ Validator: detects unknown node types
-
---- 3. Sequential DAG Execution Engine Tests ---
-  ✓ Scheduler: executes linear DAG and returns final value
-  ✓ Scheduler: executes branching and joining DAG with multiple predecessors
-  ✓ Scheduler: produces identical deterministic results regardless of node/edge array order
-  ✓ Scheduler: fail-fast marks downstream nodes as BLOCKED on node failure
-  ✓ Scheduler: respects cancellation signal and marks unstarted tasks CANCELLED
-  ✓ Scheduler: executes workflow with multiple manual triggers
-
---- 4. Control-Flow & Branching DAG Scheduler Tests ---
-  ✓ Scheduler: conditional branch routes execution down TRUE branch and cascades SKIPPED down FALSE branch
-  ✓ Scheduler: conditional branch routes execution down FALSE branch and cascades SKIPPED down TRUE branch
-  ✓ Scheduler: switch routes execution to matching case and cascades SKIPPED on unselected cases
-  ✓ Scheduler: flow.merge joins active branch when alternative branch was skipped
-  ✓ Scheduler: flow.merge in 'all' and 'object' modes cleanly joins active branch when alternative is skipped
-  ✓ Scheduler: non-blocking delay pauses workflow and resumes downstream execution
-
---- 5. New Trigger & Data Validation Unit Tests ---
-  ✓ trigger.webhook, trigger.cron, data.validate, http.request failOnError
-
---- 6. Phase 1 Extended Execution Semantics ---
-  ✓ Single-node execution, empty workflow rejection, repeated execution isolation
-
---- 7. Operations Center Workflow Scenarios ---
-  ✓ Scenario 1: Critical outage routes to CRITICAL escalation with real telemetry & impact calculations
-  ✓ Scenario 2: Normal billing inquiry routes to STANDARD support queue
-  ✓ Scenario 3: Warning degradation routes to PROMPT INVESTIGATION
-  ✓ Scenario 4: Invalid input rejected fast at validate_incident, marking downstream BLOCKED
-  ✓ Scenario 5: Controlled HTTP failure stops workflow and marks downstream BLOCKED
-
---- 8. Cron Scheduler & SSE Streaming Services ---
-  ✓ CronSchedulerService and SseService verification
-
-Results: 74 passed, 0 failed
-
-=======================================================
- Webster Persistence, Versioning & API Integration Suite
-=======================================================
---- 1. Node Metadata PostgreSQL Persistence ---
-  ✓ PostgreSQL: seedNodeDefinitions upserts all 35 nodes into database
-  ✓ PostgreSQL: repeated seeding is idempotent and does not create duplicates
-  ✓ PostgreSQL: listNodes and getNodeMetadata return accurate metadata with handler status
-
---- 2. Workflow Persistence, Versioning & Authorization ---
-  ✓ Workflow: creates workflow and immutable version 1 in PostgreSQL
-  ✓ Workflow: user can view their own workflow
-  ✓ Authorization: other users are rejected with 403 Forbidden
-  ✓ Workflow Versioning: updates create immutable version 2, leaving version 1 intact
-
---- 3. Full Execution & Durable State Persistence ---
-  ✓ Execution: runs immutable version 2 and persists WorkflowRun and TaskRuns in PostgreSQL
-  ✓ Execution Inspection: owner can retrieve run details and task runs
-  ✓ Execution Authorization: unauthorized user cannot access run history
-
---- 4. Webhook Trigger Pipeline Integration ---
-  ✓ Webhook: executes workflow and persists WorkflowRun with trigger payload
-  ✓ Webhook: rejects unauthorized request with 401 when token is invalid or missing
-
---- 5. Saved Workflow Persistence ---
-  ✓ Multi-scenario persistence in PostgreSQL
-  ✓ Webhook Security: rejects unsupported HTTP method with 405 Method Not Allowed
-  ✓ Webhook Security: rejects unknown workflow ID with 404 Not Found
-  ✓ Persistence Recovery: getRunById and getRunTasks retrieve full inspectable state
-
-Results: 19 passed, 0 failed
-Total: 93 passed, 0 failed
-```
+### Verified Test Highlights:
+- **Engine Tests (`test_workflow_engine.js`)**:
+  - All 35 canonical node handlers (math, logic, AI, JSON, HTTP, utilities).
+  - Graph integrity: detects self-loops, multi-node cycles, and invalid port configurations.
+  - Sequential DAG scheduling, topological ordering, branch skipping (`SKIPPED`), and failure blocking (`BLOCKED`).
+  - Cron scheduler and SSE live streaming services.
+- **Persistence & API Tests (`test_api_and_integration.js`)**:
+  - PostgreSQL node catalogue seeding and idempotent upserts.
+  - Immutable versioning snapshots and authorization boundaries.
+  - Durable execution report persistence in `WorkflowRun.report`.
+  - Synchronous and asynchronous (`202 Accepted`) webhook pipelines.
+- **Real-Time Collaboration Tests (`test_collaboration_and_roles.js`)**:
+  - 25 automated end-to-end tests passing with zero failures.
+  - Workspace creation, email invitations, and token acceptance flows.
+  - RBAC verification across `OWNER`, `EDITOR`, and `VIEWER` roles.
+  - Read-only write blocking for Viewers (cannot update, delete, execute, or rollback).
+  - Safe version rollbacks (restoring Version 1 creates Version 3 preserving complete history).
+  - Yjs WebSocket token verification and member revocation enforcement.
 
 ---
 
-## 🏃 Running Locally
+## 🏃 Running Locally & Environment Setup
 
-### Backend Setup
+### 1. Prerequisites
+- **Node.js**: `v20.0.0` or higher
+- **PostgreSQL**: Local instance or hosted Neon PostgreSQL database
+- **Groq API Key**: Optional for live AI tasks (offline mock simulation is automatically enabled when unset)
+
+### 2. Backend Configuration
+Create a `.env` file in `backend/` based on `backend/.env.example`:
+
+```env
+PORT=5000
+NODE_ENV=development
+
+# PostgreSQL connection strings
+DATABASE_URL="postgresql://postgres:password@localhost:5432/dormammu?sslmode=disable"
+DIRECT_URL="postgresql://postgres:password@localhost:5432/dormammu?sslmode=disable"
+
+# JWT Secrets & Security
+JWT_ACCESS_SECRET="your-super-secret-jwt-access-key-min-32-chars"
+JWT_ACCESS_EXPIRATION="15m"
+REFRESH_TOKEN_EXPIRATION_DAYS=7
+EMAIL_VERIFICATION_EXPIRATION_HOURS=24
+REQUIRE_EMAIL_VERIFICATION=false
+
+# URLs
+FRONTEND_URL="http://localhost:5174"
+BACKEND_URL="http://localhost:5000"
+
+# Optional Groq AI Key (LPU Inference)
+GROQ_API_KEY=""
+
+# Security Policies
+ALLOW_PRIVATE_NETWORK_REQUESTS=true
+ALLOW_OFFLINE_MOCK=true
+```
+
+### 3. Initialize Database & Start Backend
 ```bash
 cd backend
 npm install
-npx prisma migrate deploy
+npx prisma generate
+npx prisma db push
 npm run dev
 ```
 
-### Frontend Setup
+*The backend will automatically start on `http://localhost:5000`, attach the Yjs WebSocket collaboration server on `/ws/collaboration`, synchronize the 35 node definitions with PostgreSQL, and start the cron scheduler.*
+
+### 4. Start Frontend
 ```bash
 cd frontend
 npm install
-npm run build
 npm run dev
 ```
 
-Visit `http://localhost:5174` (or port configured in `.env`) to access Dormammu Engine.
+Visit `http://localhost:5174` (or port specified in terminal) to open the Dormammu Engine visual canvas.
