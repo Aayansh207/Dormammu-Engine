@@ -645,29 +645,17 @@ class WorkflowService {
       }
     }
 
-    const workflow = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      include: {
-        versions: {
-          orderBy: { version: "desc" },
-          ...(versionId ? { where: { id: versionId } } : { take: 1 }),
-        },
-      },
-    });
+    const { workflow, role } = await this.resolveWorkflowAccess(userId, workflowId);
 
-    if (!workflow) {
-      const err = new Error("Workflow not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (workflow.ownerId !== userId) {
-      const err = new Error("Forbidden: You do not have permission to execute this workflow");
+    if (role !== "OWNER" && role !== "EDITOR") {
+      const err = new Error("Forbidden: Viewers do not have permission to execute workflows");
       err.statusCode = 403;
       throw err;
     }
 
-    const versionRecord = workflow.versions[0];
+    const versionRecord = versionId
+      ? await prisma.workflowVersion.findFirst({ where: { workflowId, id: versionId } })
+      : workflow.versions[0];
     if (!versionRecord) {
       const err = new Error("No saved version found for this workflow");
       err.statusCode = 400;
@@ -696,18 +684,48 @@ class WorkflowService {
       runRecord = await prisma.workflowRun.findUnique({ where: { id: existingRunId } });
     }
     if (!runRecord) {
-      runRecord = await prisma.workflowRun.create({
-        data: {
-          workflowId: workflow.id,
-          workflowVersionId: versionRecord.id,
-          status: "RUNNING",
-          triggerType: resolvedTriggerType,
-          idempotencyKey: idempotencyKey ? String(idempotencyKey).trim() : null,
-          idempotencyHash,
-          input: sanitizedInput,
-          startedAt: new Date(),
-        },
-      });
+      try {
+        runRecord = await prisma.workflowRun.create({
+          data: {
+            workflowId: workflow.id,
+            workflowVersionId: versionRecord.id,
+            status: "RUNNING",
+            triggerType: resolvedTriggerType,
+            idempotencyKey: idempotencyKey ? String(idempotencyKey).trim() : null,
+            idempotencyHash,
+            input: sanitizedInput,
+            startedAt: new Date(),
+          },
+        });
+      } catch (createErr) {
+        // Handle race condition when concurrent requests submit identical idempotency key simultaneously
+        if (createErr.code === "P2002" && idempotencyKey) {
+          const existing = await prisma.workflowRun.findFirst({
+            where: {
+              workflowId: workflow.id,
+              idempotencyKey: String(idempotencyKey).trim(),
+            },
+          });
+          if (existing) {
+            if (existing.idempotencyHash && existing.idempotencyHash !== idempotencyHash) {
+              const err = new Error("Idempotency key reused with conflicting request payload");
+              err.statusCode = 409;
+              err.details = { idempotencyKey };
+              throw err;
+            }
+            return {
+              id: existing.id,
+              runId: existing.id,
+              workflowId: existing.workflowId,
+              status: existing.status,
+              triggerType: existing.triggerType,
+              duplicate: true,
+              message: "Idempotent execution acknowledged. Existing run returned.",
+            };
+          }
+        }
+        throw createErr;
+      }
     }
 
     // 2. Initialize durable task state and enqueue entry nodes

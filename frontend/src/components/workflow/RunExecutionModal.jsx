@@ -36,6 +36,8 @@ export default function RunExecutionModal({
   const [multiTriggerMode, setMultiTriggerMode] = useState("per_trigger"); // "per_trigger" | "broadcast"
   const [selectedTriggerId, setSelectedTriggerId] = useState(null);
   const [perTriggerInputs, setPerTriggerInputs] = useState({});
+  const [executionEngine, setExecutionEngine] = useState("async"); // "async" (BullMQ + Redis) | "sync" (Direct Engine)
+  const [idempotencyKey, setIdempotencyKey] = useState("");
   const [activeTab, setActiveTab] = useState("trigger"); // "trigger" | "results"
   const [copied, setCopied] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState({});
@@ -127,7 +129,10 @@ export default function RunExecutionModal({
       payloadToSend = parsed;
     }
 
-    onRun(payloadToSend);
+    onRun(payloadToSend, {
+      mode: executionEngine,
+      idempotencyKey: idempotencyKey.trim() || undefined,
+    });
     setActiveTab("results");
   };
 
@@ -533,14 +538,115 @@ export default function RunExecutionModal({
                   </div>
                 </div>
               )}
+
+              {/* Execution Engine & Resilience Settings */}
+              <div
+                style={{
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                  <div>
+                    <div style={{ fontSize: "0.82rem", fontWeight: "700", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Zap size={14} color="var(--brand)" />
+                      Execution Engine
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                      Choose between BullMQ asynchronous distributed worker or direct synchronous run
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", background: "var(--bg-card)", borderRadius: "8px", padding: "3px", border: "1px solid var(--border-subtle)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setExecutionEngine("async")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "6px",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "700",
+                        background: executionEngine === "async" ? "var(--brand)" : "transparent",
+                        color: executionEngine === "async" ? "#ffffff" : "var(--text-muted)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <FastForward size={13} />
+                      BullMQ + Redis (Distributed)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExecutionEngine("sync")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "6px",
+                        border: "none",
+                        fontSize: "0.74rem",
+                        fontWeight: "700",
+                        background: executionEngine === "sync" ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                        color: executionEngine === "sync" ? "var(--text-primary)" : "var(--text-muted)",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      Direct Synchronous
+                    </button>
+                  </div>
+                </div>
+
+                {/* Idempotency Key */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: "1px dashed var(--border-subtle)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ fontSize: "0.76rem", fontWeight: "600", color: "var(--text-secondary)" }}>
+                      Idempotency Key (Optional)
+                    </label>
+                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                      Deduplicates repeated requests with exact same payload
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={idempotencyKey}
+                    onChange={(e) => setIdempotencyKey(e.target.value)}
+                    placeholder="e.g. req-order-98231 or event-uuid"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "6px",
+                      color: "var(--text-primary)",
+                      fontSize: "0.8rem",
+                      fontFamily: "var(--font-mono)",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {isRunning ? (
                 <div style={{ textAlign: "center", padding: "40px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
                   <Loader2 size={32} color="var(--primary-light)" className="animate-spin" />
-                  <span style={{ fontSize: "0.95rem", fontWeight: "600" }}>Executing DAG sequentially...</span>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Evaluating dependencies &amp; invoking isolated node runtimes</span>
+                  <span style={{ fontSize: "0.95rem", fontWeight: "600" }}>
+                    {executionEngine === "async" ? "Executing via BullMQ Distributed Workers..." : "Executing DAG sequentially..."}
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    {executionEngine === "async"
+                      ? "Consuming tasks from Redis queue & streaming live state via SSE"
+                      : "Evaluating dependencies & invoking isolated node runtimes"}
+                  </span>
                 </div>
               ) : !runResult ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: "0.85rem" }}>
@@ -567,11 +673,32 @@ export default function RunExecutionModal({
                         <XCircle size={20} color="#f43f5e" />
                       )}
                       <div>
-                        <div style={{ fontSize: "0.92rem", fontWeight: "700", color: runResult.status === "SUCCEEDED" ? "#10b981" : "#f43f5e" }}>
-                          Execution {runResult.status}
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "0.92rem", fontWeight: "700", color: runResult.status === "SUCCEEDED" ? "#10b981" : (runResult.status === "RUNNING" ? "var(--brand)" : "#f43f5e") }}>
+                            Execution {runResult.status}
+                          </span>
+                          {(executionEngine === "async" || runResult.message?.includes("distributed") || runResult.duplicate) && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                fontWeight: "700",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                background: runResult.duplicate ? "rgba(245, 158, 11, 0.15)" : "rgba(57, 174, 169, 0.15)",
+                                color: runResult.duplicate ? "#f59e0b" : "var(--brand)",
+                                border: `1px solid ${runResult.duplicate ? "rgba(245, 158, 11, 0.3)" : "var(--brand-border)"}`,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <FastForward size={10} />
+                              {runResult.duplicate ? "Idempotent Cache Hit" : "BullMQ + Redis Worker"}
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                          Run ID: {runResult.runId}
+                          Run ID: {runResult.runId} {runResult.duplicate && "• Existing run returned via idempotency key"}
                         </div>
                       </div>
                     </div>

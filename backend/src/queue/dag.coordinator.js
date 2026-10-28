@@ -42,6 +42,25 @@ function getExecutionPlan(workflowVersionId, definition) {
 }
 
 /**
+ * Extracts delay duration in milliseconds from a node configuration.
+ * @param {Object} node
+ * @returns {number}
+ */
+function extractNodeDelayMs(node) {
+  if (node?.type !== "flow.delay") return 0;
+  const config = node.config || {};
+  if (config.durationMs !== undefined) {
+    return Math.max(0, Number(config.durationMs) || 0);
+  }
+  if (config.duration !== undefined) {
+    const unit = (config.unit || "milliseconds").toLowerCase();
+    const mult = unit.startsWith("sec") ? 1000 : unit.startsWith("min") ? 60000 : 1;
+    return Math.max(0, (Number(config.duration) || 0) * mult);
+  }
+  return 0;
+}
+
+/**
  * Builds the complete standalone execution report from database state.
  */
 function assembleRunReport({
@@ -148,16 +167,21 @@ class DistributedDagCoordinator {
       startedAt: run.startedAt ? run.startedAt.toISOString() : new Date().toISOString(),
     });
 
-    // Enqueue entry nodes to BullMQ
+    // Enqueue entry nodes to BullMQ (respect native BullMQ delay for flow.delay)
     const readyEntries = taskCreateData.filter((t) => t.status === "READY");
-    const enqueueList = readyEntries.map((t) => ({
-      runId: run.id,
-      workflowId: workflow.id,
-      workflowVersionId: versionRecord.id,
-      nodeId: t.nodeId,
-      taskExecutionId: t.id,
-      attempt: 1,
-    }));
+    const enqueueList = readyEntries.map((t) => {
+      const node = plan.nodes.get(t.nodeId);
+      const delay = extractNodeDelayMs(node);
+      return {
+        runId: run.id,
+        workflowId: workflow.id,
+        workflowVersionId: versionRecord.id,
+        nodeId: t.nodeId,
+        taskExecutionId: t.id,
+        attempt: 1,
+        delay,
+      };
+    });
 
     await enqueueBulkTaskJobs(enqueueList);
 
@@ -202,7 +226,7 @@ class DistributedDagCoordinator {
     const definition = versionRecord.definitionJson;
     const plan = getExecutionPlan(versionRecord.id, definition);
 
-    // 2. Fetch all current task executions for this run in one targeted select
+    // 2. Fetch all current task executions for this run in one targeted select (lightweight columns)
     const allTasks = await prisma.taskExecution.findMany({
       where: { runId },
       select: {
@@ -211,13 +235,7 @@ class DistributedDagCoordinator {
         nodeType: true,
         nodeName: true,
         status: true,
-        attempts: true,
-        input: true,
         output: true,
-        error: true,
-        startedAt: true,
-        finishedAt: true,
-        durationMs: true,
       },
     });
 
@@ -349,6 +367,8 @@ class DistributedDagCoordinator {
 
       const tasksToEnqueue = newlyReadyNodeIds.map((rId) => {
         const taskRec = tasksMap.get(rId);
+        const node = plan.nodes.get(rId);
+        const delay = extractNodeDelayMs(node);
         return {
           runId,
           workflowId: run.workflowVersion?.workflow?.id || run.workflowId,
@@ -356,6 +376,7 @@ class DistributedDagCoordinator {
           nodeId: rId,
           taskExecutionId: taskRec.id,
           attempt: 1,
+          delay,
         };
       });
 

@@ -70,8 +70,9 @@ class RecoveryService {
       recoveredTasksCount++;
     }
 
-    // 2. Re-enqueue tasks that are in READY state
-    const readyTasks = run.tasks.filter((t) => t.status === "READY");
+    // 2. Re-enqueue stranded tasks in READY state (only those untouched for at least 10s grace period)
+    const readyGraceThreshold = new Date(Date.now() - 10000);
+    const readyTasks = run.tasks.filter((t) => t.status === "READY" && (!t.updatedAt || new Date(t.updatedAt) < readyGraceThreshold));
     for (const t of readyTasks) {
       await enqueueTaskJob({
         runId: run.id,

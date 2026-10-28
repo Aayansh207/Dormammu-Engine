@@ -10,6 +10,11 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+// Queue metrics and DLQ inspection (defined before :runId param)
+router.get("/queue/metrics", workflowController.getQueueMetrics);
+router.get("/dlq", workflowController.listDeadLetterJobs);
+router.post("/dlq/:jobId/retry", workflowController.retryDeadLetterJob);
+
 router.get("/", workflowController.listAllUserRuns);
 router.get("/:runId", workflowController.getRunDetails);
 router.get("/:runId/report", workflowController.getRunReport);

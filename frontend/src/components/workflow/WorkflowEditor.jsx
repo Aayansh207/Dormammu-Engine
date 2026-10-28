@@ -1571,6 +1571,7 @@ export default function WorkflowEditor({
             }
 
             if (event.type === "workflow:completed") {
+              setIsRunning(false);
               void fetchRecentRuns(workflowId);
 
               return {
@@ -1592,6 +1593,7 @@ export default function WorkflowEditor({
             }
 
             if (event.type === "workflow:failed") {
+              setIsRunning(false);
               void fetchRecentRuns(workflowId);
 
               return {
@@ -1609,6 +1611,7 @@ export default function WorkflowEditor({
           });
         },
         (err) => {
+          setIsRunning(false);
           console.warn(
             "SSE stream closed or completed:",
             err
@@ -1660,7 +1663,7 @@ export default function WorkflowEditor({
   );
 
   // Execute workflow
-  const handleExecuteRun = async (triggerData) => {
+  const handleExecuteRun = async (triggerData, executionOptions = {}) => {
     if (currentUserRole === "VIEWER") {
       alert("Forbidden: Viewers cannot execute workflows.");
       return;
@@ -1679,9 +1682,15 @@ export default function WorkflowEditor({
         }
       }
 
+      const payload = {
+        triggerData,
+        ...(executionOptions.mode ? { mode: executionOptions.mode } : {}),
+        ...(executionOptions.idempotencyKey ? { idempotencyKey: executionOptions.idempotencyKey } : {}),
+      };
+
       const response = await api.executeWorkflow(
         workflowId,
-        { triggerData }
+        payload
       );
 
       if (!response?.data) {
@@ -1736,8 +1745,11 @@ export default function WorkflowEditor({
         )
       ) {
         startLiveRunTracking(normalized.runId);
+      } else {
+        setIsRunning(false);
       }
     } catch (err) {
+      setIsRunning(false);
       console.error("Execution failed:", err);
 
       setRunResult({

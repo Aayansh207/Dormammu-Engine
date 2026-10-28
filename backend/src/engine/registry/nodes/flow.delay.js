@@ -21,6 +21,7 @@ module.exports = {
   outputs: {
     output: defineOutputPort({ name: "output", type: PortTypes.ANY, description: "The passthrough data value" }),
     delayedMs: defineOutputPort({ name: "delayedMs", type: PortTypes.NUMBER, description: "Exact elapsed delay in milliseconds" }),
+    delayedByQueue: defineOutputPort({ name: "delayedByQueue", type: PortTypes.BOOLEAN, description: "Whether delayed natively by distributed queue scheduler" }),
   },
   configSchema: {
     durationMs: {
@@ -49,7 +50,14 @@ module.exports = {
   },
   handler: async (inputs, node, context = {}) => {
     const config = node.config || {};
-    const durationMs = Number(config.durationMs !== undefined ? config.durationMs : 1000);
+    let durationMs = 1000;
+    if (config.durationMs !== undefined) {
+      durationMs = Number(config.durationMs);
+    } else if (config.duration !== undefined) {
+      const unit = (config.unit || "milliseconds").toLowerCase();
+      const mult = unit.startsWith("sec") ? 1000 : unit.startsWith("min") ? 60000 : 1;
+      durationMs = Number(config.duration) * mult;
+    }
 
     if (durationMs < 0 || durationMs > MAX_DELAY_MS || Number.isNaN(durationMs)) {
       throw new EngineError(
@@ -61,6 +69,15 @@ module.exports = {
 
     if (context.abortSignal && context.abortSignal.aborted) {
       throw new EngineError(ErrorCodes.EXECUTION_CANCELLED, "Execution cancelled before delay began");
+    }
+
+    // In distributed execution mode, BullMQ has already delayed job dispatch by durationMs
+    if (context.isDelayedByQueue) {
+      return {
+        output: inputs.input !== undefined ? inputs.input : { delayedMs: durationMs },
+        delayedMs: durationMs,
+        delayedByQueue: true,
+      };
     }
 
     const start = Date.now();

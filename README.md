@@ -250,24 +250,85 @@ Results: 19 passed, 0 failed
 Total: 93 passed, 0 failed
 ```
 
+### Distributed Queue & Resilience Test Suite
+```bash
+node test_distributed_queue_and_resilience.js
+```
+```text
+=======================================================
+ Dormammu Distributed Queue & Resilience Test Suite
+=======================================================
+--- 1. Redis Connection & Queue Infrastructure ---
+  ✓ Redis: health check confirms connectivity
+  ✓ TaskWorker: starts successfully with configured concurrency
+--- 2. Single-Node Task Execution & State Persistence ---
+  ✓ Distributed Execution: executes single-node task through BullMQ and persists TaskExecution
+--- 3. Linear DAG Distributed Execution & Downstream Scheduling ---
+  ✓ Distributed DAG: executes 3-node linear pipeline with output passing
+--- 4. Parallel Branch Execution ---
+  ✓ Parallel Execution: executes independent ready branches concurrently
+--- 5. Branching, Skipped-Node Propagation & Merge Semantics ---
+  ✓ Branching & Skipping: active branch executes, inactive branch cascades SKIPPED, merge succeeds
+--- 6. Failure Propagation & Fail-Fast Blocking ---
+  ✓ Failure Cascade: failed node causes downstream tasks to be marked BLOCKED
+--- 7. Configurable Retries, Backoff & Error Classification ---
+  ✓ Retry Policy: retryable error classification identifies transient vs permanent errors
+  ✓ Backoff Calculation: exponential delays with maximum bounds and jitter
+  ✓ Retry Execution: retryable failure exhausts retry limit and records attempt history
+--- 8. Workflow & Task Idempotency ---
+  ✓ Trigger Idempotency: identical request with same key returns existing run
+  ✓ Trigger Idempotency Conflict: reusing key with different payload throws 409 Conflict
+  ✓ Task Idempotency: atomic claim prevents duplicate worker execution
+--- 9. Transactional Outbox & Crash Recovery ---
+  ✓ Transactional Outbox: records intended dispatch and dispatches to queue
+  ✓ Crash Recovery: reconciler recovers expired claims and deadlocked runs
+--- 10. Database Query & Write Optimization Metrics ---
+  ✓ Database Efficiency: plan caching avoids redundant definition compilations
+  ✓ Database Efficiency: runs and tasks use indexed queries and targeted fields
+--- 11. Upstash Redis, DLQ, Worker Discovery & Metrics ---
+  ✓ Upstash Redis: configuration parsing and URL sanitization
+  ✓ Worker Discovery: active worker heartbeats are discovered via Redis
+  ✓ Dead-Letter Queue (DLQ): enqueues failed tasks, records metrics, and enables replay
+  ✓ Native BullMQ Delay: delay nodes execute via queue scheduler without blocking workers
+  ✓ Database Metrics: queries and latency are instrumented during execution
+
+Distributed Queue Suite Results: 22 passed, 0 failed
+```
+
+---
+
+## ⚡ Distributed Architecture (Upstash Redis + BullMQ)
+
+For detailed distributed system specifications, refer to [DISTRIBUTED_ARCHITECTURE.md](file:///Users/aayanshniranjan/Projects/Dormammu-Engine/DISTRIBUTED_ARCHITECTURE.md).
+
+- **Durable Persistence**: PostgreSQL stores workflow graphs, versions, run states, task executions, and idempotency keys.
+- **Distributed Coordination**: Upstash Redis (`rediss://`) hosts BullMQ queues, delayed jobs, worker heartbeats, and DLQ.
+- **Autonomous Worker Pool**: Independent Node.js worker processes (`npm run worker`) claim and execute tasks with atomic PostgreSQL leases.
+- **Dead-Letter Queue (DLQ)**: Failed tasks after retry exhaustion are routed to `dormammu:workflow:dlq` and can be inspected via `/api/runs/dlq` or replayed via `/api/runs/dlq/:jobId/retry`.
+- **Sub-Second Webhook Ingestion**: Webhooks return `202 Accepted` in sub-second latency (p50: 658ms, avg: 777ms) with background execution.
+
 ---
 
 ## 🏃 Running Locally
 
-### Backend Setup
+### 1. Backend API Gateway
 ```bash
 cd backend
 npm install
-npx prisma migrate deploy
 npm run dev
 ```
 
-### Frontend Setup
+### 2. Autonomous Distributed Worker (BullMQ)
+```bash
+cd backend
+npm run worker
+```
+
+### 3. Frontend Canvas (React + Vite)
 ```bash
 cd frontend
 npm install
-npm run build
 npm run dev
 ```
 
-Visit `http://localhost:5174` (or port configured in `.env`) to access Dormammu Engine.
+Visit `http://localhost:5174` (or port configured in `.env`) to access Dormammu Engine. Toggle between **Direct Synchronous** and **⚡ BullMQ + Redis (Distributed)** execution directly in the Run Modal!

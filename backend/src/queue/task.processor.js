@@ -12,7 +12,7 @@ const { ErrorCodes } = require("../engine/contracts/errors");
 const { defaultDagCoordinator, getExecutionPlan } = require("./dag.coordinator");
 const { claimTaskExecution } = require("./idempotency.utils");
 const { isRetryableError, getRetryPolicy, calculateBackoffDelay } = require("./retry.policy");
-const { enqueueTaskJob } = require("./queue.producer");
+const { enqueueTaskJob, enqueueDlqJob } = require("./queue.producer");
 const { defaultSseService } = require("../services/sse.service");
 const { sanitizePayload } = require("../utils/payload.sanitizer");
 
@@ -34,11 +34,18 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
 
   const startTime = Date.now();
 
-  // 1. Resolve workflow run and version
+  // 1. Resolve workflow run and version using planCache optimization
+  // If plan is already compiled for workflowVersionId, skip fetching full definition JSON
+  const isPlanCached = Boolean(workflowVersionId && getExecutionPlan(workflowVersionId, null));
+
   const run = await prisma.workflowRun.findUnique({
     where: { id: runId },
-    include: {
-      workflowVersion: true,
+    select: {
+      id: true,
+      status: true,
+      input: true,
+      workflowVersionId: true,
+      ...(isPlanCached ? {} : { workflowVersion: true }),
     },
   });
 
@@ -51,9 +58,9 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
     return { skipped: true, reason: "RUN_ALREADY_TERMINAL" };
   }
 
-  const versionRecord = run.workflowVersion;
-  const definition = versionRecord.definitionJson;
-  const plan = getExecutionPlan(versionRecord.id, definition);
+  const resolvedVersionId = workflowVersionId || run.workflowVersionId;
+  const definition = run.workflowVersion?.definitionJson;
+  const plan = getExecutionPlan(resolvedVersionId, definition);
   const node = plan.nodes.get(nodeId);
 
   if (!node) {
@@ -127,6 +134,7 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
     nodeId,
     triggerData,
     logger,
+    isDelayedByQueue: node.type === "flow.delay",
   });
 
   const retryPolicy = getRetryPolicy(node);
@@ -264,6 +272,31 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
       };
     }
 
+    // Route to Dead-Letter Queue (DLQ)
+    let dlqJobId = null;
+    try {
+      const dlqJob = await enqueueDlqJob({
+        runId,
+        workflowId,
+        workflowVersionId,
+        nodeId,
+        taskExecutionId,
+        attempt,
+        error: structuredError,
+        durationMs,
+        inputs: sanitizePayload(triggerData),
+      });
+      dlqJobId = dlqJob?.id || null;
+    } catch (dlqErr) {
+      console.warn(`[TaskProcessor] Dead-letter queue routing warning: ${dlqErr.message}`);
+    }
+
+    const finalFailureError = {
+      ...structuredError,
+      dlqJobId,
+      retriesExhausted: attempt >= retryPolicy.maxAttempts,
+    };
+
     // Terminal Failure: retries exhausted or non-retryable error
     await prisma.$transaction([
       prisma.taskExecution.update({
@@ -271,7 +304,7 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
         data: {
           status: "FAILED",
           attempts: attempt,
-          error: structuredError,
+          error: finalFailureError,
           durationMs,
           finishedAt,
         },
@@ -281,7 +314,7 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
           taskExecutionId,
           attemptNumber: attempt,
           status: "FAILED",
-          error: structuredError,
+          error: finalFailureError,
           durationMs,
           startedAt: new Date(startTime),
           finishedAt,
@@ -295,7 +328,8 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
       nodeName: node.name || nodeId,
       status: "FAILED",
       attempt,
-      error: structuredError,
+      error: finalFailureError,
+      dlqJobId,
       durationMs,
       completedAt: finishedAt.toISOString(),
     });
@@ -304,13 +338,14 @@ async function processTaskJob(job, workerId = `worker_${process.pid}`) {
     await defaultDagCoordinator.onTaskFailed({
       runId,
       nodeId,
-      error: structuredError,
+      error: finalFailureError,
     });
 
     return {
       failed: true,
       nodeId,
-      error: structuredError,
+      error: finalFailureError,
+      dlqJobId,
     };
   }
 }

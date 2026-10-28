@@ -34,11 +34,14 @@ const env = {
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || "",
   CLOUDINARY_FOLDER: process.env.CLOUDINARY_FOLDER || "dormammu/avatars",
 
-  // Redis & BullMQ Queue Configuration
-  REDIS_URL: process.env.REDIS_URL || "redis://localhost:6379",
+  // Redis & BullMQ Queue Configuration (Supports local Redis & Upstash rediss:// endpoints)
+  REDIS_URL: process.env.REDIS_URL || "redis://127.0.0.1:6379",
   WORKER_CONCURRENCY: Number(process.env.WORKER_CONCURRENCY) || 5,
   TASK_LOCK_DURATION_MS: Number(process.env.TASK_LOCK_DURATION_MS) || 30000,
   WORKER_SHUTDOWN_TIMEOUT_MS: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS) || 10000,
+  WORKER_HEARTBEAT_INTERVAL_MS: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS) || 10000,
+  WORKER_HEARTBEAT_TTL_SECONDS: Number(process.env.WORKER_HEARTBEAT_TTL_SECONDS) || 30,
+  DLQ_MAX_JOBS: Number(process.env.DLQ_MAX_JOBS) || 1000,
 };
 
 module.exports = env;

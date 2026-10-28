@@ -47,6 +47,7 @@ function createExecutionContext({
   abortSignal = null,
   logger = null,
   env = {},
+  ...rest
 }) {
   const safeLogger = logger || createSafeLogger(runId, nodeId);
 
@@ -58,6 +59,7 @@ function createExecutionContext({
     abortSignal,
     logger: safeLogger,
     env,
+    ...rest,
   };
 }
 

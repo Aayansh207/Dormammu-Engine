@@ -310,6 +310,76 @@ class WorkflowController {
       next(err);
     }
   }
+
+  async getQueueMetrics(req, res, next) {
+    try {
+      const { getQueueMetrics, getDlqMetrics } = require("../queue/queue.producer");
+      const { TaskWorker } = require("../queue/worker");
+      const { defaultDbMetrics } = require("../utils/db.metrics");
+      const { checkRedisHealth } = require("../queue/redis.connection");
+
+      const [taskQueueMetrics, dlqMetrics, activeWorkers, isRedisHealthy] = await Promise.all([
+        getQueueMetrics().catch(() => ({ waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 })),
+        getDlqMetrics().catch(() => ({ waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 })),
+        TaskWorker.getActiveWorkers().catch(() => []),
+        checkRedisHealth().catch(() => false),
+      ]);
+
+      const dbMetrics = defaultDbMetrics.getMetricsSummary();
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          redis: {
+            healthy: isRedisHealthy,
+          },
+          queues: {
+            workflowTasks: taskQueueMetrics,
+            deadLetterQueue: dlqMetrics,
+          },
+          workers: {
+            activeCount: activeWorkers.length,
+            pool: activeWorkers,
+          },
+          database: dbMetrics,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listDeadLetterJobs(req, res, next) {
+    try {
+      const { getDlqJobs } = require("../queue/queue.producer");
+      const start = Math.max(0, parseInt(req.query.start, 10) || 0);
+      const end = Math.min(100, Math.max(start, parseInt(req.query.end, 10) || start + 49));
+      const jobs = await getDlqJobs(start, end);
+      return res.status(200).json({
+        success: true,
+        data: jobs,
+        pagination: { start, end, count: jobs.length },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async retryDeadLetterJob(req, res, next) {
+    try {
+      const { retryDlqJob } = require("../queue/queue.producer");
+      const { jobId } = req.params;
+      const result = await retryDlqJob(jobId);
+      return res.status(200).json({
+        success: true,
+        message: `Dead-letter job '${jobId}' re-enqueued for execution`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new WorkflowController();

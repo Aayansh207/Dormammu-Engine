@@ -8,6 +8,7 @@ const { getSharedRedisClient } = require("./redis.connection");
 const { QUEUES, JOB_TYPES, JOB_SCHEMA_VERSION } = require("./queue.constants");
 
 let taskQueue = null;
+let dlqQueue = null;
 
 /**
  * Returns the singleton BullMQ Queue instance for workflow tasks.
@@ -35,6 +36,35 @@ function getTaskQueue() {
     });
   }
   return taskQueue;
+}
+
+/**
+ * Returns the singleton BullMQ Queue instance for Dead-Letter Queue (DLQ).
+ * Stores failed tasks whose retries have been exhausted.
+ * @returns {import('bullmq').Queue}
+ */
+function getDlqQueue() {
+  if (!dlqQueue) {
+    const connection = getSharedRedisClient();
+    dlqQueue = new Queue(QUEUES.WORKFLOW_DLQ, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: {
+          count: 1000,
+          age: 7 * 86400, // Retain 7 days for post-mortem analysis
+        },
+        removeOnFail: {
+          count: 1000,
+          age: 7 * 86400,
+        },
+      },
+    });
+
+    dlqQueue.on("error", (err) => {
+      console.warn(`[BullMQ DLQ Error] ${err.message}`);
+    });
+  }
+  return dlqQueue;
 }
 
 /**
@@ -83,6 +113,47 @@ async function enqueueTaskJob({
 }
 
 /**
+ * Enqueues a permanently failed task into the Dead-Letter Queue (DLQ).
+ * @param {Object} options
+ * @returns {Promise<import('bullmq').Job>}
+ */
+async function enqueueDlqJob({
+  runId,
+  workflowId,
+  workflowVersionId,
+  nodeId,
+  taskExecutionId,
+  attempt,
+  error,
+  durationMs,
+  inputs,
+}) {
+  const dlq = getDlqQueue();
+  const safeRunId = String(runId || "run").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeNodeId = String(nodeId || "node").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const dlqJobId = `dlq_${safeRunId}_${safeNodeId}_${attempt || 1}_${Date.now()}`;
+
+  const dlqPayload = {
+    schemaVersion: JOB_SCHEMA_VERSION,
+    jobType: JOB_TYPES.DEAD_LETTER_TASK,
+    runId,
+    workflowId,
+    workflowVersionId,
+    nodeId,
+    taskExecutionId,
+    attempt,
+    error: error || { message: "Unknown fatal error" },
+    durationMs: durationMs || 0,
+    inputs: inputs || null,
+    deadLetteredAt: new Date().toISOString(),
+  };
+
+  return dlq.add(JOB_TYPES.DEAD_LETTER_TASK, dlqPayload, {
+    jobId: dlqJobId,
+  });
+}
+
+/**
  * Enqueues multiple ready node tasks in parallel (bulk).
  * @param {Array<Object>} tasks - Array of enqueueTaskJob options
  * @returns {Promise<Array<import('bullmq').Job>>}
@@ -117,7 +188,7 @@ async function enqueueBulkTaskJobs(tasks = []) {
 }
 
 /**
- * Retrieves aggregate job metrics from Redis.
+ * Retrieves aggregate job metrics from Redis for the primary queue.
  * @returns {Promise<{ waiting: number, active: number, delayed: number, failed: number, completed: number }>}
  */
 async function getQueueMetrics() {
@@ -127,19 +198,118 @@ async function getQueueMetrics() {
 }
 
 /**
- * Closes the BullMQ queue cleanly.
+ * Retrieves aggregate job metrics from Redis for the Dead-Letter Queue.
+ * @returns {Promise<{ waiting: number, active: number, delayed: number, failed: number, completed: number }>}
+ */
+async function getDlqMetrics() {
+  const dlq = getDlqQueue();
+  const counts = await dlq.getJobCounts("waiting", "active", "delayed", "failed", "completed");
+  const total =
+    (counts.waiting || 0) +
+    (counts.active || 0) +
+    (counts.delayed || 0) +
+    (counts.failed || 0) +
+    (counts.completed || 0);
+  return {
+    count: total,
+    total,
+    ...counts,
+  };
+}
+
+/**
+ * Lists dead-letter jobs for inspection and troubleshooting.
+ * @param {number} [start=0]
+ * @param {number} [end=49]
+ * @returns {Promise<Array<Object>>}
+ */
+async function getDlqJobs(startOrLimit = 50, maybeEnd = null) {
+  const dlq = getDlqQueue();
+  let start = 0;
+  let end = 49;
+  if (maybeEnd !== null) {
+    start = Number(startOrLimit) || 0;
+    end = Number(maybeEnd) || 49;
+  } else if (typeof startOrLimit === "number") {
+    start = 0;
+    end = Math.max(0, startOrLimit - 1);
+  }
+  const jobs = await dlq.getJobs(["waiting", "active", "failed", "completed", "delayed"], start, end);
+  return jobs.map((j) => ({
+    id: j.id,
+    name: j.name,
+    data: j.data,
+    timestamp: j.timestamp,
+    processedOn: j.processedOn,
+    finishedOn: j.finishedOn,
+    failedReason: j.failedReason,
+  }));
+}
+
+/**
+ * Replays a job from the Dead-Letter Queue back into the main workflow task queue.
+ * @param {string} dlqJobId
+ * @returns {Promise<{ replayed: boolean, newJobId: string }>}
+ */
+async function retryDlqJob(dlqJobId) {
+  const dlq = getDlqQueue();
+  const job = await dlq.getJob(dlqJobId);
+  if (!job) {
+    const err = new Error(`Dead-letter job '${dlqJobId}' not found`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const { runId, workflowId, workflowVersionId, nodeId, taskExecutionId, attempt } = job.data;
+
+  // Re-enqueue with next attempt number into main workflow tasks queue
+  const newJob = await enqueueTaskJob({
+    runId,
+    workflowId,
+    workflowVersionId,
+    nodeId,
+    taskExecutionId,
+    attempt: (attempt || 1) + 1,
+    delay: 0,
+  });
+
+  // Remove from DLQ
+  await job.remove().catch(() => {});
+
+  return {
+    success: true,
+    replayed: true,
+    replayedJobId: newJob.id,
+    newJobId: newJob.id,
+    dlqJobId,
+  };
+}
+
+/**
+ * Closes all BullMQ queues cleanly.
  */
 async function closeTaskQueue() {
+  const promises = [];
   if (taskQueue) {
-    await taskQueue.close();
+    promises.push(taskQueue.close());
     taskQueue = null;
   }
+  if (dlqQueue) {
+    promises.push(dlqQueue.close());
+    dlqQueue = null;
+  }
+  await Promise.all(promises);
 }
 
 module.exports = {
   getTaskQueue,
+  getDlqQueue,
   enqueueTaskJob,
+  enqueueDlqJob,
   enqueueBulkTaskJobs,
   getQueueMetrics,
+  getDlqMetrics,
+  getDlqJobs,
+  retryDlqJob,
   closeTaskQueue,
 };

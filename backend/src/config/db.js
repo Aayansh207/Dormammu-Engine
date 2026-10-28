@@ -8,7 +8,7 @@ if (!env.DATABASE_URL) {
 }
 
 // Ensure connect_timeout=30 parameter is present in connectionString for Neon cold starts
-let connectionUrl = env.DATABASE_URL;
+let connectionUrl = env.DIRECT_URL || env.DATABASE_URL;
 try {
   const urlObj = new URL(connectionUrl);
   if (!urlObj.searchParams.has("connect_timeout")) {
@@ -34,6 +34,26 @@ pool.on("error", (err) => {
 });
 
 const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const basePrisma = new PrismaClient({ adapter });
+
+let prisma = basePrisma;
+try {
+  const { defaultDbMetrics } = require("../utils/db.metrics");
+  prisma = basePrisma.$extends({
+    query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }) {
+          const before = Date.now();
+          const result = await query(args);
+          const duration = Date.now() - before;
+          defaultDbMetrics.recordQuery(model, operation, duration);
+          return result;
+        },
+      },
+    },
+  });
+} catch {
+  // Graceful fallback if metrics collector unavailable
+}
 
 module.exports = prisma;
