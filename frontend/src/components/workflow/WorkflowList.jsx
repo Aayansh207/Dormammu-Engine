@@ -16,9 +16,13 @@ import {
   Check,
   Zap,
   Users,
-  Shield
+  Shield,
+  Timer,
+  AlertTriangle,
+  Activity
 } from "lucide-react";
 import { api } from "../../services/api";
+import AutoIncidentTriggerModal from "./AutoIncidentTriggerModal";
 
 const STARTER_TEMPLATES = [
   {
@@ -994,6 +998,7 @@ export default function WorkflowList({
   const [newWorkflowName, setNewWorkflowName] = useState("Untitled Workflow");
   const [selectedTemplateId, setSelectedTemplateId] = useState("blank");
   const [isCreating, setIsCreating] = useState(false);
+  const [autoTriggerWorkflow, setAutoTriggerWorkflow] = useState(null);
 
   useEffect(() => {
     loadWorkflows();
@@ -1506,6 +1511,57 @@ export default function WorkflowList({
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  {/* Automated Incident Trigger Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAutoTriggerWorkflow(wf);
+                    }}
+                    title="Configure automatic incident trigger at specific intervals decided by user"
+                    style={{
+                      background: wf.definition?.schedule?.enabled
+                        ? "rgba(16, 185, 129, 0.16)"
+                        : "var(--bg-chip)",
+                      border: `1px solid ${
+                        wf.definition?.schedule?.enabled
+                          ? "rgba(16, 185, 129, 0.4)"
+                          : "var(--border-subtle)"
+                      }`,
+                      color: wf.definition?.schedule?.enabled
+                        ? "#10b981"
+                        : "var(--text-secondary)",
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      fontSize: "0.72rem",
+                      fontWeight: "700",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--brand)";
+                      e.currentTarget.style.color = "var(--brand)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = wf.definition?.schedule?.enabled
+                        ? "rgba(16, 185, 129, 0.4)"
+                        : "var(--border-subtle)";
+                      e.currentTarget.style.color = wf.definition?.schedule?.enabled
+                        ? "#10b981"
+                        : "var(--text-secondary)";
+                    }}
+                  >
+                    <Timer size={13} color={wf.definition?.schedule?.enabled ? "#10b981" : "var(--brand)"} />
+                    <span>
+                      {wf.definition?.schedule?.enabled
+                        ? `Auto (${wf.definition?.schedule?.intervalSeconds}s)`
+                        : "Auto Trigger"}
+                    </span>
+                  </button>
+
                   {wf.currentUserRole !== "VIEWER" && (
                     <button
                       onClick={(e) => handleDelete(wf.id, e)}
@@ -1700,6 +1756,28 @@ export default function WorkflowList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Automated Incident Trigger Modal */}
+      {autoTriggerWorkflow && (
+        <AutoIncidentTriggerModal
+          isOpen={Boolean(autoTriggerWorkflow)}
+          onClose={() => {
+            setAutoTriggerWorkflow(null);
+            loadWorkflows();
+          }}
+          workflow={autoTriggerWorkflow}
+          onOpenReport={(runId) => {
+            setAutoTriggerWorkflow(null);
+            window.location.href = `?runId=${runId}`;
+          }}
+          onTriggerTick={() => {
+            loadWorkflows();
+          }}
+          onTriggerError={() => {
+            loadWorkflows();
+          }}
+        />
       )}
     </div>
   );

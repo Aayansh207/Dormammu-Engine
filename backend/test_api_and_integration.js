@@ -7,9 +7,11 @@ const prisma = require("./src/config/db");
 const nodeService = require("./src/services/node.service");
 const workflowService = require("./src/services/workflow.service");
 const webhookController = require("./src/controllers/webhook.controller");
+const app = require("./app");
 const { defaultRegistry } = require("./src/engine/registry/node.registry");
 
 process.env.ALLOW_OFFLINE_MOCK = "true";
+process.env.ALLOW_PRIVATE_NETWORK_REQUESTS = "true";
 
 let passed = 0;
 let failed = 0;
@@ -33,8 +35,15 @@ async function runApiAndIntegrationTests() {
 
   const testUserAId = `test_user_a_${Date.now()}`;
   const testUserBId = `test_user_b_${Date.now()}`;
+  let testHttpServer = null;
 
   try {
+    // Start self-contained mock HTTP listener on port 5001 if not already running
+    testHttpServer = await new Promise((resolve) => {
+      const s = app.listen(5001, () => resolve(s));
+      s.on("error", () => resolve(null));
+    });
+
     // Setup test users in PostgreSQL
     await prisma.user.create({
       data: {
@@ -630,6 +639,93 @@ async function runApiAndIntegrationTests() {
       assert.ok(allUserRuns.pagination);
     });
 
+    console.log("\n--- 6. Automated Interval Trigger & Error Alert Integration ---");
+
+    await test("Automated Interval Schedule: user configures interval schedule on workflow and retrieves active state", async () => {
+      const scheduleConfig = {
+        enabled: true,
+        type: "interval",
+        intervalSeconds: 15,
+        stopOnError: true,
+        payload: {
+          incident_id: "INC-AUTO-TEST",
+          service: "payment-gateway",
+          errorRate: 0.18,
+          affectedUsers: 1500,
+        },
+      };
+
+      const updated = await workflowService.updateWorkflowSchedule(testUserAId, opsWorkflowRecord.id, scheduleConfig);
+      assert.strictEqual(updated.enabled, true);
+      assert.strictEqual(updated.type, "interval");
+      assert.strictEqual(updated.intervalSeconds, 15);
+      assert.strictEqual(updated.stopOnError, true);
+
+      const retrieved = await workflowService.getWorkflowSchedule(testUserAId, opsWorkflowRecord.id);
+      assert.strictEqual(retrieved.enabled, true);
+      assert.strictEqual(retrieved.type, "interval");
+      assert.strictEqual(retrieved.intervalSeconds, 15);
+      assert.strictEqual(retrieved.payload.incident_id, "INC-AUTO-TEST");
+    });
+
+    await test("Automated Incident Run: executes scheduled run with incident payload and records metrics", async () => {
+      const { defaultCronScheduler } = require("./src/services/cron.service");
+      const runResult = await defaultCronScheduler.executeScheduledRun(opsWorkflowRecord.id);
+
+      assert.ok(runResult);
+      assert.ok(runResult.runId);
+      assert.strictEqual(runResult.status, "SUCCEEDED");
+
+      const sched = defaultCronScheduler.getSchedule(opsWorkflowRecord.id);
+      assert.strictEqual(sched.lastStatus, "SUCCEEDED");
+      assert.strictEqual(sched.lastError, null);
+      assert.ok(sched.successCount >= 1);
+      assert.strictEqual(sched.lastRunId, runResult.runId);
+    });
+
+    await test("Failure Detection & Error Surfacing: failing incident run marks status FAILED, populates error details, and pauses schedule", async () => {
+      const { defaultCronScheduler } = require("./src/services/cron.service");
+
+      // Configure invalid incident payload that fails schema validation at validate_incident node
+      await workflowService.updateWorkflowSchedule(testUserAId, opsWorkflowRecord.id, {
+        enabled: true,
+        type: "interval",
+        intervalSeconds: 10,
+        stopOnError: true,
+        payload: {
+          incident_id: "INC-WILL-FAIL",
+          errorRate: "INVALID_STRING_NOT_NUMBER", // Fails schema bounds
+          affectedUsers: -1, // Invalid bounds
+          service: "", // Missing required service name
+        },
+      });
+
+      const failedRun = await defaultCronScheduler.executeScheduledRun(opsWorkflowRecord.id);
+
+      assert.ok(failedRun);
+      assert.strictEqual(failedRun.status, "FAILED");
+
+      // Verify scheduler recorded exact failure details
+      const sched = defaultCronScheduler.getSchedule(opsWorkflowRecord.id);
+      assert.strictEqual(sched.lastStatus, "FAILED");
+      assert.ok(sched.lastError);
+      assert.strictEqual(sched.lastError.code, "VALIDATION_FAILED");
+      assert.ok(sched.lastError.message);
+      assert.ok(sched.failureCount >= 1);
+
+      // Verify schedule was paused because stopOnError is true
+      assert.strictEqual(sched.enabled, false);
+    });
+
+    await test("Schedule Deletion: deletes schedule and cleans up active scheduler pool", async () => {
+      const res = await workflowService.deleteWorkflowSchedule(testUserAId, opsWorkflowRecord.id);
+      assert.strictEqual(res.success, true);
+
+      const { defaultCronScheduler } = require("./src/services/cron.service");
+      const sched = defaultCronScheduler.getSchedule(opsWorkflowRecord.id);
+      assert.strictEqual(sched, null);
+    });
+
     // Cleanup test data
     await prisma.workflow.deleteMany({ where: { ownerId: { in: [testUserAId, testUserBId] } } });
     await prisma.user.deleteMany({ where: { id: { in: [testUserAId, testUserBId] } } });
@@ -637,6 +733,9 @@ async function runApiAndIntegrationTests() {
     console.error("Test execution setup/cleanup error:", err);
     failed++;
   } finally {
+    if (testHttpServer) {
+      await new Promise((resolve) => testHttpServer.close(resolve));
+    }
     await prisma.$disconnect();
   }
 

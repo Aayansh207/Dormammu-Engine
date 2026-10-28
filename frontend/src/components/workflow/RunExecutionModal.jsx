@@ -28,11 +28,13 @@ export default function RunExecutionModal({
   onRun,
   isRunning,
   runResult,
+  onOpenAutoTrigger,
 }) {
-  const allNodes = workflow?.definition?.nodes || workflow?.nodes || [];
-  const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual");
+  const allNodes = workflow?.nodes || workflow?.definition?.nodes || [];
+  const allEdges = workflow?.edges || workflow?.definition?.edges || [];
+  const manualTriggers = allNodes.filter((n) => n.type === "trigger.manual" || n.type === "data.input");
   const isMultiTrigger = manualTriggers.length >= 2;
-  const [triggerInput, setTriggerInput] = useState("{}");
+  const [triggerInput, setTriggerInput] = useState("10");
   const [multiTriggerMode, setMultiTriggerMode] = useState("per_trigger"); // "per_trigger" | "broadcast"
   const [selectedTriggerId, setSelectedTriggerId] = useState(null);
   const [perTriggerInputs, setPerTriggerInputs] = useState({});
@@ -44,19 +46,37 @@ export default function RunExecutionModal({
   const [taskTabs, setTaskTabs] = useState({}); // taskId -> "outputs" | "inputs" | "raw"
   const [copiedTaskId, setCopiedTaskId] = useState(null);
 
+  // Helper to resolve edge target info for a trigger
+  const getTriggerTargetInfo = (trigId) => {
+    const edge = allEdges.find((e) => e.source === trigId);
+    if (!edge) return null;
+    const targetNode = allNodes.find((n) => n.id === edge.target);
+    return {
+      targetId: edge.target,
+      targetName: targetNode?.name || edge.target,
+      targetPort: edge.targetPort || "input",
+      targetType: targetNode?.type,
+    };
+  };
+
   // Initialize input data on modal open
   useEffect(() => {
     if (!isOpen) return;
-    const defaultPayload = workflow?.definition?.samplePayload ||
+    const defaultPayload = workflow?.samplePayload ||
+      workflow?.definition?.samplePayload ||
       manualTriggers[0]?.config?.defaultPayload ||
-      workflow?.samplePayload;
+      manualTriggers[0]?.config?.defaultValue;
 
-    if (defaultPayload && Object.keys(defaultPayload).length > 0) {
-      setTriggerInput(typeof defaultPayload === "object" ? JSON.stringify(defaultPayload, null, 2) : String(defaultPayload));
+    if (defaultPayload !== undefined && defaultPayload !== null && defaultPayload !== "") {
+      if (typeof defaultPayload === "object") {
+        setTriggerInput(Object.keys(defaultPayload).length > 0 ? JSON.stringify(defaultPayload, null, 2) : "10");
+      } else {
+        setTriggerInput(String(defaultPayload));
+      }
     } else {
-      setTriggerInput("{}");
+      setTriggerInput("10");
     }
-  }, [isOpen, workflow?.id]);
+  }, [isOpen, workflow?.id, workflow?.version]);
 
   // Synchronize multi-trigger default values whenever modal opens or workflow changes
   useEffect(() => {
@@ -70,11 +90,20 @@ export default function RunExecutionModal({
       setPerTriggerInputs((prev) => {
         const next = { ...prev };
         manualTriggers.forEach((trig, idx) => {
-          if (next[trig.id] === undefined) {
-            if (trig.config?.defaultPayload !== undefined && Object.keys(trig.config.defaultPayload).length > 0) {
-              next[trig.id] = typeof trig.config.defaultPayload === "object"
-                ? JSON.stringify(trig.config.defaultPayload, null, 2)
-                : String(trig.config.defaultPayload);
+          // If not populated or previously empty object
+          if (next[trig.id] === undefined || next[trig.id] === "{}" || next[trig.id] === "") {
+            const configuredVal = trig.config?.defaultPayload !== undefined && trig.config.defaultPayload !== ""
+              ? trig.config.defaultPayload
+              : trig.config?.defaultValue;
+
+            if (configuredVal !== undefined && configuredVal !== null && configuredVal !== "") {
+              if (typeof configuredVal === "object") {
+                next[trig.id] = Object.keys(configuredVal).length > 0
+                  ? JSON.stringify(configuredVal, null, 2)
+                  : String((idx + 1) * 10);
+              } else {
+                next[trig.id] = String(configuredVal);
+              }
             } else {
               next[trig.id] = String((idx + 1) * 10);
             }
@@ -83,7 +112,7 @@ export default function RunExecutionModal({
         return next;
       });
     }
-  }, [isOpen, workflow?.nodes?.length]);
+  }, [isOpen, workflow?.id, workflow?.version, manualTriggers.length]);
 
   if (!isOpen) return null;
 
@@ -91,40 +120,78 @@ export default function RunExecutionModal({
     let payloadToSend;
 
     if (isMultiTrigger && multiTriggerMode === "per_trigger") {
-      const multiPayload = { $multiTrigger: true };
-      for (const trig of manualTriggers) {
+      const multiPayload = { $multiTrigger: true, $triggerIds: [], $triggers: [] };
+      const nameCounts = {};
+      manualTriggers.forEach((t) => {
+        if (t.name) nameCounts[t.name] = (nameCounts[t.name] || 0) + 1;
+      });
+
+      manualTriggers.forEach((trig, idx) => {
         const raw = perTriggerInputs[trig.id];
         let val;
         if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+          const trimmed = String(raw).trim();
           try {
-            val = JSON.parse(raw);
+            val = JSON.parse(trimmed);
           } catch {
-            if (!isNaN(Number(raw))) {
-              val = Number(raw);
+            if (!isNaN(Number(trimmed))) {
+              val = Number(trimmed);
             } else {
-              val = raw;
+              val = trimmed;
             }
           }
-        } else if (trig.config?.defaultPayload !== undefined) {
+        } else if (trig.config?.defaultPayload !== undefined && trig.config.defaultPayload !== "") {
           val = trig.config.defaultPayload;
+        } else if (trig.config?.defaultValue !== undefined && trig.config.defaultValue !== "") {
+          val = trig.config.defaultValue;
         } else {
-          val = {};
+          val = (idx + 1) * 10;
+        }
+
+        // If string representation of a clean number, coerce to number
+        if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val))) {
+          val = Number(val);
         }
 
         multiPayload[trig.id] = val;
+        multiPayload[`trigger_${idx}`] = val;
+        multiPayload.$triggerIds.push(trig.id);
+        multiPayload.$triggers.push(val);
+
         if (trig.config?.triggerKey && trig.config.triggerKey.trim() !== "") {
           multiPayload[trig.config.triggerKey] = val;
         }
-      }
+        if (trig.config?.key && trig.config.key.trim() !== "") {
+          multiPayload[trig.config.key] = val;
+        }
+        if (trig.name && nameCounts[trig.name] === 1) {
+          multiPayload[trig.name] = val;
+        }
+      });
       payloadToSend = multiPayload;
     } else {
       let parsed = triggerInput;
-      try {
-        parsed = JSON.parse(triggerInput);
-      } catch {
-        if (!isNaN(Number(triggerInput)) && triggerInput.trim() !== "") {
-          parsed = Number(triggerInput);
+      if (typeof triggerInput === "string") {
+        const trimmed = triggerInput.trim();
+        if (trimmed === "") {
+          const cfg = manualTriggers[0]?.config?.defaultPayload !== undefined && manualTriggers[0]?.config?.defaultPayload !== ""
+            ? manualTriggers[0].config.defaultPayload
+            : manualTriggers[0]?.config?.defaultValue;
+          parsed = cfg !== undefined ? cfg : 10;
+        } else {
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            if (!isNaN(Number(trimmed))) {
+              parsed = Number(trimmed);
+            } else {
+              parsed = trimmed;
+            }
+          }
         }
+      }
+      if (typeof parsed === "string" && parsed.trim() !== "" && !isNaN(Number(parsed))) {
+        parsed = Number(parsed);
       }
       payloadToSend = parsed;
     }
@@ -343,107 +410,107 @@ export default function RunExecutionModal({
                   </div>
 
                   {multiTriggerMode === "per_trigger" && (
-                    <>
-                      {/* Trigger Tab Selector */}
-                      <div style={{ display: "flex", gap: "6px", overflowX: "auto", paddingBottom: "2px" }}>
-                        {manualTriggers.map((trig, idx) => {
-                          const isSel = selectedTriggerId === trig.id;
-                          return (
-                            <button
-                              key={trig.id}
-                              type="button"
-                              onClick={() => setSelectedTriggerId(trig.id)}
-                              style={{
-                                padding: "6px 12px",
-                                borderRadius: "8px",
-                                border: `1px solid ${isSel ? "var(--brand-border)" : "var(--border-subtle)"}`,
-                                background: isSel ? "var(--brand-light)" : "var(--bg-card)",
-                                color: isSel ? "var(--brand)" : "var(--text-secondary)",
-                                fontWeight: isSel ? "700" : "500",
-                                fontSize: "0.78rem",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                cursor: "pointer",
-                                transition: "all 0.15s ease",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: "18px",
-                                  height: "18px",
-                                  borderRadius: "50%",
-                                  background: isSel ? "var(--brand)" : "rgba(255,255,255,0.08)",
-                                  color: isSel ? "#ffffff" : "var(--text-muted)",
-                                  fontSize: "0.68rem",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  fontWeight: "700",
-                                }}
-                              >
-                                {idx + 1}
-                              </span>
-                              <span>{trig.name || trig.id}</span>
-                              {trig.config?.triggerKey && (
-                                <span style={{ fontSize: "0.65rem", opacity: 0.7, fontFamily: "var(--font-mono)" }}>
-                                  ({trig.config.triggerKey})
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Selected Trigger Input Box */}
-                      {selectedTriggerId && (() => {
-                        const activeTrig = manualTriggers.find((t) => t.id === selectedTriggerId) || manualTriggers[0];
-                        const activeVal = perTriggerInputs[activeTrig.id] ?? "";
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      {manualTriggers.map((trig, idx) => {
+                        const targetInfo = getTriggerTargetInfo(trig.id);
+                        const activeVal = perTriggerInputs[trig.id] ?? String((idx + 1) * 10);
 
                         return (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "6px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ fontSize: "0.8rem", fontWeight: "700", color: "var(--text-primary)" }}>
-                                  Payload for {activeTrig.name || activeTrig.id}
+                          <div
+                            key={trig.id}
+                            style={{
+                              background: "var(--bg-card)",
+                              border: "1px solid var(--border-subtle)",
+                              borderRadius: "10px",
+                              padding: "12px 14px",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "8px",
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <span
+                                  style={{
+                                    width: "22px",
+                                    height: "22px",
+                                    borderRadius: "50%",
+                                    background: "var(--brand)",
+                                    color: "#ffffff",
+                                    fontSize: "0.74rem",
+                                    fontWeight: "800",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {idx + 1}
                                 </span>
-                                <span style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "1px 6px", borderRadius: "4px" }}>
-                                  ID: {activeTrig.id}
-                                </span>
+                                <div>
+                                  <div style={{ fontSize: "0.82rem", fontWeight: "700", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span>{trig.name || trig.id}</span>
+                                    <span style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: "4px" }}>
+                                      {trig.id}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
 
-                              <div style={{ display: "flex", gap: "5px" }}>
+                              {/* Target port information badge */}
+                              {targetInfo && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                    fontSize: "0.72rem",
+                                    color: "var(--brand)",
+                                    background: "var(--brand-light)",
+                                    border: "1px solid var(--brand-border)",
+                                    padding: "2px 8px",
+                                    borderRadius: "12px",
+                                    fontWeight: "600",
+                                  }}
+                                >
+                                  <Zap size={12} />
+                                  <span>Feeds: <strong>{targetInfo.targetName}</strong> [port: <code>{targetInfo.targetPort}</code>]</span>
+                                </div>
+                              )}
+
+                              {/* Quick Presets */}
+                              <div style={{ display: "flex", gap: "4px" }}>
                                 <button
                                   type="button"
-                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: "10" }))}
-                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [trig.id]: "10" }))}
+                                  style={{ fontSize: "0.68rem", padding: "2px 6px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
                                 >
                                   10
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: "25" }))}
-                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [trig.id]: "20" }))}
+                                  style={{ fontSize: "0.68rem", padding: "2px 6px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
                                 >
-                                  25
+                                  20
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [activeTrig.id]: JSON.stringify({ item: activeTrig.id, value: 100 }, null, 2) }))}
-                                  style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                                  onClick={() => setPerTriggerInputs((p) => ({ ...p, [trig.id]: "25" }))}
+                                  style={{ fontSize: "0.68rem", padding: "2px 6px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
                                 >
-                                  JSON
+                                  25
                                 </button>
-                                {activeTrig.config?.defaultPayload !== undefined && (
+                                {trig.config?.defaultPayload !== undefined && trig.config?.defaultPayload !== "" && (
                                   <button
                                     type="button"
                                     onClick={() => setPerTriggerInputs((p) => ({
                                       ...p,
-                                      [activeTrig.id]: typeof activeTrig.config.defaultPayload === "object"
-                                        ? JSON.stringify(activeTrig.config.defaultPayload, null, 2)
-                                        : String(activeTrig.config.defaultPayload),
+                                      [trig.id]: typeof trig.config.defaultPayload === "object"
+                                        ? JSON.stringify(trig.config.defaultPayload, null, 2)
+                                        : String(trig.config.defaultPayload),
                                     }))}
-                                    style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--brand)", cursor: "pointer" }}
+                                    style={{ fontSize: "0.68rem", padding: "2px 6px", background: "var(--bg-chip)", border: "1px solid var(--brand-border)", borderRadius: "4px", color: "var(--brand)", cursor: "pointer" }}
                                   >
                                     Default
                                   </button>
@@ -451,31 +518,52 @@ export default function RunExecutionModal({
                               </div>
                             </div>
 
-                            <textarea
-                              rows={5}
+                            <input
+                              type="text"
                               value={activeVal}
-                              onChange={(e) => setPerTriggerInputs((prev) => ({ ...prev, [activeTrig.id]: e.target.value }))}
-                              placeholder={`Enter custom payload for ${activeTrig.name || activeTrig.id}...`}
+                              onChange={(e) => setPerTriggerInputs((prev) => ({ ...prev, [trig.id]: e.target.value }))}
+                              placeholder={`Enter numeric value or JSON for ${trig.name || trig.id}...`}
                               style={{
                                 width: "100%",
-                                padding: "10px",
+                                padding: "8px 10px",
                                 background: "var(--bg-input)",
                                 border: "1px solid var(--border-subtle)",
-                                borderRadius: "8px",
+                                borderRadius: "6px",
                                 color: "var(--text-primary)",
-                                fontSize: "0.82rem",
+                                fontSize: "0.85rem",
                                 fontFamily: "var(--font-mono)",
                                 outline: "none",
-                                resize: "vertical",
                               }}
                             />
-                            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                              Targeted directly to <code>{activeTrig.id}</code> on execution. Other triggers use their respective payloads.
-                            </div>
                           </div>
                         );
-                      })()}
-                    </>
+                      })}
+
+                      {/* Summary Banner */}
+                      <div
+                        style={{
+                          background: "rgba(57, 174, 169, 0.09)",
+                          border: "1px solid var(--brand-border)",
+                          borderRadius: "8px",
+                          padding: "8px 12px",
+                          fontSize: "0.74rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <Sparkles size={14} color="var(--brand)" />
+                        <span>
+                          <strong>Run Coordination:</strong>{" "}
+                          {manualTriggers.map((t, i) => {
+                            const tgt = getTriggerTargetInfo(t.id);
+                            const val = perTriggerInputs[t.id] ?? (i + 1) * 10;
+                            return `Trigger ${i + 1} (${val}) → ${tgt ? `${tgt.targetName}.${tgt.targetPort}` : t.id}`;
+                          }).join("  •  ")}
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
               ) : null}
@@ -487,7 +575,35 @@ export default function RunExecutionModal({
                     <label style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--text-secondary)" }}>
                       {isMultiTrigger ? "Broadcast Payload (Passed to all triggers)" : "Trigger Input Data (JSON or number)"}
                     </label>
-                    <div style={{ display: "flex", gap: "6px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Presets:</span>
+                      <button
+                        type="button"
+                        onClick={() => setTriggerInput("10")}
+                        style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                      >
+                        10
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTriggerInput("25")}
+                        style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                      >
+                        25
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTriggerInput(JSON.stringify({
+                          incident_id: "INC-8092",
+                          service: "payment-gateway",
+                          errorRate: 0.12,
+                          affectedUsers: 1400,
+                          severity: "warning"
+                        }, null, 2))}
+                        style={{ fontSize: "0.7rem", padding: "2px 7px", background: "rgba(57, 174, 169, 0.15)", border: "1px solid var(--brand-border)", borderRadius: "4px", color: "var(--brand)", cursor: "pointer", fontWeight: "600" }}
+                      >
+                        Incident
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -498,14 +614,14 @@ export default function RunExecutionModal({
                             // ignore syntax error
                           }
                         }}
-                        style={{ fontSize: "0.7rem", padding: "3px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
+                        style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-secondary)", cursor: "pointer" }}
                       >
-                        Format JSON
+                        Format
                       </button>
                       <button
                         type="button"
                         onClick={() => setTriggerInput("{}")}
-                        style={{ fontSize: "0.7rem", padding: "3px 8px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
+                        style={{ fontSize: "0.7rem", padding: "2px 7px", background: "var(--bg-chip)", border: "1px solid var(--border-subtle)", borderRadius: "4px", color: "var(--text-muted)", cursor: "pointer" }}
                       >
                         Clear
                       </button>
@@ -531,13 +647,56 @@ export default function RunExecutionModal({
                     }}
                   />
 
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
-                    {isMultiTrigger
-                      ? `📢 This payload will be broadcasted to all ${manualTriggers.length} manual trigger nodes simultaneously.`
-                      : "💡 Any trigger.manual or data.input nodes in your graph will ingest this payload during execution."}
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      {isMultiTrigger
+                        ? `📢 This payload will be broadcasted to all ${manualTriggers.length} manual trigger nodes simultaneously.`
+                        : "💡 Any trigger.manual or data.input nodes in your graph will ingest this payload during execution."}
+                    </div>
+
+                    {onOpenAutoTrigger && (
+                      <div
+                        style={{
+                          marginTop: "10px",
+                          padding: "10px 14px",
+                          background: "linear-gradient(135deg, rgba(57, 174, 169, 0.12) 0%, rgba(16, 185, 129, 0.08) 100%)",
+                          border: "1px solid rgba(57, 174, 169, 0.3)",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <Clock size={16} color="var(--brand)" />
+                          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                            Want this incident to trigger automatically at specific intervals?
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenAutoTrigger();
+                          }}
+                          style={{
+                            padding: "4px 10px",
+                            background: "var(--brand-light)",
+                            border: "1px solid var(--brand-border)",
+                            borderRadius: "6px",
+                            color: "var(--brand)",
+                            fontSize: "0.74rem",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Auto-Trigger Settings →
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Execution Engine & Resilience Settings */}
               <div

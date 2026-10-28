@@ -23,6 +23,12 @@ import {
   Lock,
   Wifi,
   WifiOff,
+  Clock,
+  Activity,
+  Timer,
+  AlertTriangle,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
@@ -37,6 +43,7 @@ import EdgePath, {
 import NodeInspector from "./NodeInspector";
 import ValidationDrawer from "./ValidationDrawer";
 import RunExecutionModal from "./RunExecutionModal";
+import AutoIncidentTriggerModal from "./AutoIncidentTriggerModal";
 import WebhookTestingModal from "./WebhookTestingModal";
 import PastRunsDrawer from "./PastRunsDrawer";
 import VersionHistoryDrawer from "./VersionHistoryDrawer";
@@ -104,6 +111,10 @@ export default function WorkflowEditor({
   const [isValidationDrawerOpen, setIsValidationDrawerOpen] =
     useState(false);
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+  const [isAutoTriggerModalOpen, setIsAutoTriggerModalOpen] = useState(false);
+  const [isAutoTriggerActive, setIsAutoTriggerActive] = useState(false);
+  const [autoTriggerLastError, setAutoTriggerLastError] = useState(null);
+  const [autoTriggerLastSuccess, setAutoTriggerLastSuccess] = useState(null);
   const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
   const [isPastRunsDrawerOpen, setIsPastRunsDrawerOpen] = useState(false);
 
@@ -2560,6 +2571,61 @@ export default function WorkflowEditor({
             {isSaving ? "Saving..." : "Save"}
           </button>
 
+          {/* Automated Incident Trigger Button */}
+          <button
+            onClick={() => setIsAutoTriggerModalOpen(true)}
+            title="Configure automated incident trigger at specific intervals decided by user"
+            style={{
+              padding: "7px 14px",
+              background: autoTriggerLastError
+                ? "rgba(244, 63, 94, 0.16)"
+                : isAutoTriggerActive
+                ? "rgba(16, 185, 129, 0.16)"
+                : "var(--bg-secondary)",
+              border: `1.5px solid ${
+                autoTriggerLastError
+                  ? "#f43f5e"
+                  : isAutoTriggerActive
+                  ? "#10b981"
+                  : "var(--border-subtle)"
+              }`,
+              borderRadius: "var(--radius-sm)",
+              color: autoTriggerLastError
+                ? "#f43f5e"
+                : isAutoTriggerActive
+                ? "#10b981"
+                : "var(--text-secondary)",
+              fontSize: "0.82rem",
+              fontWeight: "700",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              flexShrink: 0,
+              boxShadow: autoTriggerLastError
+                ? "0 0 14px rgba(244, 63, 94, 0.4)"
+                : isAutoTriggerActive
+                ? "0 0 14px rgba(16, 185, 129, 0.35)"
+                : "none",
+              transition: "all 0.15s ease",
+            }}
+          >
+            {autoTriggerLastError ? (
+              <AlertTriangle size={14} color="#f43f5e" />
+            ) : isAutoTriggerActive ? (
+              <Activity size={14} color="#10b981" className="animate-pulse" />
+            ) : (
+              <Clock size={14} color="var(--brand)" />
+            )}
+            <span>
+              {autoTriggerLastError
+                ? "Auto: Error"
+                : isAutoTriggerActive
+                ? "Auto: Active"
+                : "Auto-Trigger"}
+            </span>
+          </button>
+
           <button
             onClick={() => {
               if (currentUserRole === "VIEWER") {
@@ -2669,6 +2735,202 @@ export default function WorkflowEditor({
             cursor: isPanning ? "grabbing" : "default",
           }}
         >
+          {/* Floating Auto-Trigger Error Alert Banner */}
+          {autoTriggerLastError && (
+            <div
+              style={{
+                position: "absolute",
+                top: "16px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "linear-gradient(135deg, rgba(136, 19, 55, 0.96) 0%, rgba(30, 41, 59, 0.98) 100%)",
+                border: "1.5px solid #f43f5e",
+                boxShadow: "0 10px 40px rgba(244, 63, 94, 0.4), 0 0 20px rgba(0, 0, 0, 0.8)",
+                borderRadius: "12px",
+                padding: "10px 18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "14px",
+                zIndex: 40,
+                maxWidth: "90%",
+                backdropFilter: "blur(16px)",
+                WebkitBackdropFilter: "blur(16px)",
+              }}
+            >
+              <div
+                style={{
+                  width: "30px",
+                  height: "30px",
+                  borderRadius: "50%",
+                  background: "rgba(244, 63, 94, 0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={18} color="#f43f5e" />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "0.88rem", fontWeight: "800", color: "#fecdd3" }}>
+                    🚨 Automated Incident Trigger Failed!
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      fontWeight: "800",
+                      background: "#f43f5e",
+                      color: "#ffffff",
+                      padding: "1px 6px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    {autoTriggerLastError.code || "FAILED"}
+                  </span>
+                  {autoTriggerLastError.nodeName && (
+                    <span style={{ fontSize: "0.75rem", color: "#fca5a5" }}>
+                      Failing Node: <strong>{autoTriggerLastError.nodeName}</strong>
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "#ffe4e6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "600px" }}>
+                  {autoTriggerLastError.message}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto", flexShrink: 0 }}>
+                {autoTriggerLastError.runId && onOpenReport && (
+                  <button
+                    onClick={() => onOpenReport(autoTriggerLastError.runId)}
+                    style={{
+                      padding: "5px 10px",
+                      background: "rgba(255, 255, 255, 0.15)",
+                      border: "1px solid rgba(255, 255, 255, 0.25)",
+                      borderRadius: "6px",
+                      color: "#ffffff",
+                      fontSize: "0.74rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <ExternalLink size={12} />
+                    Inspect Report
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setIsAutoTriggerModalOpen(true)}
+                  style={{
+                    padding: "5px 10px",
+                    background: "rgba(244, 63, 94, 0.3)",
+                    border: "1px solid #f43f5e",
+                    borderRadius: "6px",
+                    color: "#ffffff",
+                    fontSize: "0.74rem",
+                    fontWeight: "700",
+                    cursor: "pointer",
+                  }}
+                >
+                  Configure Trigger
+                </button>
+
+                <button
+                  onClick={() => setAutoTriggerLastError(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#fca5a5",
+                    cursor: "pointer",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Floating Auto-Trigger Success Alert Banner */}
+          {autoTriggerLastSuccess && !autoTriggerLastError && (
+            <div
+              style={{
+                position: "absolute",
+                top: "16px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "linear-gradient(135deg, rgba(6, 78, 59, 0.96) 0%, rgba(15, 23, 42, 0.98) 100%)",
+                border: "1.5px solid #10b981",
+                boxShadow: "0 10px 40px rgba(16, 185, 129, 0.35), 0 0 20px rgba(0, 0, 0, 0.8)",
+                borderRadius: "12px",
+                padding: "8px 18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                zIndex: 40,
+                maxWidth: "90%",
+                backdropFilter: "blur(16px)",
+                WebkitBackdropFilter: "blur(16px)",
+                animation: "fadeIn 0.2s ease",
+              }}
+            >
+              <CheckCircle2 size={18} color="#10b981" />
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: "700", color: "#a7f3d0" }}>
+                  Auto-Trigger Succeeded:
+                </span>
+                <span style={{ fontSize: "0.78rem", color: "#ffffff", fontWeight: "600" }}>
+                  {autoTriggerLastSuccess.incidentId || "Incident"} ({autoTriggerLastSuccess.durationMs}ms)
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+                {autoTriggerLastSuccess.id && onOpenReport && (
+                  <button
+                    onClick={() => onOpenReport(autoTriggerLastSuccess.id)}
+                    style={{
+                      padding: "4px 9px",
+                      background: "rgba(16, 185, 129, 0.2)",
+                      border: "1px solid rgba(16, 185, 129, 0.4)",
+                      borderRadius: "5px",
+                      color: "#ffffff",
+                      fontSize: "0.72rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <ExternalLink size={11} />
+                    Inspect Report
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setAutoTriggerLastSuccess(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#6ee7b7",
+                    cursor: "pointer",
+                    padding: "2px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Connection mode banner */}
           {connectingSource && (
             <div
@@ -3232,6 +3494,7 @@ export default function WorkflowEditor({
         onClose={() => setIsRunModalOpen(false)}
         workflow={{
           ...workflow,
+          id: workflowId,
           name: workflowName,
           version: workflowVersion,
           nodes,
@@ -3240,6 +3503,38 @@ export default function WorkflowEditor({
         onRun={handleExecuteRun}
         isRunning={isRunning}
         runResult={runResult}
+        onOpenAutoTrigger={() => setIsAutoTriggerModalOpen(true)}
+      />
+
+      {/* Automated Incident Trigger Modal */}
+      <AutoIncidentTriggerModal
+        isOpen={isAutoTriggerModalOpen}
+        onClose={() => setIsAutoTriggerModalOpen(false)}
+        workflow={{
+          ...workflow,
+          id: workflowId,
+          name: workflowName,
+          version: workflowVersion,
+          definition: getWorkflowJson(),
+        }}
+        externalActiveState={isAutoTriggerActive}
+        onActiveStateChange={(active) => {
+          setIsAutoTriggerActive(active);
+        }}
+        onTriggerTick={(runRecord) => {
+          fetchRecentRuns(workflowId);
+          setAutoTriggerLastError(null);
+          setAutoTriggerLastSuccess(runRecord);
+          setTimeout(() => {
+            setAutoTriggerLastSuccess((prev) => (prev?.id === runRecord?.id ? null : prev));
+          }, 6000);
+        }}
+        onTriggerError={(err) => {
+          setAutoTriggerLastError(err);
+          setAutoTriggerLastSuccess(null);
+          fetchRecentRuns(workflowId);
+        }}
+        onOpenReport={onOpenReport}
       />
 
       {/* Webhook testing modal */}

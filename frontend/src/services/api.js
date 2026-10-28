@@ -391,6 +391,25 @@ class ApiService {
     });
   }
 
+  async getWorkflowSchedule(id) {
+    return this.request(`/workflows/${id}/schedule`, {
+      method: "GET",
+    });
+  }
+
+  async updateWorkflowSchedule(id, scheduleData = {}) {
+    return this.request(`/workflows/${id}/schedule`, {
+      method: "POST",
+      body: JSON.stringify(scheduleData),
+    });
+  }
+
+  async deleteWorkflowSchedule(id) {
+    return this.request(`/workflows/${id}/schedule`, {
+      method: "DELETE",
+    });
+  }
+
   async listAllRuns({ page = 1, limit = 20, status = "", triggerType = "", search = "" } = {}) {
     let url = `/runs?page=${page}&limit=${limit}`;
     if (status) url += `&status=${encodeURIComponent(status)}`;
@@ -535,4 +554,5 @@ class ApiService {
 }
 
 export const api = new ApiService();
+export default api;
 

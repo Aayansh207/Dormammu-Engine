@@ -33,4 +33,9 @@ router.get("/:id/versions", workflowController.listWorkflowVersions);
 router.get("/:id/versions/:version", workflowController.getWorkflowVersion);
 router.post("/:id/versions/:version/restore", workflowController.restoreWorkflowVersion);
 
+// Workflow automated interval & incident schedule triggers
+router.get("/:id/schedule", workflowController.getWorkflowSchedule);
+router.post("/:id/schedule", workflowController.updateWorkflowSchedule);
+router.delete("/:id/schedule", workflowController.deleteWorkflowSchedule);
+
 module.exports = router;

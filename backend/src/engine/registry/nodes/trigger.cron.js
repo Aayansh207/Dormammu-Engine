@@ -81,9 +81,9 @@ module.exports = {
       scheduledAt,
       cronExpression: cron,
       timezone,
-      triggerType: "cron",
+      triggerType: triggerData.$triggerType ? triggerData.$triggerType.toLowerCase() : "cron",
       nodeId: node.id,
-      ...(triggerData.$cron ? triggerData.payload || {} : triggerData),
+      ...((triggerData.$cron || triggerData.$interval) ? (triggerData.payload || {}) : triggerData),
     };
 
     return {
