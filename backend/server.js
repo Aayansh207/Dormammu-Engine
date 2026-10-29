@@ -9,7 +9,8 @@ const { defaultCollaborationServer } = require("./src/collaboration/yjs.server")
 const server = app.listen(env.PORT, async () => {
   console.log(`Server is running on port ${env.PORT}`);
 
-  // Attach real-time Yjs CRDT WebSocket collaboration server
+  // Attach real-time Yjs CRDT WebSocket collaboration serverr
+  
   defaultCollaborationServer.init(server);
 
   try {
